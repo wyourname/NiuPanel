@@ -1,7 +1,7 @@
 ```bash
 docker run -d   --name niupanel   --restart unless-stopped   -p 7788:7788   -v $(pwd)/data:/app/data   wyourname/niupanel:amd64-latest
 ```
-当前仅支持x86_64架构机器
+当前仅支持x86_64架构机器,比不上青龙面板 现在功能缺失，尝鲜就行
 # NiuPanel
 
 NiuPanel 是一个基于 Rust 和 Vue 3 构建的高性能、轻量级脚本管理与定时任务面板。
