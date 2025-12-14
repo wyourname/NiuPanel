@@ -44,6 +44,6 @@ NiuPanel 引入了 `.npack` 格式，彻底改变了脚本分享方式：
 | **前端技术** | Vue 3 + Element Plus | 
 | **更新简单** | 🌟 **极快** (内置更新功能，更新简单) |
 
-
+## UI全靠Gemini 2.5 pro+deepseek(主要负责翻译我的人话给ai听)+claude 4.5  
 
 
