@@ -11,10 +11,7 @@ NiuPanel 是一个基于 Rust 和 Vue 3 构建的高性能、轻量级脚本管�
 图1：<img width="1920" height="888" alt="{68B1DE40-55C3-46CE-B606-7A479A93B7D2}" src="https://github.com/user-attachments/assets/40b70e49-0a5a-49e2-b035-025abceafe12" />
 图2：<img width="1645" height="899" alt="{B2617237-5892-4EFB-9B4C-059A33992A57}" src="https://github.com/user-attachments/assets/88a6a77b-f4d7-4a05-8185-d9a70766fe0c" />
 图3：<img width="1364" height="826" alt="image" src="https://github.com/user-attachments/assets/99dafe74-1d0d-465a-a3e8-a2423d2a7b3e" />
-图4：<img width="1830" height="909" alt="{0E21C2EF-96B0-4FC2-A842-B45F7EF1AC29}" src="https://github.com/user-attachments/assets/d1b814e9-7c7e-42ae-a9b4-e4c1e7c57185" />
-图5：<img width="1910" height="934" alt="{7CCAEB7A-6005-41B5-AC38-C8AB414E9F07}" src="https://github.com/user-attachments/assets/739842f8-f724-4099-a122-4b06f5eeed37" />
-图6：<img width="1917" height="908" alt="{3994CFB6-13AE-4F2D-AC98-B5F276806890}" src="https://github.com/user-attachments/assets/6635aaee-a93c-43e4-953c-3cf5bd7e675e" />
-图7：<img width="1912" height="892" alt="{9FA2A1F0-9C18-47C7-A477-3232C67F80DA}" src="https://github.com/user-attachments/assets/f8096b6b-5660-453e-84f8-8f197492cbaa" />
+图4：<img width="1912" height="892" alt="{9FA2A1F0-9C18-47C7-A477-3232C67F80DA}" src="https://github.com/user-attachments/assets/f8096b6b-5660-453e-84f8-8f197492cbaa" />
 
 
 ## 核心特性
