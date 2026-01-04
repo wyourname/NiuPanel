@@ -41,6 +41,7 @@
 
 ### Docker 启动
 
+x86_64:
 ```bash
 docker run -d \
   --name niupanel \
@@ -49,6 +50,25 @@ docker run -d \
   -v $(pwd)/data:/app/data \
   wyourname/niupanel:amd64-latest
 ```
+ARM64:
+```bash
+docker run -d \
+  --name niupanel \
+  --restart unless-stopped \
+  -p 7788:7788 \
+  -v $(pwd)/data:/app/data \
+  wyourname/niupanel:arm64-latest
+```
+ARMv7:
+```bash
+docker run -d \
+  --name niupanel \
+  --restart unless-stopped \
+  -p 7788:7788 \
+  -v $(pwd)/data:/app/data \
+  wyourname/niupanel:armv7-latest
+```
+
 
 ### 目录映射
 
