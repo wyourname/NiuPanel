@@ -1,55 +1,76 @@
-```bash
-docker run -d   --name niupanel   --restart unless-stopped   -p 7788:7788   -v $(pwd)/data:/app/data   wyourname/niupanel:amd64-latest
-```
-当前仅支持x86_64架构机器,比不上青龙面板 现在功能缺失，尝鲜就行,安装完第一件事就是去设置更新
 # NiuPanel
 
-NiuPanel 是一个基于 Rust 和 Vue 3 构建的高性能、轻量级脚本管理与定时任务面板。
+基于 Rust 开发的高性能服务器运维与定时任务管理面板。
+主打轻量、稳定、环境隔离。非开源项目。
 
-独特的**脚本/配置打包分享（Share）**功能。
+## 功能特性
 
-图1：<img width="1920" height="888" alt="{68B1DE40-55C3-46CE-B606-7A479A93B7D2}" src="https://github.com/user-attachments/assets/40b70e49-0a5a-49e2-b035-025abceafe12" />
-图2：<img width="1645" height="899" alt="{B2617237-5892-4EFB-9B4C-059A33992A57}" src="https://github.com/user-attachments/assets/88a6a77b-f4d7-4a05-8185-d9a70766fe0c" />
-图3：<img width="1364" height="826" alt="image" src="https://github.com/user-attachments/assets/99dafe74-1d0d-465a-a3e8-a2423d2a7b3e" />
-图4：<img width="1912" height="892" alt="{9FA2A1F0-9C18-47C7-A477-3232C67F80DA}" src="https://github.com/user-attachments/assets/f8096b6b-5660-453e-84f8-8f197492cbaa" />
+### 任务调度与执行
+*   **多语言支持**: 原生支持 Python (Virtualenv 隔离)、Node.js、Shell 脚本。
+*   **调度模式**: 支持标准 Crontab 表达式，精确到秒级。支持手动触发、停止、暂停、恢复。
+*   **实时日志**: 基于 SSE (Server-Sent Events) 的实时日志流推送，支持历史日志回溯。
+*   **资源限制**: 可配置单任务 CPU 和 内存 限制，防止脚本资源泄露。
 
+### 环境与依赖管理
+*   **Python**: 提供 Web 图形化界面管理 Virtualenv，支持一键创建环境、pip 包安装/卸载、镜像源配置。
+*   **Node.js**: 全局 npm 包管理。
+*   **系统级**: 支持 apt/pkg 系统包管理。
 
-## 核心特性
+### 运维工具
+*   **Web Terminal**: 集成 WebSocket + PTY 实现的 Web 终端。
+*   **文件管理**: 全功能在线文件管理器，支持编辑、上传、下载、权限修改。
+*   **Git 同步**: 支持绑定 Git 仓库，自动化同步脚本文件，支持从仓库扫描并导入任务。
+*   **脚本编译**: 提供 Python 脚本加密/编译功能，保护核心代码。
 
-### 1. 服务占用低 (Rust Power)
-后端完全采用 Rust 编写 (Axum + SeaORM)，相比 Node.js 或 Python 开发的面板：
-- **内存占用极低**：原生二进制运行，无繁重运行时开销。
-- **高并发**：利用 Tokio 异步运行时，轻松处理大量并发任务和请求。
-- **单文件部署**：核心功能编译为单个可执行文件，配合 SQLite 数据库，部署迁移极其简单。
+### 高效分发与流转
+*   **URL 极速创建**: 支持直接通过 Raw URL (GitHub/Gist等) 拉取脚本。系统自动分析文件头（Shebang）识别语言环境（Python/Node/Shell），自动赋予执行权限并生成随机 Cron 调度，实现“从链接到任务”的秒级部署。
+*   **闭环分享体系**:
+    *   **一键打包**: 将多任务及其依赖文件、环境变量快照打包为 `.npack` 专有格式。
+    *   **动态更新**: 分享源支持“重打包”更新，已导入该分享的终端用户可执行“导入更新”，无缝同步上游代码变更，解决脚本分发后的版本碎片化问题。
+    *   **安全交付**: 支持配置提取密码、有效期限制及阅后即焚（一次性链接），确保交付安全。
 
-### 2. Npack 分享系统 (独家)
-NiuPanel 引入了 `.npack` 格式，彻底改变了脚本分享方式：
-- **一键打包**：将脚本代码、定时规则、环境变量依赖一次性打包。
-- **安全分享**：支持**密码保护**、**阅后即焚**、**过期时间**和**最大下载次数**限制。
-- **无缝导入**：接收者通过分享链接或 Token 即可一键导入脚本和配置，无需手动复制粘贴代码或配置 Git 仓库。
+### 系统安全
+*   **权限控制**: 细粒度 RBAC (Role-Based Access Control) 权限模型。
+*   **安全审计**: 记录核心操作日志（登录、任务增删改、文件操作等）。
+*   **API Access**: 支持生成系统级 API Key，便于第三方集成。
+*   **分享中心**: 支持脚本/任务打包分享，配置阅后即焚、密码保护及有效期。
 
-### 3. 现代 Web 终端
-- 内置基于 `xterm.js` 和 `pty-process` 的全功能 Web 终端。
-- 支持实时查看任务日志，交互式运行脚本。
+## 部署说明
 
-### 4. 🛠️ python虚拟环境运行时支持不同的python版本
-- 支持 **Node.js** 和 **Python** 脚本执行。
-- 支持 **Python 3.9 10 11 12 13 14** 虚拟环境运行时。
+推荐使用 Docker 容器化部署，确保环境一致性。
 
----
+### Docker 启动
 
-## NiuPanel
+```bash
+docker run -d \
+  --name niupanel \
+  --restart unless-stopped \
+  -p 7788:7788 \
+  -v $(pwd)/data:/app/data \
+  wyourname/niupanel:amd64-latest
+```
 
-| 特性 | NiuPanel 
+### 目录映射
+
+| 容器路径 | 说明 | 宿主机建议 |
 | :--- | :--- | :--- |
-| **核心架构** | **Rust** (高性能二进制) |
-| **资源占用** | 🌟 **极低** (适合低配机器/软路由) |
-| **脚本分享** | 🌟 **Npack 打包** (代码+配置+依赖整体分享，支持加密/阅后即焚) |
-| **部署难度** | 简单 (单二进制/Docker) |
-| **数据库** | SQLite (内置，单文件) |
-| **前端技术** | Vue 3 + Element Plus | 
-| **更新简单** | 🌟 **极快** (内置更新功能，更新简单) |
+| `/app/data` | **核心数据目录**。包含数据库(SQLite)、脚本文件、日志、密钥等。 | **必须持久化** |
 
-## UI全靠Gemini 2.5 pro+deepseek(主要负责翻译我的人话给ai听)+claude 4.5  
-## 觉得偷脚本其实可以把二进制放在Debian上运行 抓包就知道了 npack也没加密gzip解压就行
+### 初始化
 
+1.  服务启动后，访问 `http://<IP>:7788`。
+2.  首次访问将引导创建管理员账号（Admin）。
+3.  系统基于 SQLite，无需额外部署数据库服务。
+
+## 技术规格
+
+*   **后端**: Rust (Tokio, Axum, SeaORM)
+*   **前端**: Vue 3 (Vite)
+*   **数据库**: SQLite (Embedded)
+*   **内存占用**: 闲置 < 50MB (视具体任务量而定)
+
+## 免责声明
+
+*   本软件为闭源分发，禁止反编译、破解或用于商业用途（除非获得授权）。
+*   请勿将本软件用于任何违反当地法律法规的用途。
+*   使用本软件产生的任何数据丢失或服务器故障，开发者不承担连带责任。
