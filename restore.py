@@ -4,6 +4,7 @@ import json
 import glob
 import shutil
 from niu import niu
+import time
 
 def main():
     print("=== NiuPanel 导入青龙数据工具 ===")
@@ -11,6 +12,7 @@ def main():
     print("\n")
     print("*** 导入前注意事项， 请确保在文件管理 创建 import/ql 文件夹 上传ql_migration_*.tar.gz 到文件夹下 ***")
     print("\n")
+    time.sleep(5)
     # 获取当前目录
     base_dir = os.path.dirname(os.path.abspath(__file__))
     
