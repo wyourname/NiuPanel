@@ -57,7 +57,7 @@ def main():
     tasks = data.get("tasks", data) if isinstance(data, dict) else data
     envs = data.get("envs", []) if isinstance(data, dict) else []
     
-    // 1. 导入环境变量
+    # 1. 导入环境变量
     if envs:
         print(f"--- 发现 {len(envs)} 个环境变量，开始导入 ---")
         for env in envs:
