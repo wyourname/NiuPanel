@@ -10,6 +10,8 @@ def main():
     print("=== NiuPanel 导入青龙数据工具 ===")
     print("*** 使用前请前往系统设置 - API访问 - 创建密钥 创建一个名为 NiuPanel_key 的密钥 勾选开启 (*:*) 完整授权 ***")
     print("\n")
+    print("*** 创建全局变量 key: NiuPanel_key value: 刚才创建的密钥 ***")
+    print("\n")
     print("*** 导入前注意事项， 请确保在文件管理 创建 import/ql 文件夹 上传ql_migration_*.tar.gz 到文件夹下 ***")
     print("\n")
     time.sleep(5)
