@@ -1,0 +1,31 @@
+[package]
+name = "niupanel-plugin"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+description = "Plugin contracts, packaging, sandboxing, and runtime for NiuPanel"
+
+[dependencies]
+axum = { workspace = true }
+chrono = { workspace = true }
+flate2 = { workspace = true }
+hex = "0.4.3"
+libc = { workspace = true }
+landlock = { workspace = true }
+openssl = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = "0.10.9"
+tar = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true }
+utoipa = { workspace = true }
+zip = { workspace = true }
+
+niupanel-common = { path = "../niupanel-common", features = ["axum"] }
+
+[dev-dependencies]

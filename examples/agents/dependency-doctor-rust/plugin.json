@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "id": "dependency-doctor-rust",
+  "name": "Dependency Doctor",
+  "version": "0.1.0",
+  "domain": "runtime_dependencies",
+  "description": "Rust process agent for diagnosing Node.js and Python dependency resolution failures.",
+  "license": "Apache-2.0",
+  "runtime": "process",
+  "entry": "run.sh",
+  "args": [],
+  "env": {},
+  "timeout_sec": 30,
+  "worker": { "min": 1, "max": 2, "idle_timeout_sec": 300 },
+  "capability_level": "read_only",
+  "capabilities": [
+    "log.analyze",
+    "dependency.diagnose",
+    "runtime.inspect"
+  ],
+  "tools": [
+    {
+      "name": "analyze_dependency_log",
+      "description": "Analyze task logs and dependency declarations for missing package or install-path issues.",
+      "access": "read"
+    }
+  ],
+  "model": {
+    "required": false,
+    "providers": ["openai_compatible"]
+  }
+}

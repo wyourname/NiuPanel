@@ -1,0 +1,47 @@
+[package]
+name = "niupanel-core"
+version = "0.2.2"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+description = "Task scheduling and execution core for NiuPanel"
+
+[dependencies]
+tokio = { workspace = true }
+sea-orm = { workspace = true }
+sqlx = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+chrono = { workspace = true }
+futures = { workspace = true }
+thiserror = { workspace = true }
+dashmap = { workspace = true }
+uuid = { workspace = true }
+reqwest = { workspace = true }
+nanoid = { workspace = true }
+rmp-serde = { workspace = true }
+flate2 = { workspace = true }
+walkdir = { workspace = true }
+tar = { workspace = true }
+tempfile = { workspace = true }
+tokio-util = { workspace = true }
+async-stream = { workspace = true }
+tokio-cron-scheduler = { workspace = true }
+nix = { workspace = true }
+cron = { workspace = true }
+sysinfo = { workspace = true }
+rand = { workspace = true }
+chrono-tz = { workspace = true }
+shell-words = { workspace = true }
+lettre = { workspace = true }
+ractor = "0.15.10"
+
+niupanel-common = { path = "../niupanel-common" }
+niupanel-entity = { path = "../niupanel-entity" }
+home = "0.5.12"
+sha2 = "0.10.9"
+hex = "0.4.3"

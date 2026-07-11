@@ -1,0 +1,7 @@
+id=niupanel
+name=NiuPanel Server
+version=v1.0.0
+versionCode=100
+author=wyourname
+description=在 Android 上运行完整的 NiuPanel内置 Debian Bookworm 容器
+support=https://github.com/wyourname/NiuPanel

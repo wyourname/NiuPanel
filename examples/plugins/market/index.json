@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "name": "NiuPanel Example Plugin Market",
+  "description": "Example index for private plugin publishing.",
+  "plugins": [
+    {
+      "id": "vue-app-template",
+      "name": "Vue App Template",
+      "version": "0.1.0",
+      "description": "Native Vue plugin app template for NiuPanel.",
+      "download_url": "./vue-app-template.tgz",
+      "checksum_sha256": "replace-with-package-sha256",
+      "signature_ed25519": "replace-with-base64-signature",
+      "public_key_ed25519": "replace-with-base64-public-key",
+      "permissions": [],
+      "homepage": null,
+      "repository": null
+    },
+    {
+      "id": "agent-app-template",
+      "name": "Agent App Template",
+      "version": "0.1.0",
+      "description": "Native Vue app template for private agent plugins.",
+      "download_url": "./agent-app-template.tgz",
+      "checksum_sha256": "replace-with-package-sha256",
+      "signature_ed25519": "replace-with-base64-signature",
+      "public_key_ed25519": "replace-with-base64-public-key",
+      "permissions": ["setting:read"],
+      "homepage": null,
+      "repository": null
+    },
+    {
+      "id": "theme-graphite",
+      "name": "Graphite Theme",
+      "version": "0.1.0",
+      "description": "Declarative NiuPanel color theme without executable code.",
+      "download_url": "./theme-graphite.tgz",
+      "checksum_sha256": "replace-with-package-sha256",
+      "signature_ed25519": "replace-with-base64-signature",
+      "public_key_ed25519": "replace-with-base64-public-key",
+      "permissions": [],
+      "homepage": null,
+      "repository": null
+    }
+  ]
+}

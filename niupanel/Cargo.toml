@@ -1,0 +1,70 @@
+[package]
+name = "niupanel"
+version = "0.8.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+description = "NiuPanel server API and application runtime"
+
+[features]
+default = []
+
+[dependencies]
+tokio = { workspace = true }
+sea-orm = { workspace = true }
+sqlx = { workspace = true }
+libsqlite3-sys = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true}
+tracing-appender = { workspace = true }
+chrono = { workspace = true }
+dotenvy = { workspace = true }
+anyhow = { workspace = true }
+futures = { workspace = true }
+axum = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+http = { workspace = true }
+reqwest = { workspace = true }
+flate2 = { workspace = true }
+nanoid = { workspace = true }
+rmp-serde = { workspace = true }
+tempfile = { workspace = true }
+serde_bytes = { workspace = true }
+argon2 = { workspace = true }
+async-stream = { workspace = true }
+sysinfo = { workspace = true }
+walkdir = { workspace = true }
+tar = { workspace = true }
+zip = { workspace = true }
+moka = { workspace = true, features = ["future"] }
+tower-sessions = { workspace = true }
+tower-sessions-sqlx-store = { workspace = true }
+tower-cookies = { workspace = true }
+time = { workspace = true }
+tokio-util = { workspace = true, features = ["io"] }
+openssl = { workspace = true }
+rustls = { version = "0.23", features = ["ring"] }
+
+migration = { path = "../migration" }
+niupanel-common = { path = "../niupanel-common", features = ["axum"] }
+niupanel-plugin = { path = "../niupanel-plugin" }
+niupanel-entity = { path = "../niupanel-entity" }
+niupanel_core = { path = "../niupanel-core", package = "niupanel-core" }
+niupanel-sdk = { path = "../niupanel-sdk" }
+niupanel-bot = { path = "../niupanel-bot" }
+niupanel-proxy = { path = "../niupanel-proxy" }
+sha2 = "0.10.9"
+hex = "0.4.3"
+portable-pty = "0.9.0"
+regex = "1.12.2"
+fastrand = "2.3.0"
+utoipa = { workspace = true }
+rmcp = { version = "2.2.0", default-features = false, features = ["macros", "server", "transport-streamable-http-server"] }
+# utoipa-swagger-ui removed
+async-compression = { version = "0.4.41", features = ["tokio", "gzip"] }

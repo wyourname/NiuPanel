@@ -1,0 +1,19 @@
+{
+  "name": "vue-app-template-ui",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "typecheck": "vue-tsc --noEmit"
+  },
+  "dependencies": {
+    "@niupanel/plugin-sdk": "file:../../../../packages/plugin-sdk",
+    "@vitejs/plugin-vue": "^6.0.2",
+    "typescript": "^5.9.3",
+    "vite": "^7.2.4",
+    "vue": "^3.5.25",
+    "vue-tsc": "^3.1.8"
+  },
+  "devDependencies": {}
+}

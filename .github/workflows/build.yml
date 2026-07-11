@@ -1,0 +1,263 @@
+name: Rust CI/CD
+
+# ─────────────────────────────────────────────────────────
+# 单一触发器：只推 v* tag 即可同时触发 Release + Docker
+# 二进制版本 = git tag (e.g. v0.5.0)
+# Docker 版本 = docker/VERSION 文件（独立管理，互不干扰）
+# ─────────────────────────────────────────────────────────
+on:
+  push:
+    tags:
+      - 'v*'
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      docker_version:
+        description: 'Override Docker image version (leave empty to use docker/VERSION)'
+        required: false
+        type: string
+      skip_docker:
+        description: 'Skip Docker build? (true/false)'
+        required: false
+        default: 'false'
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  # ─────────────────────────────────────────
+  # JOB 0: 检查触发条件
+  # 只在推送 v* 标签，或手动触发，或修改了 docker/VERSION 时才放行构建
+  # ─────────────────────────────────────────
+  check-trigger:
+    runs-on: ubuntu-latest
+    outputs:
+      should_run: ${{ steps.check.outputs.should_run }}
+      should_docker: ${{ steps.check.outputs.should_docker }}
+    steps:
+      - id: check
+        run: |
+          HAS_VERSION=$(jq -r '[(.commits[].modified[], .commits[].added[])] | map(select(. == "docker/VERSION")) | length' "$GITHUB_EVENT_PATH" 2>/dev/null || echo 0)
+
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            # v* tag 推送：始终同时发版 Release 和 Docker
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+            echo "should_docker=true" >> "$GITHUB_OUTPUT"
+          elif [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+            echo "should_docker=true" >> "$GITHUB_OUTPUT"
+          else
+            # 分支 push：只有修改了 docker/VERSION 才触发
+            if [[ "$HAS_VERSION" -gt 0 ]]; then
+              echo "should_run=true" >> "$GITHUB_OUTPUT"
+              echo "should_docker=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "should_run=false" >> "$GITHUB_OUTPUT"
+              echo "should_docker=false" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+
+  build-web:
+    needs: check-trigger
+    if: needs.check-trigger.outputs.should_run == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: niupanelweb/package-lock.json
+
+      - name: Build Web release
+        run: |
+          cd niupanelweb
+          npm ci
+          npm run build
+          WEB_VERSION=$(node -p "require('./package.json').version")
+          tar -czvf "../niupanel_web_${WEB_VERSION}.tar.gz" -C dist .
+
+      - name: Upload Web artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: niupanel_web
+          path: niupanel_web_*.tar.gz
+
+  # ─────────────────────────────────────────
+  # JOB 1: 编译 Core + launcher（3 平台并行）
+  # ─────────────────────────────────────────
+  build:
+    needs: [check-trigger, build-web]
+    if: needs.check-trigger.outputs.should_run == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-musl
+            arch: x86_64
+          - target: aarch64-unknown-linux-musl
+            arch: aarch64
+          - target: armv7-unknown-linux-musleabihf
+            arch: armv7
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download Web artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: niupanel_web
+          path: web-artifact
+
+      - name: Extract Web artifact
+        run: |
+          mkdir -p niupanelweb/dist
+          tar -xzf web-artifact/niupanel_web_*.tar.gz -C niupanelweb/dist
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libssl-dev
+
+      - name: Install Cross
+        uses: taiki-e/install-action@cross
+
+      - name: Build Backend
+        run: |
+          export RUSTFLAGS="-C target-feature=+crt-static"
+          cross build --release --target ${{ matrix.target }} -p niupanel -p niupanel-launcher
+
+      - name: Package
+        run: |
+          ARCH_NAME=${{ matrix.arch }}
+          DIST_DIR="niupanel_linux_$ARCH_NAME"
+          mkdir -p "$DIST_DIR/web"
+          cp target/${{ matrix.target }}/release/niupanel "$DIST_DIR/"
+          cp target/${{ matrix.target }}/release/niupanel-launcher "$DIST_DIR/"
+          CORE_VERSION="${GITHUB_REF_NAME#v}"
+          if [[ "$GITHUB_REF" != refs/tags/v* ]]; then
+            CORE_VERSION=$(sed -n '/^\[package\]/,/^\[/{s/^version = "\([^"]*\)"/\1/p}' niupanel/Cargo.toml | head -n 1)
+          fi
+          node scripts/generate-core-release-manifest.mjs \
+            "$DIST_DIR/niupanel" \
+            "$CORE_VERSION" \
+            "${{ matrix.target }}" \
+            "$DIST_DIR/core-release.json"
+          if [ -d "niupanelweb/dist" ]; then
+            cp -r niupanelweb/dist/. "$DIST_DIR/web/"
+          fi
+          tar -czvf "niupanel_linux_$ARCH_NAME.tar.gz" -C "$DIST_DIR" .
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: niupanel_linux_${{ matrix.arch }}
+          path: niupanel_linux_${{ matrix.arch }}.tar.gz
+
+  # ─────────────────────────────────────────
+  # JOB 2: 创建 GitHub Release（v* tag 时）
+  # ─────────────────────────────────────────
+  release:
+    name: Create Release
+    needs: [build, build-web]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          repository: wyourname/NiuPanel
+          token: ${{ secrets.RELEASE_TOKEN }}
+          body_path: change.txt
+          files: |
+            artifacts/niupanel_linux_x86_64/niupanel_linux_x86_64.tar.gz
+            artifacts/niupanel_linux_aarch64/niupanel_linux_aarch64.tar.gz
+            artifacts/niupanel_linux_armv7/niupanel_linux_armv7.tar.gz
+            artifacts/niupanel_web/niupanel_web_*.tar.gz
+
+  # ─────────────────────────────────────────
+  # JOB 3: 并行构建 & 推送 Docker 多架构镜像
+  #   Docker 版本独立来自 docker/VERSION 文件
+  #   与二进制版本（git tag）完全分离
+  # ─────────────────────────────────────────
+  docker:
+    name: Build & Push Docker Image
+    needs: build
+    runs-on: ubuntu-latest
+    if: |
+      needs.check-trigger.outputs.should_docker == 'true' &&
+      needs.build.result == 'success' &&
+      github.event.inputs.skip_docker != 'true'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare packages for Docker build context
+        run: |
+          cp artifacts/niupanel_linux_x86_64/niupanel_linux_x86_64.tar.gz docker/
+          cp artifacts/niupanel_linux_aarch64/niupanel_linux_aarch64.tar.gz docker/
+          cp artifacts/niupanel_linux_armv7/niupanel_linux_armv7.tar.gz docker/
+
+      - name: Determine Docker image version
+        id: version
+        run: |
+          # 优先使用手动输入的版本，其次读 docker/VERSION 文件
+          if [ -n "${{ github.event.inputs.docker_version }}" ]; then
+            DOCKER_VER="${{ github.event.inputs.docker_version }}"
+          elif [ -f "docker/VERSION" ]; then
+            DOCKER_VER="v$(cat docker/VERSION | tr -d '[:space:]')"
+          else
+            DOCKER_VER="$(date +'%Y%m%d')-$(echo ${{ github.sha }} | cut -c1-7)"
+          fi
+          echo "Docker image version: $DOCKER_VER"
+          echo "tag=$DOCKER_VER" >> "$GITHUB_OUTPUT"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_TOKEN }}
+
+      - name: Build & Push (multi-platform, parallel)
+        uses: docker/build-push-action@v6
+        with:
+          context: docker
+          file: docker/Dockerfile
+          platforms: linux/amd64,linux/arm64,linux/arm/v7
+          push: true
+          tags: |
+            ${{ secrets.DOCKER_USERNAME }}/niupanel:${{ steps.version.outputs.tag }}
+            ${{ secrets.DOCKER_USERNAME }}/niupanel:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

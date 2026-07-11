@@ -1,0 +1,63 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: docker/Dev.Dockerfile
+      args:
+        RUST_IMAGE: ${RUST_IMAGE:-rust:bookworm}
+    working_dir: /workspace
+    command: bash -c "cargo run -p niupanel"
+    environment:
+      SERVER_ADDR: 0.0.0.0:7788
+      DATABASE_URL: sqlite://data/database/niupanel-dev.db?mode=rwc
+      SCRIPTS_DIR: data/scripts
+      JOBS_DIR: data/jobs
+      LOGS_DIR: data/logs
+      RUNTIMES_DIR: data/runtimes
+      SHARE_OUTPUT_DIR: data/share/output
+      SHARE_IMPORT_DIR: data/share/import
+      BACKUP_DIR: data/share/backup
+      RESTORE_DIR: data/share/restore
+      BUNDLED_WEB_DIR: niupanelweb/dist
+      ALLOW_MISSING_BUNDLED_WEB: "true"
+      NIUPANEL_TOOLS_DIR: /workspace/release_tools/${NIUPANEL_TOOLS_ARCH:-x86_64}
+      TRUSTED_PLUGIN_PUBLIC_KEYS: ${TRUSTED_PLUGIN_PUBLIC_KEYS:-sha256:655e4bf8f3150e7e643714e0750c03c49d343f23c7f914b208a8e174e36f9d39}
+      PLUGIN_SIGNATURE_REQUIRED: "true"
+      FNM_NODE_DIST_MIRROR: https://mirrors.ustc.edu.cn/node/
+      RUST_LOG: info
+    ports:
+      - "7788:7788"
+    volumes:
+      - .:/workspace
+      - dev-data:/workspace/data
+      - cargo-registry:/usr/local/cargo/registry
+      - cargo-git:/usr/local/cargo/git
+      - cargo-target:/workspace/target
+      - dev-cache:/workspace/.cache
+
+  web:
+    build:
+      context: .
+      dockerfile: docker/Dev.Dockerfile
+      args:
+        RUST_IMAGE: ${RUST_IMAGE:-rust:bookworm}
+    working_dir: /workspace/niupanelweb
+    command: bash -c "npm install && npm run dev -- --host 0.0.0.0"
+    environment:
+      VITE_API_PROXY_TARGET: http://api:7788
+    ports:
+      - "7787:7787"
+    depends_on:
+      - api
+    volumes:
+      - .:/workspace
+      - node-modules:/workspace/niupanelweb/node_modules
+      - dev-cache:/workspace/.cache
+
+volumes:
+  cargo-git:
+  cargo-registry:
+  cargo-target:
+  dev-cache:
+  dev-data:
+  node-modules:

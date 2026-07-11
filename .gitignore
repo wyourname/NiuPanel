@@ -1,0 +1,56 @@
+# Editors and operating systems
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Local AI/agent tooling
+.agents/
+.antigravitycli/
+.cache/
+.claude/
+.codex/
+.gemini/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Rust build output
+/target/
+/target_*/
+
+# Keep Cargo.lock for reproducible application builds.
+
+# Frontend dependencies and output
+node_modules/
+dist/
+niupanelweb/node_modules/
+niupanelweb/dist/
+packages/*/node_modules/
+packages/*/dist/
+
+# Runtime state: databases, logs, scripts, plugins, shares and backups
+/data/
+
+# Downloaded build-tool caches and packaged artifacts
+/release_tools/
+/magisk/tools/
+/docker/*.tar.gz
+*.tar.gz
+*.zip
+
+# Python and native build artifacts
+.venv/
+__pycache__/
+*.py[cod]
+*.so
+
+# Test and coverage output
+coverage/
+*.profraw
+*.profdata

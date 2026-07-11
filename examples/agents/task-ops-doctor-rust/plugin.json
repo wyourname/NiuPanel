@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "id": "task-ops-doctor-rust",
+  "name": "Task Ops Doctor",
+  "version": "0.1.0",
+  "domain": "task_operations",
+  "description": "Rust process Agent that diagnoses task failures by calling NiuPanel read-only tools.",
+  "license": "Apache-2.0",
+  "runtime": "process",
+  "protocol": "json_lines",
+  "entry": "run.sh",
+  "args": [],
+  "env": {},
+  "timeout_sec": 45,
+  "worker": { "min": 1, "max": 2, "idle_timeout_sec": 300 },
+  "capability_level": "read_only",
+  "capabilities": [
+    "task.read",
+    "task_run.read",
+    "log.read",
+    "runtime.inspect",
+    "dependency.diagnose"
+  ],
+  "tools": [
+    {
+      "name": "read_task",
+      "description": "Read task configuration.",
+      "access": "read"
+    },
+    {
+      "name": "read_recent_runs",
+      "description": "Read recent task run records.",
+      "access": "read"
+    },
+    {
+      "name": "read_log_tail",
+      "description": "Read latest task log tail.",
+      "access": "read"
+    },
+    {
+      "name": "read_node_settings",
+      "description": "Read Node.js dependency settings.",
+      "access": "read"
+    },
+    {
+      "name": "read_python_settings",
+      "description": "Read Python dependency settings.",
+      "access": "read"
+    }
+  ],
+  "model": {
+    "required": false,
+    "providers": ["openai_compatible"]
+  }
+}
