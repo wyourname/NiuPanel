@@ -206,7 +206,7 @@ docker run -d \
   wyourname/niupanel:latest
 ```
 
-镜像使用多架构 Manifest，Docker 会自动选择 AMD64、ARM64 或 ARMv7 产物。正式标签直接使用 Docker 环境版本，例如 `wyourname/niupanel:3.0.0`；`latest` 是滚动别名。需要指定架构时使用 `3.0.0-amd64`、`3.0.0-arm64` 或 `3.0.0-armv7`。Docker 镜像通过单独的 Actions 工作流构建，并在 OCI label 中记录所含 Core 版本和构建源码提交。
+镜像使用多架构 Manifest，Docker 会自动选择 AMD64、ARM64 或 ARMv7 产物。Docker 只发布稳定 Core 版本，使用 Docker 环境版本标签，例如 `wyourname/niupanel:3.0.0`；`latest` 是稳定版滚动别名。Docker 镜像通过单独的 Actions 工作流从 `main` 构建，并在 OCI label 中记录所含 Core 版本和构建源码提交。
 
 启动后访问：
 

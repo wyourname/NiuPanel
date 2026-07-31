@@ -1,21 +1,16 @@
 name: Publish Docker Image
 
-# Docker 是独立的环境交付物：手动选择一个已发布的应用版本，
-# 再选择 Dockerfile 所在的源码引用。它不会在应用 Release 时自动执行。
+# Docker 是独立的稳定环境交付物：只从 main 和已发布的稳定 Core 构建，
+# 不会在应用 Release 时自动执行，也不发布 Pre-release 镜像。
 on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: '已发布的 Core GitHub Release Tag，例如 v0.8.0'
+        description: '已发布的稳定 Core GitHub Release Tag，例如 v0.8.0'
         required: true
         type: string
-      source_ref:
-        description: 'Dockerfile 与 docker/VERSION 所在的分支、Tag 或提交；留空使用 main'
-        required: false
-        default: main
-        type: string
       docker_version:
-        description: '覆盖 docker/VERSION；留空读取 source_ref 中的 docker/VERSION'
+        description: '覆盖 main 中的 docker/VERSION；留空读取 docker/VERSION'
         required: false
         type: string
 
@@ -35,7 +30,7 @@ jobs:
       - name: Checkout Docker source
         uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.source_ref }}
+          ref: main
 
       - name: Download and verify published Core packages
         id: release
@@ -83,6 +78,10 @@ jobs:
           process.stdout.write(`${manifest.components.core.version}\n`)
           NODE
           )
+          if [[ "$CORE_VERSION" == *-* ]]; then
+            echo "Docker images only publish stable Core releases; $CORE_VERSION is a pre-release" >&2
+            exit 1
+          fi
           echo "core_version=$CORE_VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Prepare Docker build context
@@ -103,8 +102,8 @@ jobs:
             VERSION="$(tr -d '[:space:]' < docker/VERSION)"
           fi
           VERSION="${VERSION#v}"
-          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.]+)?$ ]]; then
-            echo "Invalid Docker environment version: $VERSION" >&2
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Docker environment version must be stable semantic version: $VERSION" >&2
             exit 1
           fi
           echo "environment_version=$VERSION" >> "$GITHUB_OUTPUT"
