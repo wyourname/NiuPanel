@@ -6,6 +6,12 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: '要创建的应用 Release Tag，例如 v0.8.0；始终从 main 构建'
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -16,21 +22,40 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       release_version: ${{ steps.metadata.outputs.release_version }}
+      release_tag: ${{ steps.metadata.outputs.release_tag }}
       core_version: ${{ steps.metadata.outputs.core_version }}
       web_version: ${{ steps.metadata.outputs.web_version }}
+      source_sha: ${{ steps.metadata.outputs.source_sha }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          # 手动发布固定从稳定分支 main 构建；Tag 触发则固定检出该 Tag。
+          ref: ${{ github.event_name == 'workflow_dispatch' && 'main' || github.ref }}
+          fetch-depth: 0
 
       - name: Verify and export release metadata
         id: metadata
+        env:
+          RELEASE_TAG_INPUT: ${{ inputs.release_tag }}
         run: |
           CORE_VERSION=$(sed -n '/^\[package\]/,/^\[/{s/^version = "\([^"]*\)"/\1/p}' niupanel/Cargo.toml | head -n 1)
           WEB_VERSION=$(node -p "require('./niupanelweb/package.json').version")
-          RELEASE_VERSION="${GITHUB_REF_NAME#v}"
-          node scripts/verify-version-contract.mjs "$GITHUB_REF_NAME"
+          if [[ "$GITHUB_EVENT_NAME" == 'workflow_dispatch' ]]; then
+            RELEASE_TAG="$RELEASE_TAG_INPUT"
+          else
+            RELEASE_TAG="$GITHUB_REF_NAME"
+          fi
+          case "$RELEASE_TAG" in
+            v*) ;;
+            *) echo 'release_tag must start with v, for example v0.8.0' >&2; exit 1 ;;
+          esac
+          RELEASE_VERSION="${RELEASE_TAG#v}"
+          node scripts/verify-version-contract.mjs "$RELEASE_TAG"
+          echo "release_tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
           echo "release_version=$RELEASE_VERSION" >> "$GITHUB_OUTPUT"
           echo "core_version=$CORE_VERSION" >> "$GITHUB_OUTPUT"
           echo "web_version=$WEB_VERSION" >> "$GITHUB_OUTPUT"
+          echo "source_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
   build-web:
     name: Build Web release
@@ -38,6 +63,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version-contract.outputs.source_sha }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -85,6 +112,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version-contract.outputs.source_sha }}
 
       - name: Download Web artifact
         uses: actions/download-artifact@v4
@@ -150,6 +179,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
+          ref: ${{ needs.version-contract.outputs.source_sha }}
           fetch-depth: 0
 
       - name: Download all artifacts
@@ -169,6 +199,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           token: ${{ github.token }}
+          tag_name: ${{ needs.version-contract.outputs.release_tag }}
+          target_commitish: ${{ needs.version-contract.outputs.source_sha }}
+          name: NiuPanel ${{ needs.version-contract.outputs.release_version }}
           generate_release_notes: true
           files: |
             artifacts/niupanel_linux_x86_64/niupanel_linux_x86_64.tar.gz
