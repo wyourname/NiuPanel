@@ -36,7 +36,7 @@ Release and Magisk packages bundle `uv` plus pnpm; they must never bundle fnm. `
 - The formal application version is the Core version. Git tag, Core package, and launcher package must match.
 - Web keeps its own component version and declares compatible Core versions in `release-manifest.json`.
 - Docker keeps an independent environment version in `docker/VERSION`; bump it only when the base image, system dependencies, bundled runtime tools, or container contract changes.
-- 推送 `v<core-version>` Tag，或手动运行 `Publish NiuPanel Release`，都会生成 GitHub Release。手动运行始终从 `main` 的固定提交构建，并要求输入与 Core 版本一致的 Tag。Release 包含三架构 Core 包、Web 包和 `niupanel-release.json`，后者绑定 Core/Web 的校验和与 Git SHA。
+- 推送 `v<core-version>` Tag，或手动运行 `Publish NiuPanel Release`，都会生成 GitHub Release。手动运行时，选择 `main` 分支会创建正式 Release，选择 `dev` 分支会创建 Pre-release；输入的 Tag 必须与所选分支的 Core 版本一致，且 Pre-release Tag 必须带预发布后缀，例如 `v0.8.1-dev.1`。Release 包含三架构 Core 包、Web 包和 `niupanel-release.json`，后者绑定 Core/Web 的校验和与 Git SHA。
 - Published Docker images use the environment tag `<docker-environment-version>`, with `latest` as a rolling alias. Architecture-specific tags append `-amd64`, `-arm64`, or `-armv7`; the bundled Core version and Dockerfile source revision are recorded in OCI labels.
 - Docker 镜像仅通过 `Publish Docker Image` 的手动工作流构建。输入一个已经存在的 Core Release Tag 和 Docker 源码引用；工作流下载并根据该 Release 的 `niupanel-release.json` 校验三架构 Core 包，再进行多架构构建。
 - Plugins: independently versioned packages; their manifests must declare their own license.

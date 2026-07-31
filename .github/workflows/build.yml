@@ -1,7 +1,7 @@
 name: Publish NiuPanel Release
 
-# 正式应用发布只由 v* Tag 触发。Docker 镜像是独立的环境产物，
-# 由 docker.yml 按需从已经发布且校验过的 Core 包构建。
+# 应用发布由 v* Tag 或手动触发。手动从 main 构建正式 Release，
+# 从 dev 构建 Pre-release；Docker 镜像始终由 docker.yml 独立按需构建。
 on:
   push:
     tags:
@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: '要创建的应用 Release Tag，例如 v0.8.0；始终从 main 构建'
+        description: '要创建的应用 Release Tag；main 使用 v0.8.0，dev 使用 v0.8.1-dev.1'
         required: true
         type: string
 
@@ -23,14 +23,13 @@ jobs:
     outputs:
       release_version: ${{ steps.metadata.outputs.release_version }}
       release_tag: ${{ steps.metadata.outputs.release_tag }}
+      prerelease: ${{ steps.metadata.outputs.prerelease }}
       core_version: ${{ steps.metadata.outputs.core_version }}
       web_version: ${{ steps.metadata.outputs.web_version }}
       source_sha: ${{ steps.metadata.outputs.source_sha }}
     steps:
       - uses: actions/checkout@v4
         with:
-          # 手动发布固定从稳定分支 main 构建；Tag 触发则固定检出该 Tag。
-          ref: ${{ github.event_name == 'workflow_dispatch' && 'main' || github.ref }}
           fetch-depth: 0
 
       - name: Verify and export release metadata
@@ -42,17 +41,39 @@ jobs:
           WEB_VERSION=$(node -p "require('./niupanelweb/package.json').version")
           if [[ "$GITHUB_EVENT_NAME" == 'workflow_dispatch' ]]; then
             RELEASE_TAG="$RELEASE_TAG_INPUT"
+            case "$GITHUB_REF_NAME" in
+              main) IS_PRERELEASE=false ;;
+              dev) IS_PRERELEASE=true ;;
+              *)
+                echo "Manual releases must run from main (stable) or dev (pre-release), got $GITHUB_REF_NAME" >&2
+                exit 1
+                ;;
+            esac
           else
             RELEASE_TAG="$GITHUB_REF_NAME"
+            if [[ "$RELEASE_TAG" == *-* ]]; then
+              IS_PRERELEASE=true
+            else
+              IS_PRERELEASE=false
+            fi
           fi
           case "$RELEASE_TAG" in
             v*) ;;
             *) echo 'release_tag must start with v, for example v0.8.0' >&2; exit 1 ;;
           esac
           RELEASE_VERSION="${RELEASE_TAG#v}"
+          if [[ "$IS_PRERELEASE" == true && "$RELEASE_VERSION" != *-* ]]; then
+            echo "Pre-release tags must include a prerelease suffix, for example v0.8.1-dev.1" >&2
+            exit 1
+          fi
+          if [[ "$IS_PRERELEASE" == false && "$RELEASE_VERSION" == *-* ]]; then
+            echo "Stable releases cannot use a prerelease suffix" >&2
+            exit 1
+          fi
           node scripts/verify-version-contract.mjs "$RELEASE_TAG"
           echo "release_tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
           echo "release_version=$RELEASE_VERSION" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$IS_PRERELEASE" >> "$GITHUB_OUTPUT"
           echo "core_version=$CORE_VERSION" >> "$GITHUB_OUTPUT"
           echo "web_version=$WEB_VERSION" >> "$GITHUB_OUTPUT"
           echo "source_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
@@ -202,6 +223,7 @@ jobs:
           tag_name: ${{ needs.version-contract.outputs.release_tag }}
           target_commitish: ${{ needs.version-contract.outputs.source_sha }}
           name: NiuPanel ${{ needs.version-contract.outputs.release_version }}
+          prerelease: ${{ needs.version-contract.outputs.prerelease }}
           generate_release_notes: true
           files: |
             artifacts/niupanel_linux_x86_64/niupanel_linux_x86_64.tar.gz
