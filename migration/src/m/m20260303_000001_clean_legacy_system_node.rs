@@ -14,7 +14,7 @@ impl MigrationTrait for Migration {
             .and_where(Expr::col(Tasks::EnvVersion).like("System Node%"))
             .to_owned();
 
-        db.execute(manager.get_database_backend().build(&stmt))
+        db.execute_raw(manager.get_database_backend().build(&stmt))
             .await?;
 
         Ok(())

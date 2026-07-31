@@ -29,7 +29,7 @@ Core 与 Web 分别发布版本，并共享以下兼容字段：
 
 ## Core 更新与回退
 
-Core 发布包包含 `niupanel`、`niupanel-launcher` 和 `core-release.json`。运行目录：
+Core 发布包只包含 `niupanel`、`niupanel-launcher`、`core-release.json` 与按架构准备的运行时工具；它不包含 Web UI。首次手动部署必须从同一 `niupanel-release.json` 同时取得匹配的 Web 包，或直接使用已完成该组合的 Docker / Magisk 安装方式。运行目录：
 
 ```text
 data/system/
@@ -77,8 +77,8 @@ NiuPanel 在 `/mcp` 提供 Streamable HTTP MCP Server，统一使用 `X-API-Key`
 ## 发布验证
 
 - Core、launcher、Web 分别通过构建和契约测试。
-- Release 同时发布三架构完整包、一个与架构无关的 Web 包和 `niupanel-release.json`。
-- Docker 环境版本独立维护。维护者从已发布的 Core Tag 手动触发 Docker 工作流；该工作流先按 `niupanel-release.json` 校验三架构包，再推送环境版本标签和 `latest`。
+- Release 同时发布三个按架构区分的 Core 包、一个与架构无关的 Web 包和 `niupanel-release.json`。CI 拒绝 Core/Web 混装归档，避免 Web 单独升级时被旧 Core 包覆盖。
+- Docker 环境版本独立维护。维护者从已发布的 Core Tag 手动触发 Docker 工作流；该工作流先按 `niupanel-release.json` 校验三架构 Core 包和唯一的 Web 包，再推送环境版本标签和 `latest`。
 - Docker 由 launcher 作为 PID 1 启动，并持久化整个 `/app/data`。
 - 发布检查应覆盖候选启动失败自动回退、Web 安装/切换/回退和 MCP 鉴权。
 - 最近至少保留 3 个 Web 版本；Core 版本和数据库快照按事务保留策略清理，不允许删除 active、previous 或回退链依赖的快照。

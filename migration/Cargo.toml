@@ -18,4 +18,4 @@ path = "src/lib.rs"
 sea-orm-migration = { workspace = true }
 
 [dev-dependencies]
-sea-orm-cli = "1.1.19"
+sea-orm-cli = "2.0.0"

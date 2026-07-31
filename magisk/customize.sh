@@ -58,6 +58,23 @@ if [ -f "$MODPATH/app.tar.gz" ]; then
     rm "$MODPATH/app.tar.gz"
 fi
 
+RELEASE_MANIFEST_URL="https://github.com/${REPO}/releases/latest/download/niupanel-release.json"
+ui_print "- 正在获取与 Core 匹配的独立 Web UI..."
+curl -L -f --connect-timeout 20 --retry 3 "$RELEASE_MANIFEST_URL" -o "$MODPATH/release-manifest.json"
+WEB_FILE_NAME=$(sed -n 's/.*"name": "\(niupanel_web_[^"]*\.tar\.gz\)".*/\1/p' "$MODPATH/release-manifest.json" | head -n 1)
+if [ -z "$WEB_FILE_NAME" ]; then
+    abort "Release manifest 中缺少独立 Web UI 包"
+fi
+curl -L -f --connect-timeout 20 --retry 3 \
+    "https://github.com/${REPO}/releases/latest/download/${WEB_FILE_NAME}" \
+    -o "$MODPATH/web.tar.gz"
+mkdir -p "$MODPATH/app/web"
+tar -xzf "$MODPATH/web.tar.gz" -C "$MODPATH/app/web/"
+rm -f "$MODPATH/web.tar.gz" "$MODPATH/release-manifest.json"
+if [ ! -f "$MODPATH/app/web/release-manifest.json" ]; then
+    abort "独立 Web UI 包无效"
+fi
+
 set_perm_recursive $MODPATH 0 0 0755 0755
 set_perm $MODPATH/service.sh 0 0 0755
 

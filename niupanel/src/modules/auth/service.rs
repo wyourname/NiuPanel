@@ -23,11 +23,10 @@ use sea_orm::{
 };
 use sea_orm::{DatabaseConnection, DbErr};
 use sha2::{Digest, Sha256};
-use sqlx::Row;
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::OnceLock;
-use tower_sessions_sqlx_store::sqlx::SqlitePool;
+use tower_sessions_sqlx_store::sqlx::{self, Row, SqlitePool};
 
 pub const USER_ID_KEY: &str = "user_id";
 pub const USER_ROLE_KEY: &str = "user_role";

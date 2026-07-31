@@ -132,7 +132,7 @@ impl Migration {
         let db = manager.get_connection();
         let sql = format!("PRAGMA table_info({})", table);
         let rows = db
-            .query_all(Statement::from_string(manager.get_database_backend(), sql))
+            .query_all_raw(Statement::from_string(manager.get_database_backend(), sql))
             .await?;
 
         for row in rows {

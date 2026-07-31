@@ -5,6 +5,7 @@ set -e
 APP_NAME="niupanel"
 FRONTEND_DIR="niupanelweb"
 TOOLS_CACHE_DIR="release_tools"
+WEB_VERSION=""
 CORE_VERSION=$(sed -n '/^\[package\]/,/^\[/{s/^version = "\([^"]*\)"/\1/p}' niupanel/Cargo.toml | head -n 1)
 
 node scripts/verify-version-contract.mjs
@@ -37,6 +38,7 @@ build_frontend() {
         echo "📦 正在同步前端依赖..."
         pnpm install --frozen-lockfile
         NIUPANEL_WEB_CORE_MIN="$CORE_VERSION" pnpm run build
+        WEB_VERSION=$(node -p "require('./package.json').version")
         cd ..
 
         if [ ! -d "$FRONTEND_DIR/dist" ]; then
@@ -46,6 +48,28 @@ build_frontend() {
     else
         echo "⚠️ 警告: 未找到前端目录 $FRONTEND_DIR，将不包含网页文件"
     fi
+}
+
+# Web 与 Core 是独立的可更新组件。只生成一份与架构无关的归档，
+# 避免把完全相同的前端内容重复塞进每个架构的 Core 包。
+package_web_release() {
+    local output_dir="docker"
+    local tar_name
+
+    if [ -z "$WEB_VERSION" ]; then
+        echo "❌ 未读取到 Web 版本，无法打包 Web Release"
+        exit 1
+    fi
+    if [ ! -f "$FRONTEND_DIR/dist/release-manifest.json" ]; then
+        echo "❌ Web 构建产物缺少 release-manifest.json"
+        exit 1
+    fi
+
+    mkdir -p "$output_dir"
+    tar_name="$output_dir/niupanel_web_${WEB_VERSION}.tar.gz"
+    rm -f "$tar_name"
+    echo "📦 打包 Web Release 为 $tar_name ..."
+    tar -czvf "$tar_name" -C "$FRONTEND_DIR/dist" .
 }
 
 # 2. 构建指定架构的后端并打包
@@ -119,7 +143,7 @@ build_backend_and_package() {
 
     rm -rf "$TEMP_DIR"
     rm -f "$TAR_NAME"
-    mkdir -p "$TEMP_DIR/web" "$TEMP_DIR/tools"
+    mkdir -p "$TEMP_DIR/tools"
 
     # 复制二进制
     if [ -f "$BIN_SOURCE_PATH/$APP_NAME" ]; then
@@ -142,11 +166,6 @@ build_backend_and_package() {
         "$TARGET_TRIPLE" \
         "$TEMP_DIR/core-release.json"
 
-    # 复制前端 (假设已构建)
-    if [ -d "$FRONTEND_DIR/dist" ]; then
-        cp -r "$FRONTEND_DIR/dist/." "$TEMP_DIR/web/"
-    fi
-
     prepare_runtime_tools "$ARCH_NAME"
     cp -a "$TOOLS_CACHE_DIR/$ARCH_NAME/." "$TEMP_DIR/tools/"
     rm -f "$TEMP_DIR/tools/.uv-version" "$TEMP_DIR/tools/.pnpm-version" "$TEMP_DIR/tools/fnm"
@@ -165,6 +184,7 @@ INPUT_ARG="${1:-}"
 
 # 始终先检查并构建前端
 build_frontend
+package_web_release
 
 if [ -z "$INPUT_ARG" ]; then
     build_backend_and_package "host"

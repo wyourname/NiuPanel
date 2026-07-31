@@ -3,3 +3,6 @@ allowBuilds:
   vue-demi: true
 nodeVersion: 22.23.1
 engineStrict: true
+minimumReleaseAgeExclude:
+  - '@vue/language-core@3.3.9'
+  - vue-tsc@3.3.9

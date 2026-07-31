@@ -28,11 +28,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Docker source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: main
 
-      - name: Download and verify published Core packages
+      - name: Download and verify published Core and Web packages
         id: release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -50,11 +50,12 @@ jobs:
             --pattern niupanel-release.json \
             --pattern niupanel_linux_x86_64.tar.gz \
             --pattern niupanel_linux_aarch64.tar.gz \
-            --pattern niupanel_linux_armv7.tar.gz
+            --pattern niupanel_linux_armv7.tar.gz \
+            --pattern 'niupanel_web_*.tar.gz'
 
-          CORE_VERSION=$(node --input-type=module - "$RELEASE_TAG" <<'NODE'
+          RELEASE_METADATA=$(node --input-type=module - "$RELEASE_TAG" <<'NODE'
           import { createHash } from 'node:crypto'
-          import { readFileSync } from 'node:fs'
+          import { readdirSync, readFileSync } from 'node:fs'
 
           const [releaseTag] = process.argv.slice(2)
           const manifest = JSON.parse(readFileSync('release-assets/niupanel-release.json', 'utf8'))
@@ -75,21 +76,45 @@ jobs:
               throw new Error(`${filename} checksum does not match niupanel-release.json`)
             }
           }
-          process.stdout.write(`${manifest.components.core.version}\n`)
+          const web = manifest.components?.web
+          const webName = web?.asset?.name
+          if (!webName || !/^niupanel_web_.+\.tar\.gz$/.test(webName)) {
+            throw new Error('niupanel-release.json does not contain a valid Web asset')
+          }
+          const webAssets = readdirSync('release-assets').filter((name) =>
+            /^niupanel_web_.+\.tar\.gz$/.test(name)
+          )
+          if (webAssets.length !== 1 || webAssets[0] !== webName) {
+            throw new Error(`Expected exactly one downloaded Web asset: ${webName}`)
+          }
+          const webChecksum = createHash('sha256')
+            .update(readFileSync(`release-assets/${webName}`))
+            .digest('hex')
+          if (webChecksum !== web.asset.sha256) {
+            throw new Error(`${webName} checksum does not match niupanel-release.json`)
+          }
+          process.stdout.write(`${manifest.components.core.version}\n${web.version}\n${webName}\n`)
           NODE
           )
+          mapfile -t RELEASE_FIELDS <<<"$RELEASE_METADATA"
+          CORE_VERSION="${RELEASE_FIELDS[0]}"
+          WEB_VERSION="${RELEASE_FIELDS[1]}"
+          WEB_ARCHIVE="${RELEASE_FIELDS[2]}"
           if [[ "$CORE_VERSION" == *-* ]]; then
             echo "Docker images only publish stable Core releases; $CORE_VERSION is a pre-release" >&2
             exit 1
           fi
           echo "core_version=$CORE_VERSION" >> "$GITHUB_OUTPUT"
+          echo "web_version=$WEB_VERSION" >> "$GITHUB_OUTPUT"
+          echo "web_archive=$WEB_ARCHIVE" >> "$GITHUB_OUTPUT"
 
       - name: Prepare Docker build context
         run: |
-          mkdir -p docker/packages/amd64 docker/packages/arm64 docker/packages/arm
+          mkdir -p docker/packages/amd64 docker/packages/arm64 docker/packages/arm docker/packages/web
           cp release-assets/niupanel_linux_x86_64.tar.gz docker/packages/amd64/niupanel.tar.gz
           cp release-assets/niupanel_linux_aarch64.tar.gz docker/packages/arm64/niupanel.tar.gz
           cp release-assets/niupanel_linux_armv7.tar.gz docker/packages/arm/niupanel.tar.gz
+          cp "release-assets/${{ steps.release.outputs.web_archive }}" docker/packages/web/niupanel_web.tar.gz
 
       - name: Determine Docker environment version
         id: version
@@ -109,19 +134,19 @@ jobs:
           echo "environment_version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@v4
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Login to Docker Hub
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_TOKEN }}
 
       - name: Build and push multi-architecture image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: docker
           file: docker/Dockerfile
@@ -136,5 +161,6 @@ jobs:
           build-args: |
             NIUPANEL_ENVIRONMENT_VERSION=${{ steps.version.outputs.environment_version }}
             NIUPANEL_CORE_VERSION=${{ steps.release.outputs.core_version }}
+            NIUPANEL_WEB_VERSION=${{ steps.release.outputs.web_version }}
           cache-from: type=gha
           cache-to: type=gha,mode=min

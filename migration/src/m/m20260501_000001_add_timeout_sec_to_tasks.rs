@@ -20,7 +20,7 @@ impl MigrationTrait for Migration {
 
         manager
             .get_connection()
-            .execute(Statement::from_string(
+            .execute_raw(Statement::from_string(
                 manager.get_database_backend(),
                 "UPDATE tasks SET timeout_sec = cpu_limit WHERE timeout_sec IS NULL AND cpu_limit IS NOT NULL"
                     .to_string(),

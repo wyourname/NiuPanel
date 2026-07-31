@@ -174,10 +174,10 @@ impl TelegramBot {
             }
         }
 
-        let mut builder = reqwest::Client::builder();
+        let mut builder = teloxide_reqwest::Client::builder();
         if let Some(proxy) = &proxy_url {
             if !proxy.is_empty() {
-                if let Ok(p) = reqwest::Proxy::all(proxy) {
+                if let Ok(p) = teloxide_reqwest::Proxy::all(proxy) {
                     builder = builder.proxy(p);
                 }
             }
@@ -187,7 +187,7 @@ impl TelegramBot {
         let mut bot = Bot::with_client(config.token.clone(), client);
         if let Some(base_url) = &config.api_base_url {
             if !base_url.is_empty() {
-                if let Ok(url) = reqwest::Url::parse(base_url) {
+                if let Ok(url) = teloxide_reqwest::Url::parse(base_url) {
                     bot = bot.set_api_url(url);
                 }
             }

@@ -59,8 +59,8 @@ pub async fn list_commands(
     State(state): State<AppState>,
     axum::extract::Query(params): axum::extract::Query<QueryParams>,
 ) -> Result<ApiResponse<PaginatedData<CommandDto>>> {
-    let page = params.page.unwrap_or(1).max(1);
-    let limit = params.limit.unwrap_or(20).max(1);
+    let page = std::cmp::max(params.page.unwrap_or(1), 1);
+    let limit = std::cmp::max(params.limit.unwrap_or(20), 1);
 
     let paginator = tg_commands::Entity::find()
         .order_by_desc(tg_commands::Column::UpdatedAt)

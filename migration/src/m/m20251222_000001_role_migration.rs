@@ -21,19 +21,19 @@ impl MigrationTrait for Migration {
 
         // Check if ID 0 exists
         let res = db
-            .query_one(Statement::from_string(
+            .query_one_raw(Statement::from_string(
                 db.get_database_backend(),
                 "SELECT id FROM users WHERE id = 0".to_string(),
             ))
             .await?;
 
         if res.is_none() {
-            db.execute(Statement::from_string(
+            db.execute_raw(Statement::from_string(
                  db.get_database_backend(),
                  "INSERT INTO users (id, username, password_hash, role) VALUES (0, 'api_client', 'disabled', 'system')".to_string(),
              )).await?;
         } else {
-            db.execute(Statement::from_string(
+            db.execute_raw(Statement::from_string(
                 db.get_database_backend(),
                 "UPDATE users SET username = 'api_client', role = 'system' WHERE id = 0"
                     .to_string(),
