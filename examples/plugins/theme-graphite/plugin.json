@@ -1,0 +1,44 @@
+{
+  "$schema": "../../../docs/plugins/plugin.schema.json",
+  "schema_version": 1,
+  "id": "theme-graphite",
+  "name": "Graphite Theme",
+  "version": "0.1.0",
+  "description": "A restrained neutral theme with green operational accents.",
+  "license": "Apache-2.0",
+  "runtime": "declarative",
+  "capabilities": ["ui.theme"],
+  "compatibility": {
+    "panel": {
+      "min_version": "0.8.0"
+    },
+    "dependencies": []
+  },
+  "theme": {
+    "enabled": true,
+    "light": {
+      "primary": "#0F766E",
+      "bg_base": "#F4F6F5",
+      "bg_card": "#FFFFFF",
+      "bg_subtle": "#F0F3F2",
+      "bg_soft": "#E7F3F0",
+      "text_default": "#1B2422",
+      "text_secondary": "#53615E",
+      "text_muted": "#7A8784",
+      "border_base": "#CBD4D1",
+      "border_light": "#E0E6E4"
+    },
+    "dark": {
+      "primary": "#5EEAD4",
+      "bg_base": "#111715",
+      "bg_card": "#18201E",
+      "bg_subtle": "#141B19",
+      "bg_soft": "#19302C",
+      "text_default": "#EDF5F2",
+      "text_secondary": "#A8B8B3",
+      "text_muted": "#778985",
+      "border_base": "#2B3A36",
+      "border_light": "#22302D"
+    }
+  }
+}

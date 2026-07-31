@@ -1,0 +1,5 @@
+allowBuilds:
+  esbuild: true
+  vue-demi: true
+nodeVersion: 22.23.1
+engineStrict: true

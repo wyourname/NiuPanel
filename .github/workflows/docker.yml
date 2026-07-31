@@ -1,0 +1,141 @@
+name: Publish Docker Image
+
+# Docker 是独立的环境交付物：手动选择一个已发布的应用版本，
+# 再选择 Dockerfile 所在的源码引用。它不会在应用 Release 时自动执行。
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: '已发布的 Core GitHub Release Tag，例如 v0.8.0'
+        required: true
+        type: string
+      source_ref:
+        description: 'Dockerfile 与 docker/VERSION 所在的分支、Tag 或提交；留空使用 main'
+        required: false
+        default: main
+        type: string
+      docker_version:
+        description: '覆盖 docker/VERSION；留空读取 source_ref 中的 docker/VERSION'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+# 环境标签和 latest 都是可变标签，禁止两个构建同时覆盖它们。
+concurrency:
+  group: niupanel-docker-publish
+  cancel-in-progress: false
+
+jobs:
+  docker:
+    name: Build and push multi-architecture image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Docker source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_ref }}
+
+      - name: Download and verify published Core packages
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          case "$RELEASE_TAG" in
+            v*) ;;
+            *) echo 'release_tag must start with v, for example v0.8.0' >&2; exit 1 ;;
+          esac
+
+          mkdir -p release-assets
+          gh release download "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --dir release-assets \
+            --pattern niupanel-release.json \
+            --pattern niupanel_linux_x86_64.tar.gz \
+            --pattern niupanel_linux_aarch64.tar.gz \
+            --pattern niupanel_linux_armv7.tar.gz
+
+          CORE_VERSION=$(node --input-type=module - "$RELEASE_TAG" <<'NODE'
+          import { createHash } from 'node:crypto'
+          import { readFileSync } from 'node:fs'
+
+          const [releaseTag] = process.argv.slice(2)
+          const manifest = JSON.parse(readFileSync('release-assets/niupanel-release.json', 'utf8'))
+          const expectedVersion = releaseTag.replace(/^v/, '')
+          if (manifest.release_version !== expectedVersion) {
+            throw new Error(`Expected Core ${expectedVersion}, got ${manifest.release_version}`)
+          }
+
+          const assets = {
+            x86_64: 'niupanel_linux_x86_64.tar.gz',
+            aarch64: 'niupanel_linux_aarch64.tar.gz',
+            armv7: 'niupanel_linux_armv7.tar.gz'
+          }
+          for (const [arch, filename] of Object.entries(assets)) {
+            const expected = manifest.components?.core?.assets?.[arch]?.sha256
+            const actual = createHash('sha256').update(readFileSync(`release-assets/${filename}`)).digest('hex')
+            if (!expected || actual !== expected) {
+              throw new Error(`${filename} checksum does not match niupanel-release.json`)
+            }
+          }
+          process.stdout.write(`${manifest.components.core.version}\n`)
+          NODE
+          )
+          echo "core_version=$CORE_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare Docker build context
+        run: |
+          mkdir -p docker/packages/amd64 docker/packages/arm64 docker/packages/arm
+          cp release-assets/niupanel_linux_x86_64.tar.gz docker/packages/amd64/niupanel.tar.gz
+          cp release-assets/niupanel_linux_aarch64.tar.gz docker/packages/arm64/niupanel.tar.gz
+          cp release-assets/niupanel_linux_armv7.tar.gz docker/packages/arm/niupanel.tar.gz
+
+      - name: Determine Docker environment version
+        id: version
+        env:
+          DOCKER_VERSION_INPUT: ${{ inputs.docker_version }}
+        run: |
+          if [ -n "$DOCKER_VERSION_INPUT" ]; then
+            VERSION="$DOCKER_VERSION_INPUT"
+          else
+            VERSION="$(tr -d '[:space:]' < docker/VERSION)"
+          fi
+          VERSION="${VERSION#v}"
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.]+)?$ ]]; then
+            echo "Invalid Docker environment version: $VERSION" >&2
+            exit 1
+          fi
+          echo "environment_version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_TOKEN }}
+
+      - name: Build and push multi-architecture image
+        uses: docker/build-push-action@v6
+        with:
+          context: docker
+          file: docker/Dockerfile
+          platforms: linux/amd64,linux/arm64,linux/arm/v7
+          push: true
+          tags: |
+            ${{ secrets.DOCKER_USERNAME }}/niupanel:${{ steps.version.outputs.environment_version }}
+            ${{ secrets.DOCKER_USERNAME }}/niupanel:latest
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          build-args: |
+            NIUPANEL_ENVIRONMENT_VERSION=${{ steps.version.outputs.environment_version }}
+            NIUPANEL_CORE_VERSION=${{ steps.release.outputs.core_version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=min

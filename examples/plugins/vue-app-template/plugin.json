@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "id": "vue-app-template",
+  "name": "Vue App Template",
+  "version": "0.1.0",
+  "description": "Template for native Vue plugin apps mounted inside NiuPanel.",
+  "license": "Apache-2.0",
+  "runtime": "process",
+  "protocol": "single_shot",
+  "entry": "backend/run.sh",
+  "timeout_sec": 30,
+  "capabilities": ["example.read"],
+  "compatibility": {
+    "panel": {
+      "min_version": "0.8.0"
+    },
+    "dependencies": []
+  },
+  "ui": {
+    "enabled": true,
+    "mode": "vue_app",
+    "entry": "ui/dist/niupanel-plugin.js",
+    "sdk_version": "^0.1.0",
+    "display": {
+      "sidebar": true,
+      "workspace": true,
+      "mobile": true,
+      "category": "plugins",
+      "order": 100,
+      "layout": "panel"
+    },
+    "routes": [
+      {
+        "id": "home",
+        "path": "/plugins/vue-app-template",
+        "title": "Vue 插件模板",
+        "description": "原生 Vue 插件模板",
+        "icon": "i-ep-box",
+        "order": 0
+      }
+    ],
+    "permissions": [],
+    "api": {
+      "allow": [
+        {
+          "methods": ["GET"],
+          "path": "/plugins/apps"
+        }
+      ]
+    }
+  }
+}

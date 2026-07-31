@@ -1,0 +1,15 @@
+{
+  "name": "niu",
+  "version": "0.1.0",
+  "description": "NiuPanel SDK for Node.js",
+  "packageManager": "pnpm@11.18.0",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC"
+}

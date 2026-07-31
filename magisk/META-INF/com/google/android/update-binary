@@ -1,0 +1,5 @@
+#!/sbin/sh
+#MAGISK
+#
+# Magisk App requires this file to recognize the zip as a Magisk module.
+# The actual installer logic is handled by Magisk internally using customize.sh.

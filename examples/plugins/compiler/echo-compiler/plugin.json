@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "id": "echo-compiler",
+  "name": "Echo Compiler",
+  "version": "0.1.0",
+  "description": "Example compiler plugin that echoes source code as compiled file content.",
+  "license": "Apache-2.0",
+  "runtime": "process",
+  "protocol": "single_shot",
+  "entry": "run.sh",
+  "timeout_sec": 30,
+  "capabilities": ["compiler.versions", "compiler.encrypt"],
+  "compatibility": {
+    "panel": {
+      "min_version": "0.8.0"
+    },
+    "dependencies": []
+  }
+}

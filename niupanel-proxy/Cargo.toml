@@ -1,0 +1,23 @@
+[package]
+name = "niupanel-proxy"
+version = "0.1.1"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+description = "Proxy transport support for NiuPanel"
+
+[dependencies]
+tokio = { workspace = true }
+tokio-tungstenite = "0.26"
+tokio-rustls = "0.26"
+webpki-roots = "1.0"
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+futures = { workspace = true }
+thiserror = { workspace = true }
+tokio-util = { workspace = true }
+niupanel-common = { path = "../niupanel-common" }

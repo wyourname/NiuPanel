@@ -1,0 +1,91 @@
+{
+  "schema_version": 1,
+  "id": "agent-app-template",
+  "name": "Agent App Template",
+  "version": "0.1.0",
+  "domain": "operations",
+  "description": "Template for trusted agent plugins with native Vue pages.",
+  "license": "Apache-2.0",
+  "runtime": "process",
+  "protocol": "json_lines",
+  "entry": "backend/main.js",
+  "args": [],
+  "env": {},
+  "runtime_permissions": [],
+  "timeout_sec": 20,
+  "worker": {
+    "min": 1,
+    "max": 2,
+    "idle_timeout_sec": 300
+  },
+  "capability_level": "read_only",
+  "capabilities": ["agents.dashboard", "agents.invoke"],
+  "tools": [
+    {
+      "name": "summarize",
+      "description": "Summarizes agent app input for the native UI template.",
+      "access": "read"
+    }
+  ],
+  "model": {
+    "required": false,
+    "providers": ["openai_compatible"]
+  },
+  "compatibility": {
+    "panel": {
+      "min_version": "0.8.0"
+    },
+    "dependencies": []
+  },
+  "ui": {
+    "enabled": true,
+    "mode": "vue_app",
+    "entry": "ui/dist/niupanel-plugin.js",
+    "sdk_version": "^0.1.0",
+    "display": {
+      "sidebar": true,
+      "workspace": true,
+      "mobile": true,
+      "category": "agents",
+      "order": 20,
+      "layout": "panel"
+    },
+    "routes": [
+      {
+        "id": "overview",
+        "path": "/plugins/agent-app-template",
+        "title": "Agent App",
+        "description": "Native Vue agent plugin workspace",
+        "icon": "i-ep-cpu",
+        "order": 0,
+        "exact": true
+      },
+      {
+        "id": "runs",
+        "path": "/plugins/agent-app-template/runs",
+        "title": "Agent Runs",
+        "description": "Invocation and API call demo",
+        "icon": "i-ep-data-analysis",
+        "order": 10
+      },
+      {
+        "id": "settings",
+        "path": "/plugins/agent-app-template/settings",
+        "title": "Agent Settings",
+        "description": "Manifest and permission summary",
+        "icon": "i-ep-setting",
+        "order": 20,
+        "hidden": true
+      }
+    ],
+    "permissions": [],
+    "api": {
+      "allow": [
+        {
+          "methods": ["GET"],
+          "path": "/plugins/apps"
+        }
+      ]
+    }
+  }
+}

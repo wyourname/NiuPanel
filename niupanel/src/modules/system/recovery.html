@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>NiuPanel 恢复控制台</title>
+  <style>
+    :root{color-scheme:light dark;font-family:Inter,"PingFang SC","Microsoft YaHei",system-ui,sans-serif;background:#f6f7f9;color:#18202a}
+    *{box-sizing:border-box}body{margin:0;padding:24px}main{width:min(760px,100%);margin:auto;background:#fff;border:1px solid #dfe3e8;border-radius:8px;padding:24px}
+    h1{margin:0;font-size:22px}h2{margin:28px 0 10px;font-size:15px}p{color:#667085;font-size:12px;line-height:1.6}.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+    input,button{height:38px;border:1px solid #cfd5dc;border-radius:6px;padding:0 12px;font:inherit}input{min-width:0;flex:1;background:transparent}button{cursor:pointer;background:#fff;color:inherit;font-weight:650}
+    button.primary{border-color:#2563eb;background:#2563eb;color:#fff}button:disabled{cursor:not-allowed;opacity:.5}.list{border:1px solid #dfe3e8;border-radius:6px;overflow:hidden}.item{display:flex;gap:12px;align-items:center;padding:12px;border-bottom:1px solid #e8ebef}.item:last-child{border:0}.meta{min-width:0;flex:1}.title{font:700 13px ui-monospace,SFMono-Regular,monospace}.detail{margin-top:4px;color:#667085;font-size:11px}.badge{margin-left:6px;padding:2px 5px;border-radius:4px;background:#e8f7ee;color:#177245;font:700 10px system-ui}.error{color:#b42318}.hidden{display:none}
+    @media (prefers-color-scheme:dark){:root{background:#12161c;color:#eef2f6}main,input,button{background:#1b2129;border-color:#343c47}.list{border-color:#343c47}.item{border-color:#2c333d}p,.detail{color:#98a2b3}}
+  </style>
+</head>
+<body>
+<main>
+  <h1>NiuPanel 恢复控制台</h1>
+  <p>此页面由 Core 内置，不依赖当前 Web UI 发布包。</p>
+  <section id="login" class="hidden">
+    <h2>管理员登录</h2>
+    <div class="row"><input id="username" autocomplete="username" placeholder="用户名"><input id="password" type="password" autocomplete="current-password" placeholder="密码"><button class="primary" id="loginButton">登录</button></div>
+  </section>
+  <p id="status">正在读取版本状态...</p>
+  <section id="content" class="hidden">
+    <div class="row"><button id="refreshButton">刷新状态</button><button id="webRollbackButton">回退 Web UI</button><button id="openPanelButton" class="primary">打开面板</button></div>
+    <h2>Web UI 版本</h2><div id="webList" class="list"></div>
+    <h2>Core 版本</h2><div id="coreList" class="list"></div>
+  </section>
+</main>
+<script>
+  const $=id=>document.getElementById(id),status=$('status'),login=$('login'),content=$('content');
+  const request=async(url,options={})=>{const response=await fetch(url,{credentials:'same-origin',headers:{'Content-Type':'application/json',...(options.headers||{})},...options});const body=await response.json().catch(()=>({message:`HTTP ${response.status}`}));if(!response.ok||body.code&&body.code!==200)throw Object.assign(new Error(body.message||`HTTP ${response.status}`),{status:response.status});return body.data};
+  const setStatus=(message,error=false)=>{status.textContent=message;status.className=error?'error':''};
+  const button=(label,handler,disabled=false)=>{const value=document.createElement('button');value.textContent=label;value.disabled=disabled;value.onclick=handler;return value};
+  const renderList=(target,releases,kind,active)=>{target.replaceChildren();for(const release of releases){const row=document.createElement('div');row.className='item';const meta=document.createElement('div');meta.className='meta';const title=document.createElement('div');title.className='title';title.textContent=`v${release.version}`;if(release.active){const badge=document.createElement('span');badge.className='badge';badge.textContent='当前';title.append(badge)}const detail=document.createElement('div');detail.className='detail';detail.textContent=kind==='web'?`API ${release.manifest?.api_contract??'-'} · ${release.compatible?'兼容':'不兼容'}`:`Schema ${release.schema_epoch}.${release.schema_revision} · API ${release.api_contract}`;meta.append(title,detail);row.append(meta);if(!release.active){row.append(button(kind==='web'?'激活':'切换',async()=>{try{if(kind==='web'){await request(`/api/v1/system/web/releases/${encodeURIComponent(release.version)}/activate`,{method:'POST'});location.reload()}else{const current=active.releases.find(item=>item.active);const cross=current&&current.schema_epoch!==release.schema_epoch;if(!confirm(cross?'跨 Schema Epoch 切换会恢复旧数据库快照并丢失升级后的数据，确定继续吗？':'确定切换 Core 版本吗？'))return;await request(`/api/v1/system/core/releases/${encodeURIComponent(release.version)}/activate`,{method:'POST',body:JSON.stringify({confirm_data_loss:Boolean(cross)})});setStatus('Core 正在重启，请稍后刷新。')}}catch(error){setStatus(error.message,true)}},kind==='web'&&!release.compatible))}target.append(row)}};
+  const load=async()=>{try{const [web,core]=await Promise.all([request('/api/v1/system/web/releases'),request('/api/v1/system/core/releases')]);login.classList.add('hidden');content.classList.remove('hidden');$('webRollbackButton').disabled=!web.previous_version;$('webRollbackButton').onclick=async()=>{if(!confirm('确定回退到上一版 Web UI 吗？'))return;try{await request('/api/v1/system/web/rollback',{method:'POST'});location.reload()}catch(error){setStatus(error.message,true)}};renderList($('webList'),web.releases,'web',web);renderList($('coreList'),core.releases,'core',core);setStatus(`Core v${core.active_version} · Web v${web.active_version}`)}catch(error){if(error.status===401){login.classList.remove('hidden');content.classList.add('hidden');setStatus('请先登录管理员账户。')}else setStatus(error.message,true)}};
+  $('loginButton').onclick=async()=>{try{const result=await request('/api/v1/auth/login',{method:'POST',body:JSON.stringify({username:$('username').value,password:$('password').value})});if(result?.ticket){const code=prompt('请输入两步验证码');if(!code)return;await request('/api/v1/auth/login/verify-2fa',{method:'POST',body:JSON.stringify({ticket:result.ticket,code})})}await load()}catch(error){setStatus(error.message,true)}};
+  $('refreshButton').onclick=load;$('openPanelButton').onclick=()=>location.assign('/');load();
+</script>
+</body>
+</html>

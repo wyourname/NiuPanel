@@ -1,0 +1,26 @@
+[package]
+name = "niupanel-launcher"
+version = "0.8.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+description = "Release activation, health checks, and rollback launcher for NiuPanel"
+
+[dependencies]
+anyhow = { workspace = true }
+chrono = { workspace = true }
+hex = "0.4.3"
+nanoid = { workspace = true }
+nix = { workspace = true }
+semver = { workspace = true }
+serde_json = { workspace = true }
+sha2 = "0.10.9"
+tokio = { workspace = true }
+
+niupanel-common = { path = "../niupanel-common" }
+
+[dev-dependencies]
+tempfile = { workspace = true }
