@@ -28,11 +28,6 @@ if (migrationCount !== schemaRevision) {
 
 const coreVersion = packageVersion(coreCargo, 'niupanel')
 const launcherVersion = packageVersion(launcherCargo, 'niupanel-launcher')
-if (coreVersion !== launcherVersion) {
-  throw new Error(
-    `Core version ${coreVersion} and launcher version ${launcherVersion} must match for the release protocol`
-  )
-}
 const releaseVersion = process.argv[2]?.replace(/^v/, '')
 if (releaseVersion && releaseVersion !== coreVersion) {
   throw new Error(
@@ -44,5 +39,5 @@ if (constant('RELEASE_PROTOCOL_VERSION') < 1 || constant('API_CONTRACT_VERSION')
 }
 
 console.log(
-  `Version contract verified: Release ${releaseVersion || coreVersion}, Core ${coreVersion}, Web ${webPackage.version}, schema ${constant('SCHEMA_EPOCH')}.${schemaRevision}, API ${constant('API_CONTRACT_VERSION')}`
+  `Version contract verified: Release ${releaseVersion || coreVersion}, Core ${coreVersion}, Launcher ${launcherVersion}, release protocol ${constant('RELEASE_PROTOCOL_VERSION')}, Web ${webPackage.version}, schema ${constant('SCHEMA_EPOCH')}.${schemaRevision}, API ${constant('API_CONTRACT_VERSION')}`
 )

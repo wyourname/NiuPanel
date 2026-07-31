@@ -25,7 +25,7 @@ Core 与 Web 分别发布版本，并共享以下兼容字段：
 
 同一 `schema_epoch` 内只允许 expand-first 迁移：新增表、可空字段、兼容索引和双读双写。删除字段、重命名字段、改变含义等破坏性变更必须延后到新的 epoch。生产回退不执行 `migration down`。
 
-正式应用发布使用 Core 版本作为 Git Tag，Web 保留独立组件版本，Docker 则使用代表基础系统与运行工具的独立环境版本。应用 CI 生成 `niupanel-release.json`，记录 Git SHA、Core 三架构包、Web 包及全部 SHA-256。Docker 由独立工作流从已经发布并经该 manifest 校验的 Core 包构建；Docker 正式标签使用环境版本，并通过 OCI label 记录所含 Core 版本和构建源码提交。Tag、Core 与 launcher 版本不一致时禁止发布；Web 通过 `api_contract` 和 `core.min/max` 加入同一发布。
+正式应用发布使用 Core 版本作为 Git Tag，Web、Launcher 与 Docker 分别保留独立组件版本。应用 CI 生成 `niupanel-release.json`，记录 Git SHA、Core 三架构包、Web 包及全部 SHA-256。Docker 由独立工作流从已经发布并经该 manifest 校验的 Core 包构建；Docker 正式标签使用环境版本，并通过 OCI label 记录所含 Core 版本和构建源码提交。Tag 必须与 Core 版本一致；Core/Launcher 通过 `launcher_protocol` 和 `RELEASE_PROTOCOL_VERSION` 验证兼容性，Web 通过 `api_contract` 和 `core.min/max` 加入同一发布。
 
 ## Core 更新与回退
 

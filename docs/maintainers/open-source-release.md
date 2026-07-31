@@ -33,7 +33,7 @@ Release and Magisk packages bundle `uv` plus pnpm; they must never bundle fnm. `
 ## Publishing model
 
 - Source code: Apache License 2.0.
-- The formal application version is the Core version. Git tag, Core package, and launcher package must match.
+- The formal application version is the Core version, and the Git Tag must match it. Launcher has an independent component version; Core/Launcher compatibility is enforced through `RELEASE_PROTOCOL_VERSION` in `core-release.json`.
 - Web keeps its own component version and declares compatible Core versions in `release-manifest.json`.
 - Docker keeps an independent environment version in `docker/VERSION`; bump it only when the base image, system dependencies, bundled runtime tools, or container contract changes.
 - 推送 `v<core-version>` Tag，或手动运行 `Publish NiuPanel Release`，都会生成 GitHub Release。手动运行时，选择 `main` 分支会创建正式 Release，选择 `dev` 分支会创建 Pre-release；输入的 Tag 必须与所选分支的 Core 版本一致，且 Pre-release Tag 必须带预发布后缀，例如 `v0.8.1-dev.1`。Release 包含三架构 Core 包、Web 包和 `niupanel-release.json`，后者绑定 Core/Web 的校验和与 Git SHA。发布步骤优先使用 `RELEASE_TOKEN`（fine-grained PAT，目标仓库 `Contents: Read and write`），未配置时才使用 `GITHUB_TOKEN`；若使用后者，仓库 Settings → Actions → General → Workflow permissions 必须设为 `Read and write permissions`。
