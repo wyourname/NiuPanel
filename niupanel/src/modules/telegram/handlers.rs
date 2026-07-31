@@ -346,8 +346,9 @@ pub async fn test_telegram(
         });
 
         if let Ok(actual_addr) = ready_rx.await {
-            builder =
-                builder.proxy(reqwest::Proxy::all(format!("socks5h://{}", actual_addr)).unwrap());
+            let proxy = reqwest::Proxy::all(format!("socks5h://{}", actual_addr))
+                .map_err(niupanel_common::error::AppError::Reqwest)?;
+            builder = builder.proxy(proxy);
         } else {
             return Err(niupanel_common::error::AppError::Generic(
                 "无法启动临时测试代理".to_string(),

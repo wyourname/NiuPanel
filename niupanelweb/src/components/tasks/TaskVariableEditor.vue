@@ -111,7 +111,8 @@
       >
         <div class="i-ep-info-filled text-primary shrink-0 mt-0.5"></div>
         <span>
-          您可以直接粘贴 <b>KEY=VALUE</b> 格式的内容（支持多行值）。保存后将自动解析并更新到列表中。
+          您可以直接粘贴 <b>KEY=VALUE</b>。含空格、换行或等号的值请使用双引号，
+          例如 <b>CONFIG="line1\nline=2"</b>；从列表生成的内容可无损往返。
         </span>
       </div>
       <el-input

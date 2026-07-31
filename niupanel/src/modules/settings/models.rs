@@ -38,7 +38,8 @@ pub struct GeneralSettingsRequest {
     pub uv_pypi_mirror: String,
     pub default_python_version: String,
     pub default_node_version: String,
-    pub fnm_node_dist_mirror: Option<String>,
+    #[serde(alias = "fnm_node_dist_mirror")]
+    pub pnpm_node_dist_mirror: Option<String>,
     pub npm_registry_mirror: Option<String>,
 }
 
@@ -81,6 +82,22 @@ pub struct TestNotifyRequest {
 #[derive(Deserialize, Debug, ToSchema)]
 pub struct CleanupLogsRequest {
     pub days: Option<i64>,
+    #[serde(default)]
+    pub dry_run: bool,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Default, ToSchema)]
+pub struct LogCleanupReport {
+    pub dry_run: bool,
+    pub cutoff_at: String,
+    pub files: u64,
+    pub task_runs: u64,
+    pub system_jobs: u64,
+    pub audit_logs: u64,
+    pub bytes: u64,
+    pub empty_directories: u64,
+    pub protected_files: u64,
+    pub warnings: Vec<String>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, Default, ToSchema)]
@@ -99,8 +116,14 @@ pub struct BackupOptions {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct BackupManifest {
+    #[serde(default = "default_backup_format_version")]
+    pub format_version: u32,
     pub version: String,
     pub created_at: i64,
     pub options: BackupOptions,
     pub files: Vec<String>, // 包含的文件列表
+}
+
+fn default_backup_format_version() -> u32 {
+    1
 }

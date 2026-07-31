@@ -1,12 +1,14 @@
 use super::{TaskManagerService, job_log_key};
 use crate::event_bus::{SystemEvent, TaskEvent};
 use crate::task_log::{LogKind, LogSession};
+use futures::FutureExt;
 use niupanel_common::config::Config;
 use niupanel_common::error::AppError;
 use niupanel_entity::system_jobs;
 use niupanel_entity::task_status::TaskStatus;
 use sea_orm::{ActiveModelTrait, EntityTrait, Set};
 use std::future::Future;
+use std::panic::AssertUnwindSafe;
 use tokio::sync::mpsc;
 
 impl TaskManagerService {
@@ -17,7 +19,7 @@ impl TaskManagerService {
     ) -> Result<i32, AppError>
     where
         F: FnOnce(mpsc::UnboundedSender<String>) -> Fut + Send + 'static,
-        Fut: Future<Output = ()> + Send + 'static,
+        Fut: Future<Output = Result<(), AppError>> + Send + 'static,
     {
         let permit = self
             .running_permits
@@ -36,7 +38,26 @@ impl TaskManagerService {
         let job_record = new_job.insert(&self.db).await?;
         let job_id = job_record.id;
 
-        let log_session = LogSession::create_system_job(&Config::global().jobs_dir, job_id).await?;
+        let log_session =
+            match LogSession::create_system_job(&Config::global().jobs_dir, job_id).await {
+                Ok(session) => session,
+                Err(err) => {
+                    let failed_job = system_jobs::ActiveModel {
+                        id: Set(job_id),
+                        status: Set(TaskStatus::Failed),
+                        ended_at: Set(Some(chrono::Utc::now().into())),
+                        ..Default::default()
+                    };
+                    if let Err(update_err) = failed_job.update(&self.db).await {
+                        tracing::error!(
+                            "failed to mark system job {} as failed after log setup error: {}",
+                            job_id,
+                            update_err
+                        );
+                    }
+                    return Err(err);
+                }
+            };
         self.log_sessions
             .insert(job_log_key(job_id), log_session.clone());
 
@@ -47,9 +68,11 @@ impl TaskManagerService {
 
         let (tx, mut rx) = mpsc::unbounded_channel::<String>();
         let log_session_for_task = log_session.clone();
-        tokio::spawn(async move {
+        let log_writer = tokio::spawn(async move {
             while let Some(msg) = rx.recv().await {
-                let _ = log_session_for_task.write_line(LogKind::System, msg).await;
+                if let Err(err) = log_session_for_task.write_line(LogKind::System, msg).await {
+                    tracing::error!("failed to write system job {} log: {}", job_id, err);
+                }
             }
         });
 
@@ -68,28 +91,60 @@ impl TaskManagerService {
         let service = self.clone();
         let handle = tokio::spawn(async move {
             let _permit = permit;
-            task_fn(tx).await;
+            let result_tx = tx.clone();
+            let task_result = AssertUnwindSafe(task_fn(tx)).catch_unwind().await;
+            let error_message = match task_result {
+                Ok(Ok(())) => None,
+                Ok(Err(err)) => Some(err.to_string()),
+                Err(panic) => {
+                    let panic_message = panic
+                        .downcast_ref::<&str>()
+                        .map(|message| (*message).to_string())
+                        .or_else(|| panic.downcast_ref::<String>().cloned())
+                        .unwrap_or_else(|| "unknown panic".to_string());
+                    Some(format!("system task panicked: {panic_message}"))
+                }
+            };
+            let final_status = if error_message.is_some() {
+                TaskStatus::Failed
+            } else {
+                TaskStatus::Finished
+            };
+            if let Some(message) = &error_message {
+                tracing::error!("system job {} failed: {}", job_id, message);
+                let _ = result_tx.send(format!("[System] Job failed: {message}"));
+            }
+            drop(result_tx);
 
             let job_update = system_jobs::ActiveModel {
                 id: Set(job_id),
-                status: Set(TaskStatus::Finished),
+                status: Set(final_status),
                 ended_at: Set(Some(chrono::Utc::now().into())),
                 ..Default::default()
             };
-            let _ = job_update.update(&service.db).await;
+            if let Err(err) = job_update.update(&service.db).await {
+                tracing::error!(
+                    "failed to persist system job {} final status: {}",
+                    job_id,
+                    err
+                );
+            }
 
             let event = SystemEvent::Task(TaskEvent::StatusChanged {
                 task_id: 0,
                 job_id: Some(job_id),
                 run_id: None,
-                status: TaskStatus::Finished,
+                status: final_status,
                 is_system: true,
-                output: None,
+                output: error_message,
                 cpu_usage: None,
                 memory_usage: None,
             });
             service.event_bus.publish(event);
 
+            if let Err(err) = log_writer.await {
+                tracing::error!("system job {} log writer failed: {}", job_id, err);
+            }
             service.log_sessions.remove(&job_log_key(job_id));
             service.system_job_handles.remove(&job_id);
         });
@@ -110,7 +165,7 @@ impl TaskManagerService {
                 ended_at: Set(Some(chrono::Utc::now().into())),
                 ..Default::default()
             };
-            let _ = job_update.update(&self.db).await;
+            job_update.update(&self.db).await?;
 
             if let Some(session) = self
                 .log_sessions

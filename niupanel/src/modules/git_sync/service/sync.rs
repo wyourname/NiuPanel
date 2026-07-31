@@ -32,7 +32,7 @@ impl GitService {
                 .map_err(AppError::Io)?;
         }
 
-        let remote_url = Self::build_remote_url(&repo);
+        let remote_url = repo.repo_url.clone();
         let sync_result = if !repo_dir.join(".git").exists() {
             Self::clone_repo(db, &repo, &repo_dir, &remote_url).await?
         } else {
@@ -87,8 +87,8 @@ impl GitService {
         repo_dir: &std::path::Path,
         remote_url: &str,
     ) -> Result<SyncResult> {
-        let envs = Self::proxy_env(repo.proxy_url.as_deref());
-        let args = ["clone", "-b", repo.branch.as_str(), remote_url, "."];
+        let envs = Self::git_auth_env(repo);
+        let args = ["clone", "-b", repo.branch.as_str(), "--", remote_url, "."];
         Self::run_git_command(
             db,
             repo.id,
@@ -112,7 +112,18 @@ impl GitService {
         repo: &git_repositories::Model,
         repo_dir: &std::path::Path,
     ) -> Result<SyncResult> {
-        let envs = Self::proxy_env(repo.proxy_url.as_deref());
+        let envs = Self::git_auth_env(repo);
+        let remote_args = ["remote", "set-url", "origin", repo.repo_url.as_str()];
+        Self::run_git_command(
+            db,
+            repo.id,
+            "git remote set-url",
+            &remote_args,
+            repo_dir,
+            None,
+            "Sanitizing remote URL failed",
+        )
+        .await?;
         let fetch_args = ["fetch", "origin", repo.branch.as_str()];
         Self::run_git_command(
             db,
@@ -196,18 +207,23 @@ impl GitService {
         Ok(())
     }
 
-    fn build_remote_url(repo: &git_repositories::Model) -> String {
-        match repo.auth_token.as_deref().filter(|token| !token.is_empty()) {
-            Some(token) => {
-                let parts: Vec<&str> = repo.repo_url.split("://").collect();
-                if parts.len() == 2 {
-                    format!("{}://{}@{}", parts[0], token, parts[1])
-                } else {
-                    repo.repo_url.clone()
-                }
-            }
-            None => repo.repo_url.clone(),
+    fn git_auth_env(repo: &git_repositories::Model) -> std::collections::HashMap<String, String> {
+        let mut envs = Self::proxy_env(repo.proxy_url.as_deref());
+        envs.insert("GIT_TERMINAL_PROMPT".to_string(), "0".to_string());
+        if let Some(token) = repo.auth_token.as_deref().filter(|token| !token.is_empty()) {
+            let credentials =
+                openssl::base64::encode_block(format!("x-access-token:{token}").as_bytes());
+            envs.insert("GIT_CONFIG_COUNT".to_string(), "1".to_string());
+            envs.insert(
+                "GIT_CONFIG_KEY_0".to_string(),
+                "http.extraHeader".to_string(),
+            );
+            envs.insert(
+                "GIT_CONFIG_VALUE_0".to_string(),
+                format!("Authorization: Basic {credentials}"),
+            );
         }
+        envs
     }
 
     async fn read_current_commit(repo_dir: &std::path::Path) -> String {

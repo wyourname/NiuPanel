@@ -11,6 +11,6 @@ export interface McpInfo {
   endpoint: string;
   transport: "streamable_http";
   auth_header: "X-API-Key";
-  required_permission: "mcp:connect";
+  required_permission: string | null;
   tools: McpToolInfo[];
 }

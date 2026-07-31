@@ -12,7 +12,7 @@ use niupanel_common::error::Result;
 use niupanel_common::response::ApiResponse;
 use niupanel_core::audit::service::AuditService;
 use niupanel_core::settings::{
-    AUTH_MAX_SESSIONS, FNM_NODE_DIST_MIRROR, NPM_REGISTRY_MIRROR, SYSTEM_DEFAULT_NODE_VERSION,
+    AUTH_MAX_SESSIONS, NPM_REGISTRY_MIRROR, PNPM_NODE_DIST_MIRROR, SYSTEM_DEFAULT_NODE_VERSION,
     SYSTEM_DEFAULT_PYTHON_VERSION, SYSTEM_GITHUB_PROXY, SYSTEM_LOG_RETENTION,
     SYSTEM_MAX_CONCURRENCY, SYSTEM_ONBOARDING_DONE, SYSTEM_TIMEZONE, SYSTEM_UPDATE_CHANNEL,
     UV_PYPI_MIRROR, UV_PYTHON_MIRROR,
@@ -170,10 +170,10 @@ pub async fn update_general_settings(
         .settings
         .set(UV_PYPI_MIRROR, &req.uv_pypi_mirror, Some("System"))
         .await?;
-    if let Some(fnm_node_dist_mirror) = req.fnm_node_dist_mirror.as_deref() {
+    if let Some(pnpm_node_dist_mirror) = req.pnpm_node_dist_mirror.as_deref() {
         state
             .settings
-            .set(FNM_NODE_DIST_MIRROR, fnm_node_dist_mirror, Some("System"))
+            .set(PNPM_NODE_DIST_MIRROR, pnpm_node_dist_mirror, Some("System"))
             .await?;
     }
     if let Some(npm_registry_mirror) = req.npm_registry_mirror.as_deref() {

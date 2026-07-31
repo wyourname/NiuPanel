@@ -144,6 +144,30 @@ mod tests {
     }
 
     #[test]
+    fn plugin_variable_value_routes_require_read_permission() {
+        assert_eq!(
+            permission_for_plugin_api_request(&Method::GET, "/variables")
+                .expect("metadata route is allowed"),
+            Some(Permission::VarList)
+        );
+        assert_eq!(
+            permission_for_plugin_api_request(&Method::GET, "/variables/with-values")
+                .expect("value list route is allowed"),
+            Some(Permission::VarRead)
+        );
+        assert_eq!(
+            permission_for_plugin_api_request(&Method::GET, "/variables/42/value")
+                .expect("single value route is allowed"),
+            Some(Permission::VarRead)
+        );
+        assert_eq!(
+            permission_for_plugin_api_request(&Method::POST, "/variables/batch-save")
+                .expect("batch save route is allowed"),
+            Some(Permission::VarUpdate)
+        );
+    }
+
+    #[test]
     fn plugin_app_entry_url_includes_cache_key() {
         let ui = PluginUiManifest {
             enabled: true,

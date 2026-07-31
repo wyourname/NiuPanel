@@ -24,7 +24,7 @@ Options:
   --market <file>       Create or update a plugin market index JSON file
   --download-url <url>  download_url written to market index (default: ./<plugin-id>.tgz)
   --sign-key <pem>      Ed25519 private key PEM used to sign the package bytes
-  --build-ui            Run npm run build in ./ui before validation when ui/package.json exists
+  --build-ui            Run pnpm run build in ./ui before validation when ui/package.json exists
   --index-name <name>   Market index name when creating a new file
   --dry-run             Validate only; do not write package or market index
   -h, --help            Show help
@@ -333,7 +333,7 @@ function validateCapability(value) {
 async function buildUi(root) {
   const uiDir = path.join(root, "ui");
   if (!existsSync(path.join(uiDir, "package.json"))) return;
-  execFileSync("npm", ["run", "build"], {
+  execFileSync("pnpm", ["run", "build"], {
     cwd: uiDir,
     stdio: "inherit",
   });

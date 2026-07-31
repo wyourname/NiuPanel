@@ -7,16 +7,16 @@ pub mod system;
 pub mod task;
 pub mod var;
 
-use niupanel_common::escape_tg_markdown;
 use niupanel_common::logger::{debug, error, info, warn};
 use niupanel_common::metrics::SystemMetrics;
+use niupanel_common::{config::Config, escape_tg_markdown};
 use niupanel_core::event_bus::{
     AuthEvent, EventBus, SystemEvent, SystemNotification, TaskEvent, TelegramEvent,
 };
 use niupanel_core::settings::update::UpdateService;
 use niupanel_core::task_manager::service::TaskManagerService;
 use niupanel_entity::task_status::TaskStatus;
-use niupanel_entity::tasks;
+use niupanel_entity::{tasks, tg_workflows};
 use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -37,6 +37,70 @@ pub type JobMessageStore = Arc<RwLock<HashMap<i32, (ChatId, MessageId)>>>;
 
 /// 追踪用户活跃的实时日志流 (ChatId -> (TaskId, tokio::task::JoinHandle))
 pub type LiveStreamStore = Arc<RwLock<HashMap<String, (i32, tokio::task::JoinHandle<()>)>>>;
+
+async fn execute_workflow_for_admins(
+    bot: &Bot,
+    admins: &[String],
+    db: &DatabaseConnection,
+    event_bus: &EventBus,
+    workflow: tg_workflows::Model,
+    task_id_context: Option<i32>,
+) {
+    let chat_ids = admins
+        .iter()
+        .filter_map(|id| match id.parse::<i64>() {
+            Ok(id) if id != 0 => Some(ChatId(id)),
+            _ => {
+                warn!("忽略无效的 Telegram 管理员 Chat ID: {}", id);
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+
+    if workflow.action_type == "shell" {
+        if let Some(chat_id) = chat_ids.first().copied() {
+            helpers::execute_workflow(bot, chat_id, db, event_bus, workflow, task_id_context).await;
+        }
+        return;
+    }
+
+    for chat_id in chat_ids {
+        helpers::execute_workflow(
+            bot,
+            chat_id,
+            db,
+            event_bus,
+            workflow.clone(),
+            task_id_context,
+        )
+        .await;
+    }
+}
+
+async fn execute_matching_workflows(
+    bot: &Bot,
+    admins: &[String],
+    db: &DatabaseConnection,
+    event_bus: &EventBus,
+    event_type: &str,
+    task_id_context: Option<i32>,
+) {
+    let workflows = match tg_workflows::Entity::find()
+        .filter(tg_workflows::Column::EventType.eq(event_type))
+        .all(db)
+        .await
+    {
+        Ok(workflows) => workflows,
+        Err(err) => {
+            error!("查询 {} 工作流失败: {}", event_type, err);
+            return;
+        }
+    };
+
+    for workflow in workflows {
+        execute_workflow_for_admins(bot, admins, db, event_bus, workflow, task_id_context).await;
+    }
+}
 
 #[derive(BotCommands, Clone)]
 #[command(rename_rule = "lowercase", description = "📱 NiuPanel 移动运维终端")]
@@ -524,19 +588,31 @@ async fn handle_system_event(
                 return;
             }
 
-            let key = if status == TaskStatus::Failed {
-                "failed"
-            } else {
+            if !is_system {
+                let workflow_event = match status {
+                    TaskStatus::Finished => Some("success"),
+                    TaskStatus::Failed => Some("failed"),
+                    _ => None,
+                };
+                if let Some(workflow_event) = workflow_event {
+                    execute_matching_workflows(bot, admins, db, eb, workflow_event, Some(task_id))
+                        .await;
+                }
+            }
+
+            let key = if status == TaskStatus::Finished {
                 "success"
+            } else {
+                "failed"
             };
             if !is_system && !enabled.contains(&key.to_string()) {
                 return;
             }
 
-            let icon = if status == TaskStatus::Failed {
-                "⚠️"
-            } else {
+            let icon = if status == TaskStatus::Finished {
                 "✅"
+            } else {
+                "⚠️"
             };
             let type_str = if is_system {
                 "运维任务"
@@ -561,12 +637,13 @@ async fn handle_system_event(
             if final_output.is_none() {
                 if is_system {
                     if let Some(jid) = job_id {
-                        let log_dir = format!("data/jobs/{}", jid);
-                        final_output = helpers::read_latest_log(&log_dir, 1000).await;
+                        let log_dir = Config::global().jobs_dir.join(jid.to_string());
+                        final_output =
+                            helpers::read_latest_log(&log_dir.to_string_lossy(), 1000).await;
                     }
                 } else {
-                    let log_dir = format!("data/logs/{}", task_id);
-                    final_output = helpers::read_latest_log(&log_dir, 1000).await;
+                    let log_dir = Config::global().logs_dir.join(task_id.to_string());
+                    final_output = helpers::read_latest_log(&log_dir.to_string_lossy(), 1000).await;
                 }
             }
 
@@ -652,9 +729,11 @@ async fn handle_system_event(
 
             msg_text
         }
-        SystemEvent::System(SystemNotification::Alert { message })
-            if enabled.contains(&"alert".to_string()) =>
-        {
+        SystemEvent::System(SystemNotification::Alert { message }) => {
+            execute_matching_workflows(bot, admins, db, eb, "alert", None).await;
+            if !enabled.contains(&"alert".to_string()) {
+                return;
+            }
             format!("🚨 *系统警报*\n{}", escape_tg_markdown(&message))
         }
         SystemEvent::System(SystemNotification::Notification {
@@ -663,6 +742,7 @@ async fn handle_system_event(
             level,
         }) => {
             let key = if level == "error" || level == "warn" {
+                execute_matching_workflows(bot, admins, db, eb, "alert", None).await;
                 "alert"
             } else {
                 "login"
@@ -703,11 +783,7 @@ async fn handle_system_event(
                     workflow_id,
                     admins.len()
                 );
-                for id in admins {
-                    let chat_id = ChatId(id.parse::<i64>().unwrap_or(0));
-                    helpers::execute_workflow(bot, chat_id, db, eb, wf.clone(), task_id_context)
-                        .await;
-                }
+                execute_workflow_for_admins(bot, admins, db, eb, wf, task_id_context).await;
             } else {
                 niupanel_common::logger::warn!("Workflow {} not found in DB", workflow_id);
             }
@@ -752,10 +828,8 @@ pub(crate) async fn download_and_save_file(
     file_id: String,
     name: String,
 ) -> anyhow::Result<()> {
-    let dir = std::path::Path::new("data/scripts/telegram");
-    if !dir.exists() {
-        tokio::fs::create_dir_all(dir).await?;
-    }
+    let dir = Config::global().scripts_dir.join("telegram");
+    tokio::fs::create_dir_all(&dir).await?;
 
     let original_path = std::path::Path::new(&name);
     let base = original_path
@@ -766,10 +840,23 @@ pub(crate) async fn download_and_save_file(
         .extension()
         .and_then(|s| s.to_str())
         .unwrap_or("");
-    let unique_path = helpers::get_unique_path(dir, base, ext);
+    let unique_path = helpers::get_unique_path(&dir, base, ext);
 
     let file = bot.get_file(FileId(file_id)).await?;
-    let mut out = tokio::fs::File::create(unique_path).await?;
-    bot.download_file(&file.path, &mut out).await?;
+    let mut options = tokio::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    options.mode(0o600);
+    let mut out = options.open(&unique_path).await?;
+    if let Err(err) = bot.download_file(&file.path, &mut out).await {
+        drop(out);
+        let _ = tokio::fs::remove_file(&unique_path).await;
+        return Err(err.into());
+    }
+    if let Err(err) = out.sync_all().await {
+        drop(out);
+        let _ = tokio::fs::remove_file(&unique_path).await;
+        return Err(err.into());
+    }
     Ok(())
 }

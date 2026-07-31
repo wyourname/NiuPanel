@@ -7,21 +7,31 @@ import type {
   VariableQueryParams,
   VariableReorderRequest,
   VariableRequest,
+  VariableSummaryListResponse,
   VariableUpdateRequest,
+  VariableValue,
 } from '@/types'
 
 /**
  * 获取变量列表
  */
-export const getVariables = (params: VariableQueryParams): Promise<ApiResponse<VariableListResponse>> => {
+export const getVariables = (params: VariableQueryParams): Promise<ApiResponse<VariableSummaryListResponse>> => {
   return request.get('/variables', { params })
+}
+
+export const getVariablesWithValues = (params: VariableQueryParams): Promise<ApiResponse<VariableListResponse>> => {
+  return request.get('/variables/with-values', { params })
+}
+
+export const getVariableValue = (id: number): Promise<ApiResponse<VariableValue>> => {
+  return request.get(`/variables/${id}/value`)
 }
 
 /**
  * 获取特定任务的变量
  */
 export const getVariablesByTaskId = (taskId: number): Promise<ApiResponse<VariableListResponse>> => {
-  return request.get('/variables', {
+  return request.get('/variables/with-values', {
     params: {
       scope: 'Script',
       scope_id: taskId,
@@ -56,6 +66,17 @@ export const updateVariable = (id: number, data: VariableUpdateRequest): Promise
  */
 export const updateVariables = (variables: Array<VariableUpdateRequest & { id: number }>): Promise<Array<ApiResponse<Variable>>> => {
   return Promise.all(variables.map(v => updateVariable(v.id, v)))
+}
+
+export const saveTaskVariables = (data: {
+  task_id: number;
+  upserts: Array<{
+    id?: number;
+    variable: VariableRequest;
+  }>;
+  delete_ids: number[];
+}): Promise<ApiResponse<Variable[]>> => {
+  return request.post('/variables/batch-save', data)
 }
 
 /**

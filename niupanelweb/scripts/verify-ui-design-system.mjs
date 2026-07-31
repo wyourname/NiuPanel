@@ -10,15 +10,18 @@ const fail = (message) => {
 };
 
 const packageJson = JSON.parse(read("package.json"));
-const packageLock = JSON.parse(read("package-lock.json"));
+const pnpmLock = read("pnpm-lock.yaml");
 if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(packageJson.version)) {
   fail(`invalid frontend version: ${packageJson.version}`);
 }
 if (packageJson.version === "0.0.0") {
   fail("frontend version must not remain at 0.0.0");
 }
-if (packageLock.version !== packageJson.version || packageLock.packages?.[""]?.version !== packageJson.version) {
-  fail("package-lock.json frontend version does not match package.json");
+if (!packageJson.packageManager?.startsWith("pnpm@")) {
+  fail("package.json must pin pnpm through packageManager");
+}
+if (!pnpmLock.includes("lockfileVersion:") || !pnpmLock.includes("importers:")) {
+  fail("pnpm-lock.yaml is missing or invalid");
 }
 
 const viteConfig = read("vite.config.ts");

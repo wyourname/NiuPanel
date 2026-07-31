@@ -2,7 +2,7 @@ import { ref } from "vue";
 import { getEnvironments } from "@/api/environment";
 import { getTasks } from "@/api/tasks";
 import { getVariables } from "@/api/variable";
-import type { Env, Task, Variable } from "@/types";
+import type { Env, Task, VariableSummary } from "@/types";
 import type { PaletteItem } from "./types";
 
 const toTaskPaletteItem = (task: Task): PaletteItem => ({
@@ -14,7 +14,7 @@ const toTaskPaletteItem = (task: Task): PaletteItem => ({
   query: { q: task.name },
 });
 
-const toVariablePaletteItem = (variable: Variable): PaletteItem => ({
+const toVariablePaletteItem = (variable: VariableSummary): PaletteItem => ({
   title: variable.key,
   desc: `变量 · ${variable.scope} · ${variable.remarks || "无备注"}`,
   id: variable.id,

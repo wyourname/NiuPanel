@@ -80,6 +80,14 @@ await rewriteCompilerTemplate(compilerTarget, compilerId);
 await writePrivateRepoPackageJson(targetDir, agentsId, compilerId);
 await writePrivateRepoReadme(targetDir, agentsId, compilerId);
 await writeGitignore(targetDir);
+await writeFile(
+  path.join(targetDir, ".npmrc"),
+  "registry=https://registry.npmmirror.com/\nprefer-offline=true\n",
+);
+await writeFile(
+  path.join(targetDir, "pnpm-workspace.yaml"),
+  "allowBuilds:\n  esbuild: true\n  vue-demi: true\nnodeVersion: 22.23.1\nengineStrict: true\n",
+);
 
 console.log(
   JSON.stringify(
@@ -160,11 +168,13 @@ async function rewriteCompilerTemplate(pluginDir, pluginId) {
   manifest.id = pluginId;
   manifest.name = "Private Compiler Loader";
   manifest.description = "Private compiler/loader plugin package.";
-  manifest.ui.routes = manifest.ui.routes.map((route) => ({
-    ...route,
-    path: route.path.replace("/plugins/echo-compiler", `/plugins/${pluginId}`),
-    title: route.title === "Echo Compiler" ? "Private Compiler Loader" : route.title,
-  }));
+  if (Array.isArray(manifest.ui?.routes)) {
+    manifest.ui.routes = manifest.ui.routes.map((route) => ({
+      ...route,
+      path: route.path.replace("/plugins/echo-compiler", `/plugins/${pluginId}`),
+      title: route.title === "Echo Compiler" ? "Private Compiler Loader" : route.title,
+    }));
+  }
   await writeJson(manifestPath, manifest);
 
   await replaceInFile(path.join(pluginDir, "README.md"), [
@@ -184,17 +194,21 @@ async function writePrivateRepoPackageJson(targetDir, agentsId, compilerId) {
     version: "0.1.0",
     private: true,
     type: "module",
+    packageManager: "pnpm@11.18.0",
+    engines: {
+      node: ">=22.13.0",
+    },
     scripts: {
-      "build:agents-ui": `cd plugins/${agentsId}/ui && npm install && npm run build`,
-      "package:agents": `npm run build:agents-ui && node scripts/package-plugin.mjs plugins/${agentsId} --out dist/plugins --market dist/plugins/index.json --download-url ./${agentsId}.tgz`,
+      "build:agents-ui": `pnpm --dir plugins/${agentsId}/ui install && pnpm --dir plugins/${agentsId}/ui run build`,
+      "package:agents": `pnpm run build:agents-ui && node scripts/package-plugin.mjs plugins/${agentsId} --out dist/plugins --market dist/plugins/index.json --download-url ./${agentsId}.tgz`,
       "package:compiler": `node scripts/package-plugin.mjs plugins/${compilerId} --out dist/plugins --market dist/plugins/index.json --download-url ./${compilerId}.tgz`,
-      "package:all": "npm run package:agents && npm run package:compiler",
+      "package:all": "pnpm run package:agents && pnpm run package:compiler",
       "package:compiler:signed": `node scripts/package-plugin.mjs plugins/${compilerId} --out dist/plugins --market dist/plugins/index.json --download-url ./${compilerId}.tgz --sign-key "$PLUGIN_SIGN_KEY"`,
-      "package:agents:signed": `npm run build:agents-ui && node scripts/package-plugin.mjs plugins/${agentsId} --out dist/plugins --market dist/plugins/index.json --download-url ./${agentsId}.tgz --sign-key "$PLUGIN_SIGN_KEY"`,
+      "package:agents:signed": `pnpm run build:agents-ui && node scripts/package-plugin.mjs plugins/${agentsId} --out dist/plugins --market dist/plugins/index.json --download-url ./${agentsId}.tgz --sign-key "$PLUGIN_SIGN_KEY"`,
       "signing:keygen": "node scripts/generate-plugin-signing-key.mjs",
       "validate:compiler": `node scripts/package-plugin.mjs plugins/${compilerId} --dry-run`,
-      "validate:agents": `npm run build:agents-ui && node scripts/package-plugin.mjs plugins/${agentsId} --dry-run`,
-      verify: "npm run validate:compiler && npm run validate:agents",
+      "validate:agents": `pnpm run build:agents-ui && node scripts/package-plugin.mjs plugins/${agentsId} --dry-run`,
+      verify: "pnpm run validate:compiler && pnpm run validate:agents",
     },
   };
   await writeJson(path.join(targetDir, "package.json"), json);
@@ -222,9 +236,9 @@ then publish only packaged artifacts to your private plugin market.
 ## Build And Package
 
 \`\`\`bash
-npm run verify
-npm run package:compiler
-npm run package:agents
+pnpm run verify
+pnpm run package:compiler
+pnpm run package:agents
 \`\`\`
 
 The agents plugin command runs the Vue UI build before validating or packaging.
@@ -242,9 +256,9 @@ For signed private markets, set an Ed25519 private key path and use the signed
 package commands:
 
 \`\`\`bash
-npm run signing:keygen
-PLUGIN_SIGN_KEY=/secure/plugin-ed25519.pem npm run package:compiler:signed
-PLUGIN_SIGN_KEY=/secure/plugin-ed25519.pem npm run package:agents:signed
+pnpm run signing:keygen
+PLUGIN_SIGN_KEY=/secure/plugin-ed25519.pem pnpm run package:compiler:signed
+PLUGIN_SIGN_KEY=/secure/plugin-ed25519.pem pnpm run package:agents:signed
 \`\`\`
 
 The package command prints \`trusted_key\`. Add that value to
@@ -276,7 +290,7 @@ the public panel repository.
   \`compiler.versions\` and \`compiler.encrypt\`.
 - For closed-source binary plugins, build runtime artifacts into \`bin/\` and
   add backend source directories to \`.pluginignore\`.
-- Re-run \`npm run verify\` before publishing a new market index.
+- Re-run \`pnpm run verify\` before publishing a new market index.
 
 ## Public Boundary
 

@@ -3,12 +3,12 @@
     <el-tab-pane label="Node.js 下载源" name="node_dist">
       <el-form label-position="top" size="small">
         <el-alert
-          title="配置 fnm 下载 Node.js 二进制时使用的镜像源（FNM_NODE_DIST_MIRROR），在创建环境时生效。"
+          title="配置 pnpm runtime 下载 Node.js 二进制时使用的镜像源（PNPM_NODE_DIST_MIRROR），在创建环境时生效。"
           type="info"
           :closable="false"
           class="mb-4"
         />
-        <el-form-item label="Node.js 发行版镜像 (FNM_NODE_DIST_MIRROR)">
+        <el-form-item label="Node.js 发行版镜像 (PNPM_NODE_DIST_MIRROR)">
           <EnvMirrorPresetSelect
             :is-mobile="isMobile"
             :model-value="distMirror"
@@ -24,15 +24,15 @@
       </el-form>
     </el-tab-pane>
 
-    <el-tab-pane label="npm 包镜像" name="npm">
+    <el-tab-pane label="pnpm 包镜像" name="pnpm">
       <el-form label-position="top">
         <el-alert
-          title="通过 npm config set registry 设置，影响 npm install 时包的下载速度。"
+          title="作为 pnpm Registry 使用，影响 pnpm add 时包的下载速度。"
           type="info"
           :closable="false"
           class="mb-4"
         />
-        <el-form-item label="常用 npm 镜像">
+        <el-form-item label="常用 pnpm Registry">
           <EnvMirrorPresetSelect
             :is-mobile="isMobile"
             :model-value="registryUrl"

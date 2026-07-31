@@ -93,11 +93,11 @@
           <el-input v-model="form.uv_python_mirror" placeholder="https://..." class="modern-input" />
         </div>
         <div class="space-y-2">
-          <label class="label-xs ml-1">Node (FNM) 镜像</label>
-          <el-input v-model="form.fnm_node_dist_mirror" placeholder="https://..." class="modern-input" />
+          <label class="label-xs ml-1">Node (pnpm runtime) 镜像</label>
+          <el-input v-model="form.pnpm_node_dist_mirror" placeholder="https://..." class="modern-input" />
         </div>
         <div class="space-y-2">
-          <label class="label-xs ml-1">npm Registry 镜像</label>
+          <label class="label-xs ml-1">pnpm Registry 镜像</label>
           <el-input v-model="form.npm_registry_mirror" placeholder="https://registry.npmjs.org/" class="modern-input" />
         </div>
       </div>
@@ -121,14 +121,14 @@ const form = reactive<GeneralSettings>({
   logo: "",
   timezone: "Asia/Shanghai",
   max_concurrency: 5,
-  log_retention_days: 30,
+  log_retention_days: 15,
   github_proxy_url: "",
   uv_python_mirror: "",
   uv_pypi_mirror: "",
   default_python_version: "",
   default_node_version: "",
-  fnm_node_dist_mirror: "",
-  npm_registry_mirror: "",
+  pnpm_node_dist_mirror: "",
+  npm_registry_mirror: "https://registry.npmmirror.com/",
 });
 
 const toSettingsMap = (items: SettingItem[]) =>
@@ -160,7 +160,8 @@ const load = async () => {
       applySettingIfPresent("system.uv_pypi_mirror", "uv_pypi_mirror", settings);
       applySettingIfPresent("system.default_python_version", "default_python_version", settings);
       applySettingIfPresent("system.default_node_version", "default_node_version", settings);
-      applySettingIfPresent("system.fnm_node_dist_mirror", "fnm_node_dist_mirror", settings);
+      applySettingIfPresent("system.fnm_node_dist_mirror", "pnpm_node_dist_mirror", settings);
+      applySettingIfPresent("system.pnpm_node_dist_mirror", "pnpm_node_dist_mirror", settings);
       applySettingIfPresent("system.npm_registry_mirror", "npm_registry_mirror", settings);
     }
   } catch (e) {}

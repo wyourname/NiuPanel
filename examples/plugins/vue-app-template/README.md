@@ -6,8 +6,8 @@ Build the UI:
 
 ```bash
 cd examples/plugins/vue-app-template/ui
-npm install
-npm run build
+pnpm install
+pnpm run build
 ```
 
 Install the plugin package from the panel using the server-side path:

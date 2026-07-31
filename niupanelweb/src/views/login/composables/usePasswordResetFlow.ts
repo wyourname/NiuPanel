@@ -27,7 +27,7 @@ export function usePasswordResetFlow({ loading }: UsePasswordResetFlowOptions) {
   const forgotUsername = ref("");
   const forgotEmailPrefix = ref("");
   const forgotEmailSuffix = ref("");
-  const forgotEmail = computed(() => `${forgotEmailPrefix.value}@${forgotEmailSuffix.value}`);
+  const forgotEmail = computed(() => forgotEmailPrefix.value.trim());
   const forgotCode = ref("");
   const forgotStep = ref(0);
   const identifying = ref(false);

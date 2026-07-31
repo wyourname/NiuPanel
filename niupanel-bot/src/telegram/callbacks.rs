@@ -1,6 +1,7 @@
-use niupanel_common::escape_tg_markdown;
 use niupanel_common::logger::{debug, warn};
 use niupanel_common::models::update::UpdateState;
+use niupanel_common::variable::{normalize_variable_key, validate_variable_value};
+use niupanel_common::{config::Config, escape_tg_markdown};
 use niupanel_core::event_bus::{AuthEvent, EventBus, SystemEvent, TelegramEvent};
 use niupanel_core::settings::update::UpdateService;
 use niupanel_core::task_manager::service::TaskManagerService;
@@ -8,7 +9,7 @@ use niupanel_entity::task_status::TaskStatus;
 use niupanel_entity::{tasks, variables, variables_tasks};
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, IntoActiveModel, QueryFilter,
-    Set,
+    Set, TransactionTrait,
 };
 use teloxide::net::Download;
 use teloxide::prelude::*;
@@ -143,9 +144,8 @@ pub async fn handle_callback(
         }
         d if d.starts_with("wf_approve_") => {
             let nonce = d.strip_prefix("wf_approve_").unwrap_or(d).to_string();
-            let pending_script_path = format!("/tmp/tg_pending_approval_{}.sh", nonce);
 
-            if let Ok(script) = tokio::fs::read_to_string(&pending_script_path).await {
+            if let Some(script) = take_pending_workflow_approval(&nonce, chat_id).await {
                 if let Some(mid) = msg_id {
                     let _ = bot
                         .edit_message_text(
@@ -167,9 +167,6 @@ pub async fn handle_callback(
 
                 // execute the script
                 super::helpers::execute_custom_command(bot, chat_id, db, eb, dummy_cmd).await;
-
-                // clean up
-                let _ = tokio::fs::remove_file(&pending_script_path).await;
             } else {
                 if let Some(mid) = msg_id {
                     let _ = bot
@@ -180,24 +177,30 @@ pub async fn handle_callback(
         }
         d if d.starts_with("wf_reject_") => {
             let nonce = d.strip_prefix("wf_reject_").unwrap_or(d).to_string();
-            let pending_script_path = format!("/tmp/tg_pending_approval_{}.sh", nonce);
-
-            // clean up
-            let _ = tokio::fs::remove_file(&pending_script_path).await;
+            let rejected = discard_pending_workflow_approval(&nonce, chat_id).await;
 
             if let Some(mid) = msg_id {
                 let _ = bot
-                    .edit_message_text(chat_id, mid, "🚫 已取消该自动化操作")
+                    .edit_message_text(
+                        chat_id,
+                        mid,
+                        if rejected {
+                            "🚫 已取消该自动化操作"
+                        } else {
+                            "❌ 取消失败：该操作已过期或不存在"
+                        },
+                    )
                     .parse_mode(ParseMode::MarkdownV2)
                     .await;
             }
         }
         "upgrade:cancel" => {
-            let _ = us.cancel_update().await;
             if let Some(mid) = msg_id {
-                let _ = bot
-                    .edit_message_text(chat_id, mid, "⌛ 正在取消更新...")
-                    .await;
+                let message = match us.cancel_update().await {
+                    Ok(()) => "⌛ 正在取消更新...".to_string(),
+                    Err(err) => format!("❌ 取消更新失败: {}", err),
+                };
+                let _ = bot.edit_message_text(chat_id, mid, message).await;
             }
         }
         d if d.starts_with("tasks_page_") || d.starts_with("tasks_filter_") => {
@@ -226,15 +229,19 @@ pub async fn handle_callback(
         }
         d if d.starts_with("task_manage_") => {
             if let Ok(id) = d.strip_prefix("task_manage_").unwrap_or(d).parse::<i32>() {
-                handle_task_manage_menu(bot, chat_id, db, id, msg_id.unwrap()).await;
+                if let Some(mid) = msg_id {
+                    handle_task_manage_menu(bot, chat_id, db, id, mid).await;
+                }
             }
         }
         d if d.starts_with("var_manage_") => {
             if let Ok(id) = d.strip_prefix("var_manage_").unwrap_or(d).parse::<i32>() {
-                handle_var_manage_menu(bot, chat_id, db, id, msg_id.unwrap()).await;
+                if let Some(mid) = msg_id {
+                    handle_var_manage_menu(bot, chat_id, db, id, mid).await;
+                }
             }
         }
-        d if d.starts_with("pip") || d.starts_with("npm") || d.starts_with("apt") => {
+        d if d.starts_with("pip") || d.starts_with("pnpm") || d.starts_with("apt") => {
             if let Some(mid) = msg_id {
                 if super::deps::handle_dep_callback(bot, chat_id, mid, d, tm, eb, jm).await {
                     return;
@@ -288,13 +295,48 @@ pub async fn handle_callback(
         }
         d if d.starts_with("confirm_del_") => {
             if let Ok(id) = d.strip_prefix("confirm_del_").unwrap_or(d).parse::<i32>() {
-                let _ = tasks::Entity::delete_by_id(id).exec(db).await;
+                let task = match tasks::Entity::find_by_id(id).one(db).await {
+                    Ok(Some(task)) => task,
+                    Ok(None) => {
+                        reply_success(bot, chat_id, msg_id, "❌ 任务不存在或已被删除").await;
+                        return;
+                    }
+                    Err(err) => {
+                        reply_success(bot, chat_id, msg_id, &format!("❌ 查询任务失败: {err}"))
+                            .await;
+                        return;
+                    }
+                };
                 if let Err(err) = tm.remove_task_schedule(id).await {
                     reply_success(
                         bot,
                         chat_id,
                         msg_id,
-                        &format!("🗑️ 任务已删除，但移除调度失败: {}", err),
+                        &format!("❌ 移除任务调度失败，任务未删除: {}", err),
+                    )
+                    .await;
+                    return;
+                }
+                if let Err(err) =
+                    niupanel_core::task::delete_task_records(db, vec![id], true, false).await
+                {
+                    let restore_message = match tasks::Entity::find_by_id(id).one(db).await {
+                        Ok(Some(_)) => match tm.update_task_schedule(&task).await {
+                            Ok(()) => "；原调度已恢复".to_string(),
+                            Err(restore_err) => {
+                                format!("；原调度恢复失败: {}", restore_err)
+                            }
+                        },
+                        Ok(None) => "；任务记录已删除，未恢复调度".to_string(),
+                        Err(check_err) => {
+                            format!("；无法确认删除状态，未恢复调度: {}", check_err)
+                        }
+                    };
+                    reply_success(
+                        bot,
+                        chat_id,
+                        msg_id,
+                        &format!("❌ 删除任务失败: {}{}", err, restore_message),
                     )
                     .await;
                     return;
@@ -308,12 +350,26 @@ pub async fn handle_callback(
                 .unwrap_or(d)
                 .parse::<i32>()
             {
-                let _ = variables_tasks::Entity::delete_many()
-                    .filter(variables_tasks::Column::VariableId.eq(id))
-                    .exec(db)
-                    .await;
-                let _ = variables::Entity::delete_by_id(id).exec(db).await;
-                reply_success(bot, chat_id, msg_id, "🗑️ 变量已删除").await;
+                let result: Result<u64, sea_orm::DbErr> = async {
+                    let txn = db.begin().await?;
+                    variables_tasks::Entity::delete_many()
+                        .filter(variables_tasks::Column::VariableId.eq(id))
+                        .exec(&txn)
+                        .await?;
+                    let deleted = variables::Entity::delete_by_id(id).exec(&txn).await?;
+                    txn.commit().await?;
+                    Ok(deleted.rows_affected)
+                }
+                .await;
+
+                match result {
+                    Ok(0) => reply_success(bot, chat_id, msg_id, "❌ 变量不存在或已被删除").await,
+                    Ok(_) => reply_success(bot, chat_id, msg_id, "🗑️ 变量已删除").await,
+                    Err(err) => {
+                        reply_success(bot, chat_id, msg_id, &format!("❌ 删除变量失败: {err}"))
+                            .await
+                    }
+                }
             }
         }
         d if d.starts_with("confirm_enable_") || d.starts_with("confirm_disable_") => {
@@ -325,11 +381,64 @@ pub async fn handle_callback(
             };
             if let Ok(id) = id_str.parse::<i32>() {
                 use sea_orm::IntoActiveModel;
-                if let Ok(Some(t)) = tasks::Entity::find_by_id(id).one(db).await {
-                    let mut am = t.into_active_model();
-                    am.enabled = Set(enable);
-                    let _ = am.update(db).await;
-                    handle_task_manage_menu(bot, chat_id, db, id, msg_id.unwrap()).await;
+                let Some(mid) = msg_id else {
+                    return;
+                };
+                match tasks::Entity::find_by_id(id).one(db).await {
+                    Ok(Some(task)) => {
+                        let previous = task.clone();
+                        let mut am = task.into_active_model();
+                        am.enabled = Set(enable);
+                        match am.update(db).await {
+                            Ok(updated) => {
+                                if let Err(schedule_err) = tm.update_task_schedule(&updated).await {
+                                    let mut rollback = previous.clone().into_active_model();
+                                    rollback.enabled = Set(previous.enabled);
+                                    let rollback_result = rollback.update(db).await;
+                                    if enable {
+                                        let _ = tm.remove_task_schedule(id).await;
+                                    } else {
+                                        let _ = tm.update_task_schedule(&previous).await;
+                                    }
+                                    let rollback_suffix = rollback_result
+                                        .err()
+                                        .map(|err| format!("；数据库回滚失败: {}", err))
+                                        .unwrap_or_default();
+                                    let _ = bot
+                                        .edit_message_text(
+                                            chat_id,
+                                            mid,
+                                            format!(
+                                                "❌ 更新任务调度失败: {}{}",
+                                                schedule_err, rollback_suffix
+                                            ),
+                                        )
+                                        .await;
+                                    return;
+                                }
+                                handle_task_manage_menu(bot, chat_id, db, id, mid).await;
+                            }
+                            Err(err) => {
+                                let _ = bot
+                                    .edit_message_text(
+                                        chat_id,
+                                        mid,
+                                        format!("❌ 更新任务状态失败: {}", err),
+                                    )
+                                    .await;
+                            }
+                        }
+                    }
+                    Ok(None) => {
+                        let _ = bot
+                            .edit_message_text(chat_id, mid, "⚠️ 任务不存在或已被删除")
+                            .await;
+                    }
+                    Err(err) => {
+                        let _ = bot
+                            .edit_message_text(chat_id, mid, format!("❌ 查询任务失败: {}", err))
+                            .await;
+                    }
                 }
             }
         }
@@ -351,7 +460,7 @@ pub async fn handle_callback(
         "add_cron_skip" => handle_add_cron_skip(bot, chat_id, msg_id, convs).await,
         "cancel_action" => handle_cancel(bot, chat_id, msg_id, convs).await,
         "addvar_done_selection" => handle_var_done(bot, chat_id, msg_id, db, convs).await,
-        "add_confirm" => commands::handle_add_confirm(bot, chat_id, db, eb, convs).await,
+        "add_confirm" => commands::handle_add_confirm(bot, chat_id, db, eb, tm, convs).await,
         _ => warn!("未知回调: {}", data),
     }
 
@@ -503,14 +612,25 @@ async fn handle_set_var_scope(
                 }
                 return;
             }
+            if scope != "Global" {
+                return;
+            }
             if let Ok(Some(var)) = variables::Entity::find_by_id(id).one(db).await {
+                let Ok(txn) = db.begin().await else {
+                    return;
+                };
                 let mut am = var.into_active_model();
                 am.scope = Set(scope);
-                if let Ok(_) = am.update(db).await {
-                    let _ = variables_tasks::Entity::delete_many()
+                am.scope_id = Set(None);
+                am.updated_at = Set(chrono::Utc::now());
+                if am.update(&txn).await.is_ok()
+                    && variables_tasks::Entity::delete_many()
                         .filter(variables_tasks::Column::VariableId.eq(id))
-                        .exec(db)
-                        .await;
+                        .exec(&txn)
+                        .await
+                        .is_ok()
+                    && txn.commit().await.is_ok()
+                {
                     if let Some(m) = mid {
                         handle_var_manage_menu(bot, chat_id, db, id, m).await;
                     }
@@ -646,22 +766,68 @@ async fn handle_var_done(
         Some(ConversationState::AddVar {
             data, last_msg_id, ..
         }) => {
+            let scope = data.scope.unwrap_or_else(|| "Global".to_string());
+            if scope != "Global" && scope != "Script" {
+                reply_success(bot, chat_id, mid.or(last_msg_id), "❌ 变量作用域无效").await;
+                return;
+            }
+            if scope == "Script" && data.selected_tasks.is_empty() {
+                reply_success(
+                    bot,
+                    chat_id,
+                    mid.or(last_msg_id),
+                    "❌ 脚本变量必须至少关联一个任务",
+                )
+                .await;
+                return;
+            }
+            let key = match normalize_variable_key(data.key.as_deref().unwrap_or_default()) {
+                Ok(key) => key,
+                Err(error) => {
+                    reply_success(bot, chat_id, mid.or(last_msg_id), &format!("❌ {error}")).await;
+                    return;
+                }
+            };
+            let value = data.value.unwrap_or_default();
+            if let Err(error) = validate_variable_value(&value) {
+                reply_success(bot, chat_id, mid.or(last_msg_id), &format!("❌ {error}")).await;
+                return;
+            }
+            let selected_tasks = if scope == "Script" {
+                data.selected_tasks
+            } else {
+                vec![]
+            };
+            let primary_task_id = selected_tasks.first().copied();
             let am = variables::ActiveModel {
-                key: Set(data.key.unwrap_or_default()),
-                value: Set(data.value.unwrap_or_default()),
-                scope: Set(data.scope.unwrap_or_else(|| "Global".to_string())),
+                key: Set(key),
+                value: Set(value),
+                scope: Set(scope),
+                scope_id: Set(primary_task_id),
                 enabled: Set(true),
                 ..Default::default()
             };
-            if let Ok(v) = am.insert(db).await {
-                for tid in data.selected_tasks {
-                    let _ = variables_tasks::ActiveModel {
+            let Ok(txn) = db.begin().await else {
+                return;
+            };
+            if let Ok(v) = am.insert(&txn).await {
+                let mut succeeded = true;
+                for tid in selected_tasks {
+                    if (variables_tasks::ActiveModel {
                         variable_id: Set(v.id),
                         task_id: Set(tid),
                         sort_order: Set(v.id),
+                    })
+                    .insert(&txn)
+                    .await
+                    .is_err()
+                    {
+                        succeeded = false;
+                        break;
                     }
-                    .insert(db)
-                    .await;
+                }
+                if !succeeded || txn.commit().await.is_err() {
+                    return;
                 }
                 reply_success(
                     bot,
@@ -678,22 +844,50 @@ async fn handle_var_done(
             last_msg_id,
             ..
         }) => {
+            if selected_tasks.is_empty() {
+                reply_success(
+                    bot,
+                    chat_id,
+                    mid.or(last_msg_id),
+                    "❌ 脚本变量必须至少关联一个任务",
+                )
+                .await;
+                return;
+            }
             if let Ok(Some(var)) = variables::Entity::find_by_id(var_id).one(db).await {
+                let Ok(txn) = db.begin().await else {
+                    return;
+                };
                 let mut am = var.into_active_model();
                 am.scope = Set("Script".to_string());
-                if let Ok(_) = am.update(db).await {
-                    let _ = variables_tasks::Entity::delete_many()
+                am.scope_id = Set(selected_tasks.first().copied());
+                am.updated_at = Set(chrono::Utc::now());
+                if am.update(&txn).await.is_ok() {
+                    if variables_tasks::Entity::delete_many()
                         .filter(variables_tasks::Column::VariableId.eq(var_id))
-                        .exec(db)
-                        .await;
+                        .exec(&txn)
+                        .await
+                        .is_err()
+                    {
+                        return;
+                    }
+                    let mut succeeded = true;
                     for tid in selected_tasks {
-                        let _ = variables_tasks::ActiveModel {
+                        if (variables_tasks::ActiveModel {
                             variable_id: Set(var_id),
                             task_id: Set(tid),
                             sort_order: Set(var_id),
+                        })
+                        .insert(&txn)
+                        .await
+                        .is_err()
+                        {
+                            succeeded = false;
+                            break;
                         }
-                        .insert(db)
-                        .await;
+                    }
+                    if !succeeded || txn.commit().await.is_err() {
+                        return;
                     }
                     if let Some(m) = mid.or(last_msg_id) {
                         handle_var_manage_menu(bot, chat_id, db, var_id, m).await;
@@ -723,27 +917,84 @@ pub async fn handle_edit_step(
     }) = state
     {
         convs.write().await.remove(&chat_id.to_string());
-        if let Ok(Some(task)) = tasks::Entity::find_by_id(task_id).one(db).await {
-            let mut am = task.into_active_model();
-            let val = text.trim();
-            match field.as_str() {
-                "name" => am.name = Set(val.to_string()),
-                "cron" => am.cron_schedule = Set(Some(val.to_string())),
-                "desc" => am.description = Set(Some(val.to_string())),
-                _ => return true,
-            };
-            if let Ok(updated) = am.update(db).await {
-                if field == "cron" {
-                    let _ = tm.update_task_schedule(&updated).await;
+        match tasks::Entity::find_by_id(task_id).one(db).await {
+            Ok(Some(task)) => {
+                let previous = task.clone();
+                let mut am = task.into_active_model();
+                let val = text.trim();
+                match field.as_str() {
+                    "name" => am.name = Set(val.to_string()),
+                    "cron" => {
+                        am.cron_schedule = Set((!val.is_empty()).then(|| val.to_string()));
+                    }
+                    "desc" => am.description = Set(Some(val.to_string())),
+                    _ => return true,
+                };
+                match am.update(db).await {
+                    Ok(updated) => {
+                        if field == "cron"
+                            && let Err(schedule_error) = tm.update_task_schedule(&updated).await
+                        {
+                            let database_rollback = previous
+                                .clone()
+                                .into_active_model()
+                                .reset_all()
+                                .update(db)
+                                .await;
+                            let schedule_rollback = tm.update_task_schedule(&previous).await;
+                            reply_success(
+                                bot,
+                                chat_id,
+                                last_msg_id,
+                                &format!(
+                                    "❌ 更新 Cron 调度失败: {}（数据库回滚: {}，调度回滚: {}）",
+                                    schedule_error,
+                                    if database_rollback.is_ok() {
+                                        "成功"
+                                    } else {
+                                        "失败"
+                                    },
+                                    if schedule_rollback.is_ok() {
+                                        "成功"
+                                    } else {
+                                        "失败"
+                                    }
+                                ),
+                            )
+                            .await;
+                            return true;
+                        }
+                        if let Some(mid) = last_msg_id {
+                            handle_task_manage_menu(bot, chat_id, db, task_id, mid).await;
+                        }
+                        publish_audit(
+                            eb,
+                            chat_id.to_string(),
+                            format!("✏️ 修改任务 {}: {}={}", task_id, field, val),
+                        );
+                    }
+                    Err(error) => {
+                        reply_success(
+                            bot,
+                            chat_id,
+                            last_msg_id,
+                            &format!("❌ 更新任务失败: {}", error),
+                        )
+                        .await;
+                    }
                 }
-                if let Some(mid) = last_msg_id {
-                    handle_task_manage_menu(bot, chat_id, db, task_id, mid).await;
-                }
-                publish_audit(
-                    eb,
-                    chat_id.to_string(),
-                    format!("✏️ 修改任务 {}: {}={}", task_id, field, val),
-                );
+            }
+            Ok(None) => {
+                reply_success(bot, chat_id, last_msg_id, "⚠️ 任务不存在或已被删除").await;
+            }
+            Err(error) => {
+                reply_success(
+                    bot,
+                    chat_id,
+                    last_msg_id,
+                    &format!("❌ 查询任务失败: {}", error),
+                )
+                .await;
             }
         }
         return true;
@@ -772,10 +1023,23 @@ pub async fn handle_edit_var_step(
             let mut am = var.into_active_model();
             let val = text.trim();
             match field.as_str() {
-                "key" => am.key = Set(val.to_string()),
-                "value" => am.value = Set(val.to_string()),
+                "key" => match normalize_variable_key(val) {
+                    Ok(key) => am.key = Set(key),
+                    Err(error) => {
+                        let _ = bot.send_message(chat_id, format!("❌ {error}")).await;
+                        return true;
+                    }
+                },
+                "value" => {
+                    if let Err(error) = validate_variable_value(val) {
+                        let _ = bot.send_message(chat_id, format!("❌ {error}")).await;
+                        return true;
+                    }
+                    am.value = Set(val.to_string());
+                }
                 _ => return true,
             };
+            am.updated_at = Set(chrono::Utc::now());
             if let Ok(_) = am.update(db).await {
                 if let Some(mid) = last_msg_id {
                     handle_var_manage_menu(bot, chat_id, db, var_id, mid).await;
@@ -786,7 +1050,12 @@ pub async fn handle_edit_var_step(
                 publish_audit(
                     eb,
                     chat_id.to_string(),
-                    format!("✏️ 修改变量 {}: {}={}", var_id, field, val),
+                    format!(
+                        "✏️ 修改变量 {}: {}={}",
+                        var_id,
+                        field,
+                        if field == "value" { "***" } else { val }
+                    ),
                 );
             }
         }
@@ -795,376 +1064,9 @@ pub async fn handle_edit_var_step(
     false
 }
 
-async fn handle_quick_task_add(
-    bot: &Bot,
-    chat_id: ChatId,
-    mid: MessageId,
-    file_id: String,
-    db: &DatabaseConnection,
-    eb: &EventBus,
-    _tm: &TaskManagerService,
-) {
-    if let Ok(file) = bot.get_file(FileId(file_id)).await {
-        let name = std::path::Path::new(&file.path)
-            .file_name()
-            .and_then(|s| s.to_str())
-            .unwrap_or("unnamed")
-            .to_string();
-        if let Ok(content) = download_file_content(bot, file.id.to_string()).await {
-            // Save file
-            let ext = std::path::Path::new(&name)
-                .extension()
-                .and_then(|s| s.to_str())
-                .unwrap_or("");
-            let env_type = match ext {
-                "py" => "python3",
-                "js" => "node",
-                _ => "shell",
-            };
+mod operations;
 
-            let path = format!("telegram/{}", name);
-            let full_dir = std::path::Path::new("data/scripts/telegram");
-            if !full_dir.exists() {
-                let _ = tokio::fs::create_dir_all(full_dir).await;
-            }
-
-            if let Err(e) = tokio::fs::write(format!("data/scripts/{}", path), content).await {
-                let _ = bot
-                    .edit_message_text(chat_id, mid, format!("❌ 文件写入失败: {}", e))
-                    .await;
-                return;
-            }
-
-            // Create Task
-            let am = tasks::ActiveModel {
-                name: Set(name.clone()),
-                path: Set(path),
-                env_type: Set(env_type.to_string()),
-                status: Set(TaskStatus::Idle),
-                enabled: Set(true),
-                user_id: Set(1),
-                ..Default::default()
-            };
-
-            match am.insert(db).await {
-                Ok(t) => {
-                    let _ = bot.edit_message_text(chat_id, mid, format!("✅ 任务 `{}` 已创建！\n\nID: `{}`\n环境: `{}`\n\n输入 `/task run {}` 立即执行",
-                        escape_tg_markdown(&t.name), t.id, env_type, t.id)).parse_mode(ParseMode::MarkdownV2).await;
-                    publish_audit(
-                        eb,
-                        chat_id.to_string(),
-                        format!("🚀 通过 Telegram 快速部署任务: {}", t.name),
-                    );
-                }
-                Err(e) => {
-                    let _ = bot
-                        .edit_message_text(chat_id, mid, format!("❌ 数据库写入失败: {}", e))
-                        .await;
-                }
-            }
-        }
-    }
-}
-
-async fn handle_package_preview(
-    bot: &Bot,
-    chat_id: ChatId,
-    mid: MessageId,
-    file_id: String,
-    _db: &DatabaseConnection,
-) {
-    if let Ok(file) = bot.get_file(FileId(file_id)).await {
-        let mut buf = Vec::new();
-        if bot.download_file(&file.path, &mut buf).await.is_err() {
-            let _ = bot.edit_message_text(chat_id, mid, "❌ 文件下载失败").await;
-            return;
-        }
-
-        use flate2::read::GzDecoder;
-        let decoder = GzDecoder::new(&buf[..]);
-        let _package: Result<niupanel_common::models::update::ReleaseInfo, _> =
-            rmp_serde::decode::from_read(decoder);
-
-        // Since NiuPackage is in niupanel crate (not shared), I should have moved it to common.
-        // For now, I'll use a local minimal definition or skip strict typing if possible.
-        // Actually, I'll just save it to staging and let Backend handle it.
-
-        let staging_id = generate_nanoid(12);
-        let path = format!("data/shares/import/{}.npack", staging_id);
-        let dir = std::path::Path::new("data/shares/import");
-        if !dir.exists() {
-            let _ = tokio::fs::create_dir_all(dir).await;
-        }
-
-        if let Err(e) = tokio::fs::write(&path, buf).await {
-            let _ = bot
-                .edit_message_text(chat_id, mid, format!("❌ 暂存失败: {}", e))
-                .await;
-            return;
-        }
-
-        // We also need to write a .status file so Backend/Bot can read it
-        let status = serde_json::json!({
-            "state": "ready",
-            "message": "Downloaded via Telegram",
-            "progress": 100
-        });
-        let _ = tokio::fs::write(format!("{}.status", path), status.to_string()).await;
-
-        let msg = format!(
-            "📦 *分享包预览*\n\n已成功暂存！\n暂存 ID: `{}`\n\n您可以在移动端一键导入包内的所有任务。",
-            staging_id
-        );
-        let kb = InlineKeyboardMarkup::new(vec![vec![
-            InlineKeyboardButton::callback("📥 一键导入", format!("pkg:import:{}", staging_id)),
-            InlineKeyboardButton::callback("❌ 取消", "cancel_action"),
-        ]]);
-
-        let _ = bot
-            .edit_message_text(chat_id, mid, msg)
-            .parse_mode(ParseMode::MarkdownV2)
-            .reply_markup(kb)
-            .await;
-    }
-}
-
-async fn handle_package_import(
-    bot: &Bot,
-    chat_id: ChatId,
-    mid: MessageId,
-    staging_id: String,
-    _db: &DatabaseConnection,
-    eb: &EventBus,
-) {
-    eb.publish(SystemEvent::Telegram(TelegramEvent::PackageImportRequest {
-        staging_id: staging_id.clone(),
-        user_id: 1,
-    }));
-
-    let msg = format!(
-        "✅ 任务导入请求已提交！\n\n暂存 ID: `{}`\n请稍后在任务列表中查看。",
-        staging_id
-    );
-    let _ = bot
-        .edit_message_text(chat_id, mid, msg)
-        .parse_mode(ParseMode::MarkdownV2)
-        .await;
-
-    publish_audit(
-        eb,
-        chat_id.to_string(),
-        format!("📥 通过 Telegram 导入分享包: {}", staging_id),
-    );
-}
-
-async fn monitor_update(bot: Bot, chat_id: ChatId, mid: MessageId, us: UpdateService) {
-    tokio::spawn(async move {
-        let mut last_progress = 0;
-        let mut last_state = UpdateState::Idle;
-
-        loop {
-            tokio::time::sleep(std::time::Duration::from_millis(800)).await;
-
-            let status = match us.get_status() {
-                Ok(status) => status,
-                Err(_) => break,
-            };
-
-            if status.progress != last_progress || status.state != last_state {
-                let mut text = format!(
-                    "🚀 *系统更新中*\n\n*状态:* `{}`\n",
-                    escape_tg_markdown(&status.message)
-                );
-                let mut kb = None;
-
-                if status.state == UpdateState::Downloading {
-                    let bar_len = 10;
-                    let filled = (status.progress as usize * bar_len) / 100;
-                    let empty = bar_len - filled;
-                    let bar = format!("{}{}", "🟩".repeat(filled), "⬜".repeat(empty));
-                    text.push_str(&format!("\n*进度:* {} `{}%`", bar, status.progress));
-
-                    // 仅在下载阶段允许手动取消
-                    kb = Some(InlineKeyboardMarkup::new(vec![vec![
-                        InlineKeyboardButton::callback("❌ 取消更新", "upgrade:cancel"),
-                    ]]));
-                }
-
-                let mut req = bot
-                    .edit_message_text(chat_id, mid, text)
-                    .parse_mode(ParseMode::MarkdownV2);
-                if let Some(markup) = kb {
-                    req = req.reply_markup(markup);
-                }
-                let _ = req.await;
-
-                last_progress = status.progress;
-                last_state = status.state.clone();
-            }
-
-            if status.state == UpdateState::Restarting {
-                let _ = bot
-                    .send_message(chat_id, "✅ *更新已完成*\n系统正在重启，请稍候\\.\\.\\.")
-                    .parse_mode(ParseMode::MarkdownV2)
-                    .await;
-                break;
-            }
-
-            if status.state == UpdateState::Error {
-                let err_msg = status.error.unwrap_or_else(|| "未知错误".to_string());
-                let _ = bot
-                    .send_message(
-                        chat_id,
-                        format!("❌ *更新失败*\n原因: `{}`", escape_tg_markdown(&err_msg)),
-                    )
-                    .parse_mode(ParseMode::MarkdownV2)
-                    .await;
-                break;
-            }
-
-            if status.state == UpdateState::Idle && last_state != UpdateState::Idle {
-                // User cancelled or finished
-                break;
-            }
-        }
-    });
-}
-
-async fn handle_live_logs(
-    bot: Bot,
-    chat_id: ChatId,
-    mid: Option<MessageId>,
-    task_id: i32,
-    db: &DatabaseConnection,
-    tm: &TaskManagerService,
-    ls: super::LiveStreamStore,
-) {
-    if let Some(m) = mid {
-        let _ = bot
-            .edit_message_text(chat_id, m, "⏳ 正在连接日志流...")
-            .await;
-    }
-
-    // Attempt to subscribe
-    let mut rx = match tm.subscribe_logs(task_id, false) {
-        Ok(r) => r,
-        Err(_) => {
-            if let Some(m) = mid {
-                let _ = bot
-                    .edit_message_text(chat_id, m, "❌ 连接失败：任务可能未在运行或无实时日志。")
-                    .await;
-            }
-            return;
-        }
-    };
-
-    if let Some((_, ext_handle)) = ls.write().await.remove(&chat_id.to_string()) {
-        ext_handle.abort(); // Cancel any existing active live logs for this user
-    }
-
-    // Get DB task name for display
-    let task_name = match tasks::Entity::find_by_id(task_id).one(db).await {
-        Ok(Some(t)) => escape_tg_markdown(&t.name),
-        _ => format!("ID:{}", task_id),
-    };
-
-    let kb = InlineKeyboardMarkup::new(vec![vec![InlineKeyboardButton::callback(
-        "⏹️ 停止追踪",
-        format!("stop_live_{}", task_id),
-    )]]);
-
-    let bot_c = bot.clone();
-    let cid_str = chat_id.to_string();
-    let task_id_c = task_id;
-    let ls_c = ls.clone();
-
-    let handle = tokio::spawn(async move {
-        let mut buffer = String::new();
-        let mut last_update = tokio::time::Instant::now();
-        let debounce_duration = tokio::time::Duration::from_millis(1500);
-        let mut is_first_msg = true;
-
-        loop {
-            tokio::select! {
-                result = rx.recv() => {
-                    match result {
-                        Ok(event) => {
-                            buffer.push_str(&event.content);
-                            if !buffer.ends_with('\n') {
-                                buffer.push('\n');
-                            }
-
-                            // Check if it's time to flush manually
-                            if last_update.elapsed() >= debounce_duration {
-                                let mut text = buffer.clone();
-                                if text.len() > 3000 {
-                                    text = format!("... (被截断)\n{}", &text[text.len() - 3000..]);
-                                }
-                                let escaped = text.replace('\\', "\\\\").replace('`', "\\`").replace('$', "\\$");
-                                let msg_text = format!("📺 *追踪: {}*\n```\n{}\n```", task_name, escaped);
-
-                                if let Some(m) = mid {
-                                    let _ = bot_c.edit_message_text(chat_id, m, msg_text)
-                                        .parse_mode(ParseMode::MarkdownV2)
-                                        .reply_markup(kb.clone())
-                                        .await;
-                                }
-                                buffer.clear();
-                                last_update = tokio::time::Instant::now();
-                            }
-                        }
-                        Err(tokio::sync::broadcast::error::RecvError::Closed) => {
-                            // Stream ended
-                            if let Some(m) = mid {
-                                let mut text = buffer.clone();
-                                if text.len() > 3000 {
-                                    text = format!("... (被截断)\n{}", &text[text.len() - 3000..]);
-                                }
-                                let escaped = text.replace('\\', "\\\\").replace('`', "\\`").replace('$', "\\$");
-                                let msg_text = format!("📺 *追踪: {}* \\[已结束\\]\n```\n{}\n```", task_name, escaped);
-                                let close_kb = InlineKeyboardMarkup::new(vec![vec![
-                                    InlineKeyboardButton::callback("⬅️ 返回", format!("task_manage_{}", task_id_c)),
-                                ]]);
-                                let _ = bot_c.edit_message_text(chat_id, m, msg_text)
-                                    .parse_mode(ParseMode::MarkdownV2)
-                                    .reply_markup(close_kb)
-                                    .await;
-                            }
-                            break;
-                        }
-                        Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
-                            buffer.push_str("[...丢弃了部分日志...]\n");
-                        }
-                    }
-                }
-                _ = tokio::time::sleep(debounce_duration) => {
-                    if !buffer.is_empty() || is_first_msg {
-                        is_first_msg = false;
-                        let mut text = buffer.clone();
-                        if text.len() > 3000 {
-                            text = format!("... (被截断)\n{}", &text[text.len() - 3000..]);
-                        }
-                        let escaped = text.replace('\\', "\\\\").replace('`', "\\`").replace('$', "\\$");
-                        let msg_text = format!("📺 *追踪: {}*\n```\n{}\n```", task_name, escaped);
-
-                        if let Some(m) = mid {
-                            let _ = bot_c.edit_message_text(chat_id, m, msg_text)
-                                .parse_mode(ParseMode::MarkdownV2)
-                                .reply_markup(kb.clone())
-                                .await;
-                        }
-                        buffer.clear();
-                        last_update = tokio::time::Instant::now();
-                    }
-                }
-            }
-        }
-
-        // Remove from store when naturally finished
-        ls_c.write().await.remove(&cid_str);
-    });
-
-    ls.write()
-        .await
-        .insert(chat_id.to_string(), (task_id, handle));
-}
+use operations::{
+    handle_live_logs, handle_package_import, handle_package_preview, handle_quick_task_add,
+    monitor_update,
+};

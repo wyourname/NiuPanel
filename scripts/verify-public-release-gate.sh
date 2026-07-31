@@ -119,22 +119,22 @@ run node scripts/create-private-plugin-repo.mjs "$tmp_dir/private-plugin-repo" \
   --agents-id private-agent-app \
   --compiler-id private-compiler-loader
 run node -e 'const fs=require("node:fs"); const root=process.argv[1]; for (const file of ["schemas/plugin.schema.json","plugins/private-agent-app/plugin.json","plugins/private-compiler-loader/plugin.json"]) JSON.parse(fs.readFileSync(`${root}/${file}`,"utf8")); for (const file of ["plugins/private-agent-app/plugin.json","plugins/private-compiler-loader/plugin.json"]) { const manifest=JSON.parse(fs.readFileSync(`${root}/${file}`,"utf8")); if (manifest.$schema !== "../../schemas/plugin.schema.json") { console.error(`${file} has invalid $schema`); process.exit(1); } } console.log("private plugin repo schema wiring verified.");' "$tmp_dir/private-plugin-repo"
-run npm --prefix "$tmp_dir/private-plugin-repo" run signing:keygen -- keys/plugin-ed25519.pem
+run pnpm --dir "$tmp_dir/private-plugin-repo" run signing:keygen -- keys/plugin-ed25519.pem
 run node "$tmp_dir/private-plugin-repo/scripts/package-plugin.mjs" \
   "$tmp_dir/private-plugin-repo/plugins/private-compiler-loader" \
   --out "$tmp_dir/private-plugin-repo/dist/plugins" \
   --market "$tmp_dir/private-plugin-repo/dist/plugins/index.json" \
   --download-url ./private-compiler-loader.tgz
 run env PLUGIN_SIGN_KEY="$tmp_dir/private-plugin-repo/keys/plugin-ed25519.pem" \
-  npm --prefix "$tmp_dir/private-plugin-repo" run package:compiler:signed
-run npm --prefix "$tmp_dir/private-plugin-repo" run package:agents
+  pnpm --dir "$tmp_dir/private-plugin-repo" run package:compiler:signed
+run pnpm --dir "$tmp_dir/private-plugin-repo" run package:agents
 
 cd "$ROOT_DIR/niupanelweb"
-run npm run verify:plugin-route-contract
-run npm run verify:ui-design-system
-run npm exec vue-tsc -- --noEmit
+run pnpm run verify:plugin-route-contract
+run pnpm run verify:ui-design-system
+run pnpm exec vue-tsc --noEmit
 run rm -rf dist
-run npm run build
-run npm run verify:public-build
+run pnpm run build
+run pnpm run verify:public-build
 
 printf '\nPublic release gate passed.\n'

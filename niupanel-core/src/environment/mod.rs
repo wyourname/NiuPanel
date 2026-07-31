@@ -1,7 +1,7 @@
 use crate::runtime::RuntimeManager;
 use crate::script::interpreter::node::NodeEnvironment;
 use crate::settings::{
-    FNM_NODE_DIST_MIRROR, NPM_REGISTRY_MIRROR, SettingsService, UV_PYPI_MIRROR, UV_PYTHON_MIRROR,
+    NPM_REGISTRY_MIRROR, PNPM_NODE_DIST_MIRROR, SettingsService, UV_PYPI_MIRROR, UV_PYTHON_MIRROR,
 };
 use crate::task_manager::service::TaskManagerService;
 use niupanel_common::config::Config;
@@ -17,7 +17,7 @@ use std::path::PathBuf;
 const PYTHON_ENV_PREFIX: &str = "venv_";
 const NODE_ENV_TYPE: &str = "node";
 const PYTHON_ENV_TYPE: &str = "python";
-const FNM_NODE_DIST_MIRROR_ENV: &str = "FNM_NODE_DIST_MIRROR";
+const PNPM_NODE_DIST_MIRROR_ENV: &str = "PNPM_NODE_DIST_MIRROR";
 const NPM_CONFIG_REGISTRY_ENV: &str = "npm_config_registry";
 const UV_INDEX_URL_ENV: &str = "UV_INDEX_URL";
 const UV_PYTHON_INSTALL_MIRROR_ENV: &str = "UV_PYTHON_INSTALL_MIRROR";
@@ -56,21 +56,10 @@ pub async fn install_node_packages(
     let mirrors = node_install_mirrors(settings).await;
     task_manager
         .submit_system_task("Install Node packages".to_string(), move |tx| async move {
-            let env = match RuntimeManager::open_node_environment(Some(&version), Some(mirrors)) {
-                Ok(env) => env,
-                Err(err) => {
-                    let _ = tx.send(format!("Error loading Node environment: {}", err));
-                    return;
-                }
-            };
-            match env.install_packages(&packages, tx.clone()).await {
-                Ok(_) => {
-                    let _ = tx.send("Installation completed successfully.".to_string());
-                }
-                Err(err) => {
-                    let _ = tx.send(format!("Error: {}", err));
-                }
-            }
+            let env = RuntimeManager::open_node_environment(Some(&version), Some(mirrors))?;
+            env.install_packages(&packages, tx.clone()).await?;
+            let _ = tx.send("Installation completed successfully.".to_string());
+            Ok(())
         })
         .await
 }
@@ -113,17 +102,10 @@ pub async fn install_python_packages(
         .submit_system_task(
             format!("Install packages in {}", name),
             move |tx| async move {
-                match env
-                    .install_requirements(&requirements, false, tx.clone())
-                    .await
-                {
-                    Ok(_) => {
-                        let _ = tx.send("Installation completed successfully.".to_string());
-                    }
-                    Err(err) => {
-                        let _ = tx.send(format!("Error installing packages: {}", err));
-                    }
-                }
+                env.install_requirements(&requirements, false, tx.clone())
+                    .await?;
+                let _ = tx.send("Installation completed successfully.".to_string());
+                Ok(())
             },
         )
         .await
@@ -261,12 +243,12 @@ async fn python_install_and_index_mirrors(settings: &SettingsService) -> HashMap
 
 async fn node_install_mirrors(settings: &SettingsService) -> HashMap<String, String> {
     let mut mirrors = HashMap::new();
-    let fnm_mirror = settings
-        .get(FNM_NODE_DIST_MIRROR)
+    let node_mirror = settings
+        .get(PNPM_NODE_DIST_MIRROR)
         .await
         .unwrap_or_else(|_| DEFAULT_NODE_DIST_MIRROR.to_string());
-    if !fnm_mirror.is_empty() {
-        mirrors.insert(FNM_NODE_DIST_MIRROR_ENV.to_string(), fnm_mirror);
+    if !node_mirror.is_empty() {
+        mirrors.insert(PNPM_NODE_DIST_MIRROR_ENV.to_string(), node_mirror);
     }
     insert_setting_mirror(
         settings,

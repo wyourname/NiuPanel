@@ -62,21 +62,21 @@ export const runTasks = (ids: number[]): Promise<ApiResponse<TaskRunResult[]>> =
 /**
  * 停止任务 (支持单个或多个)
  */
-export const stopTasks = (ids: number[]): Promise<ApiResponse<void>> => {
+export const stopTasks = (ids: number[]): Promise<ApiResponse<TaskRunResult[]>> => {
   return request.post('/tasks/stop', { ids })
 }
 
 /**
  * 暂停任务 (支持单个或多个)
  */
-export const pauseTasks = (ids: number[]): Promise<ApiResponse<void>> => {
+export const pauseTasks = (ids: number[]): Promise<ApiResponse<TaskRunResult[]>> => {
   return request.post('/tasks/pause', { ids })
 }
 
 /**
  * 恢复任务 (支持单个或多个)
  */
-export const resumeTasks = (ids: number[]): Promise<ApiResponse<void>> => {
+export const resumeTasks = (ids: number[]): Promise<ApiResponse<TaskRunResult[]>> => {
   return request.post('/tasks/resume', { ids })
 }
 

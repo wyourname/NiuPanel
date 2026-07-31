@@ -25,6 +25,8 @@ Core 与 Web 分别发布版本，并共享以下兼容字段：
 
 同一 `schema_epoch` 内只允许 expand-first 迁移：新增表、可空字段、兼容索引和双读双写。删除字段、重命名字段、改变含义等破坏性变更必须延后到新的 epoch。生产回退不执行 `migration down`。
 
+正式应用发布使用 Core 版本作为 Git Tag，Web 保留独立组件版本，Docker 则使用代表基础系统与运行工具的独立环境版本。应用 CI 生成 `niupanel-release.json`，记录 Git SHA、Core 三架构包、Web 包及全部 SHA-256。Docker 由独立工作流从已经发布并经该 manifest 校验的 Core 包构建；Docker 正式标签使用环境版本，并通过 OCI label 记录所含 Core 版本和构建源码提交。Tag、Core 与 launcher 版本不一致时禁止发布；Web 通过 `api_contract` 和 `core.min/max` 加入同一发布。
+
 ## Core 更新与回退
 
 Core 发布包包含 `niupanel`、`niupanel-launcher` 和 `core-release.json`。运行目录：
@@ -66,8 +68,8 @@ manifest 包含 Web 版本、API contract、Core 最低/最高版本和逐文件
 
 NiuPanel 在 `/mcp` 提供 Streamable HTTP MCP Server，统一使用 `X-API-Key`：
 
-- `mcp:connect` 控制是否允许建立 MCP 会话。
-- 每个工具继续校验业务权限。
+- API Key 完成身份认证，每个工具直接复用任务、文件、环境等现有业务权限。
+- “MCP 工具预设”只是现有权限组合，不引入 MCP 专属权限体系。
 - 只暴露明确注册的面板工具，不从插件或外部 MCP 动态导入工具。
 - 工具调用写入统一审计日志。
 - Host allowlist 防止 DNS rebinding，公网部署必须使用 HTTPS。
@@ -75,7 +77,8 @@ NiuPanel 在 `/mcp` 提供 Streamable HTTP MCP Server，统一使用 `X-API-Key`
 ## 发布验证
 
 - Core、launcher、Web 分别通过构建和契约测试。
-- Release 同时发布三架构完整包和一个与架构无关的 Web 包。
+- Release 同时发布三架构完整包、一个与架构无关的 Web 包和 `niupanel-release.json`。
+- Docker 环境版本独立维护。维护者从已发布的 Core Tag 手动触发 Docker 工作流；该工作流先按 `niupanel-release.json` 校验三架构包，再推送环境版本标签和 `latest`。
 - Docker 由 launcher 作为 PID 1 启动，并持久化整个 `/app/data`。
 - 发布检查应覆盖候选启动失败自动回退、Web 安装/切换/回退和 MCP 鉴权。
 - 最近至少保留 3 个 Web 版本；Core 版本和数据库快照按事务保留策略清理，不允许删除 active、previous 或回退链依赖的快照。

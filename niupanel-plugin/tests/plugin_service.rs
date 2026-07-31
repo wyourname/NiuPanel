@@ -10,6 +10,31 @@ use std::sync::{
 static TEST_DATA_DIR: OnceLock<tempfile::TempDir> = OnceLock::new();
 
 #[tokio::test]
+async fn invokes_external_plugin_package_when_requested() {
+    let Some(source) = std::env::var_os("NIUPANEL_TEST_PLUGIN_DIR") else {
+        return;
+    };
+    init_test_config();
+    let root = tempfile::tempdir().expect("temp plugin root");
+    let service = PluginService::new(root.path().join("plugins"), "plugin");
+    let installed = service
+        .install_from_dir(Path::new(&source), true)
+        .expect("install external plugin");
+    let response = service
+        .invoke_plugin(
+            &installed.manifest.id,
+            PluginInvokeRequest {
+                action: "health".to_string(),
+                input: serde_json::Value::Null,
+                timeout_sec: Some(10),
+            },
+        )
+        .await
+        .expect("invoke external plugin health");
+    assert_eq!(response.output["ok"], true);
+}
+
+#[tokio::test]
 async fn installs_and_invokes_first_enabled_process_plugin() {
     init_test_config();
     let root = tempfile::tempdir().expect("temp root");

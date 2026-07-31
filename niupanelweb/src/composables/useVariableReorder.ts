@@ -6,14 +6,18 @@ import type { useHaptics } from "./useHaptics";
 import type { VariablePageRow } from "./useVariablePageData";
 
 type UseVariableReorderOptions = {
+  activeTab: Ref<string>;
   getScopedTaskId: () => number | null;
+  hasMore: Ref<boolean>;
   haptics: ReturnType<typeof useHaptics>;
   searchQuery: Ref<string>;
   variables: Ref<VariablePageRow[]>;
 };
 
 export function useVariableReorder({
+  activeTab,
   getScopedTaskId,
+  hasMore,
   haptics,
   searchQuery,
   variables,
@@ -23,11 +27,13 @@ export function useVariableReorder({
   const touchDragIndex = ref<number | null>(null);
   const longPressTimer = ref<ReturnType<typeof setTimeout> | null>(null);
   const isLongPressActive = ref(false);
+  const touchOriginalItems = ref<VariablePageRow[] | null>(null);
 
   const persistOrder = async () => {
     const taskId = getScopedTaskId();
     await variableApi.reorderVariables({
       task_id: taskId ?? undefined,
+      scope: activeTab.value,
       ids: variables.value.map((item) => item.id),
     });
     ElMessage.success(taskId ? "任务内部排序已保存" : "全局排序已保存");
@@ -46,7 +52,10 @@ export function useVariableReorder({
   };
 
   const handleDragStart = (index: number) => {
-    if (searchQuery.value) return;
+    if (searchQuery.value || hasMore.value) {
+      if (hasMore.value) ElMessage.warning("请先加载全部变量，再进行排序");
+      return;
+    }
     dragIndex.value = index;
   };
 
@@ -75,9 +84,13 @@ export function useVariableReorder({
   };
 
   const handleTouchStart = (_event: TouchEvent, index: number) => {
-    if (searchQuery.value) return;
+    if (searchQuery.value || hasMore.value) {
+      if (hasMore.value) ElMessage.warning("请先加载全部变量，再进行排序");
+      return;
+    }
 
     isLongPressActive.value = false;
+    touchOriginalItems.value = [...variables.value];
     clearLongPressTimer();
     longPressTimer.value = setTimeout(() => {
       isLongPressActive.value = true;
@@ -129,11 +142,15 @@ export function useVariableReorder({
       try {
         await persistOrder();
       } catch {
+        if (touchOriginalItems.value) {
+          variables.value = touchOriginalItems.value;
+        }
         ElMessage.error("排序保存失败");
       }
     }
 
     touchDragIndex.value = null;
+    touchOriginalItems.value = null;
     isLongPressActive.value = false;
   };
 

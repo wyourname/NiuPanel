@@ -487,6 +487,7 @@ async fn download_component_asset(
             )),
             retries: UPDATE_DOWNLOAD_RETRIES,
             retry_delay: std::time::Duration::from_secs(2),
+            max_size: None,
         },
         || false,
         |_| async {},
@@ -785,6 +786,65 @@ fn file_sha256(path: &Path) -> Result<String> {
     Ok(hex::encode(hasher.finalize()))
 }
 
+fn copy_release_tree(source: &Path, destination: &Path) -> Result<()> {
+    fs::create_dir_all(destination).map_err(AppError::Io)?;
+    for entry in fs::read_dir(source).map_err(AppError::Io)? {
+        let entry = entry.map_err(AppError::Io)?;
+        let file_type = entry.file_type().map_err(AppError::Io)?;
+        let target = destination.join(entry.file_name());
+        if file_type.is_dir() {
+            copy_release_tree(&entry.path(), &target)?;
+        } else if file_type.is_file() {
+            fs::copy(entry.path(), &target).map_err(AppError::Io)?;
+            #[cfg(unix)]
+            fs::set_permissions(
+                &target,
+                fs::metadata(entry.path())
+                    .map_err(AppError::Io)?
+                    .permissions(),
+            )
+            .map_err(AppError::Io)?;
+        } else {
+            return Err(AppError::ValidationError(
+                "Core 更新包 tools 只能包含普通文件和目录".to_string(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn stage_release_tools(package_root: &Path, release_root: &Path) -> Result<()> {
+    let source = package_root.join("tools");
+    if !source.is_dir() {
+        return Ok(());
+    }
+    if source.join("fnm").exists() {
+        return Err(AppError::ValidationError(
+            "Core 更新包不能再包含 fnm，请使用 pnpm 运行时工具".to_string(),
+        ));
+    }
+    if !source.join("pnpm").is_file() {
+        return Err(AppError::ValidationError(
+            "Core 更新包 tools 缺少 pnpm".to_string(),
+        ));
+    }
+
+    let destination = release_root.join("tools");
+    if destination.is_dir() {
+        return Ok(());
+    }
+
+    let staging = release_root.join(format!(".tools-staging-{}", nanoid::nanoid!(10)));
+    let result = copy_release_tree(&source, &staging).and_then(|()| {
+        fs::rename(&staging, &destination).map_err(AppError::Io)?;
+        Ok(())
+    });
+    if result.is_err() && staging.exists() {
+        let _ = fs::remove_dir_all(&staging);
+    }
+    result
+}
+
 fn stage_core_release(unpack_dir: &Path) -> Result<CoreReleaseDescriptor> {
     let package_root = find_core_package_root(unpack_dir)?;
     let manifest: CoreReleaseManifest = serde_json::from_slice(
@@ -852,6 +912,7 @@ fn stage_core_release(unpack_dir: &Path) -> Result<CoreReleaseDescriptor> {
         )
         .map_err(AppError::Io)?;
     }
+    stage_release_tools(&package_root, &release_root)?;
     fs::write(
         release_root.join(CORE_RELEASE_MANIFEST_FILE),
         serde_json::to_vec_pretty(&manifest).map_err(AppError::Json)?,
@@ -922,6 +983,7 @@ async fn download_release_asset(
             )),
             retries: UPDATE_DOWNLOAD_RETRIES,
             retry_delay: std::time::Duration::from_secs(2),
+            max_size: None,
         },
         || token.is_cancelled(),
         |event| async move {
@@ -1012,5 +1074,34 @@ mod tests {
         let (asset, version) = find_web_release_asset(&release).unwrap();
         assert_eq!(version, "2.1.0");
         assert_eq!(asset.size, 3);
+    }
+
+    #[test]
+    fn copies_bundled_runtime_tools_recursively() {
+        let source = tempfile::tempdir().unwrap();
+        let destination = tempfile::tempdir().unwrap();
+        fs::create_dir_all(source.path().join("dist")).unwrap();
+        fs::write(source.path().join("pnpm"), b"pnpm").unwrap();
+        fs::write(source.path().join("dist/pnpm.mjs"), b"runtime").unwrap();
+
+        let target = destination.path().join("tools");
+        copy_release_tree(source.path(), &target).unwrap();
+
+        assert_eq!(fs::read(target.join("pnpm")).unwrap(), b"pnpm");
+        assert_eq!(fs::read(target.join("dist/pnpm.mjs")).unwrap(), b"runtime");
+    }
+
+    #[test]
+    fn rejects_core_packages_that_still_bundle_fnm() {
+        let package = tempfile::tempdir().unwrap();
+        let release = tempfile::tempdir().unwrap();
+        fs::create_dir_all(package.path().join("tools")).unwrap();
+        fs::write(package.path().join("tools/fnm"), b"legacy").unwrap();
+        fs::write(package.path().join("tools/pnpm"), b"pnpm").unwrap();
+
+        let error = stage_release_tools(package.path(), release.path()).unwrap_err();
+
+        assert!(error.to_string().contains("fnm"));
+        assert!(!release.path().join("tools").exists());
     }
 }

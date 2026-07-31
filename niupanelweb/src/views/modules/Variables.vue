@@ -25,6 +25,7 @@
         :selected-ids="selectedIds"
         :loading="loading"
         :has-more="hasMore"
+        :is-value-loading="isValueLoading"
         :is-value-visible="isValueVisible"
         @select-scope="selectVariableScope"
         @search-input="handleVariableSearchInput"
@@ -81,6 +82,7 @@
             :get-task-names="getTaskNames"
             :has-more="hasMore"
             :is-mobile="appStore.isMobile"
+            :is-value-loading="isValueLoading"
             :is-value-visible="isValueVisible"
             :loading="loading"
             :search-query="searchQuery"
@@ -141,6 +143,7 @@ import {
 import { useVariablePageSelection } from "../../composables/useVariablePageSelection";
 import { useVariableReorder } from "../../composables/useVariableReorder";
 import { useVariableValueVisibility } from "../../composables/useVariableValueVisibility";
+import * as variableApi from "../../api/variable";
 import BulkActionBar from "../../components/common/BulkActionBar.vue";
 import FloatingActionButton from "../../components/common/FloatingActionButton.vue";
 import PageShell from "../../components/common/PageShell.vue";
@@ -155,6 +158,25 @@ const route = useRoute();
 const router = useRouter();
 
 const variables = ref<VariablePageRow[]>([]);
+const valueCache = new Map<number, string>();
+let resetValueVisibility = () => {};
+
+const invalidateSensitiveValues = () => {
+  valueCache.clear();
+  resetValueVisibility();
+};
+
+const resolveVariableValue = async (id: number) => {
+  const cached = valueCache.get(id);
+  if (cached !== undefined) return cached;
+
+  const response = await variableApi.getVariableValue(id);
+  const value = response.data.value;
+  valueCache.set(id, value);
+  const row = variables.value.find((item) => item.id === id);
+  if (row) row.value = value;
+  return value;
+};
 
 const {
   clearSelection,
@@ -184,18 +206,31 @@ const {
 } = useVariablePageData({
   clearSelection,
   haptics,
+  onReset: invalidateSensitiveValues,
   variables,
 });
 
-const { copyValue, isValueVisible, toggleValueVisibility } =
-  useVariableValueVisibility({
-    haptics,
-  });
+const valueVisibility = useVariableValueVisibility({
+  haptics,
+  resolveValue: resolveVariableValue,
+});
+const {
+  copyValue,
+  isValueLoading,
+  isValueVisible,
+  toggleValueVisibility,
+} = valueVisibility;
+resetValueVisibility = valueVisibility.resetValueVisibility;
+
+const reloadWithSecretsInvalidated = () => {
+  invalidateSensitiveValues();
+  return loadData();
+};
 
 const { handleExport, handleImport } = useVariableImportExport({
   activeTab,
   getScopedTaskId,
-  reload: () => loadData(),
+  reload: reloadWithSecretsInvalidated,
 });
 
 const {
@@ -210,7 +245,7 @@ const {
 } = useVariableForm({
   activeTab,
   haptics,
-  reload: () => loadData(),
+  reload: reloadWithSecretsInvalidated,
 });
 
 const {
@@ -221,8 +256,9 @@ const {
 } = useVariableMutations({
   getScopedTaskId,
   haptics,
-  reload: () => loadData(),
+  reload: reloadWithSecretsInvalidated,
   selectedIds,
+  variables,
 });
 
 const handleCardStatusChange = (row: VariablePageRow, value: unknown) => {
@@ -263,7 +299,9 @@ const {
   handleTouchStart,
   touchDragIndex,
 } = useVariableReorder({
+  activeTab,
   getScopedTaskId,
+  hasMore,
   haptics,
   searchQuery,
   variables,

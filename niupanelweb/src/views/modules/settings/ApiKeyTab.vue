@@ -115,7 +115,6 @@ const openCreate = () => {
   form.name = "";
   form.expires_in_days = 30;
   selectedPerms.value = [
-    "mcp:connect",
     "overview:read",
     "task:list",
     "task:read",

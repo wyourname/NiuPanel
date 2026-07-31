@@ -43,7 +43,7 @@ export const navGroups: Array<{
   { id: "sys", label: "分享审计", icon: "i-ep-share" },
   { id: "compiler", label: "代码加密", icon: "i-ep-cpu" },
   { id: "webhook", label: "Webhook", icon: "i-ep-notification" },
-  { id: "mcp", label: "MCP 接入", icon: "i-carbon-network-4" },
+  { id: "mcp", label: "MCP 工具预设", icon: "i-carbon-network-4" },
 ];
 
 export const permissionGroups: Record<
@@ -144,12 +144,21 @@ export const permissionGroups: Record<
     ],
   },
   mcp: {
-    title: "MCP 接入",
+    title: "MCP 工具权限预设",
     icon: "i-carbon-network-4",
     color: "bg-emerald-600",
     perms: [
-      { label: "连接面板 MCP", value: "mcp:connect" },
-      { label: "MCP 完整接入", value: "mcp:*" },
+      { label: "系统状态与版本", value: "overview:read" },
+      { label: "全部任务工具", value: "task:*" },
+      { label: "全部变量工具", value: "var:*" },
+      { label: "全部文件工具", value: "file:*" },
+      { label: "全部运行环境工具", value: "env:*" },
+      { label: "全部作业工具", value: "job:*" },
+      { label: "读取审计记录", value: "audit:list" },
+      { label: "推送系统通知", value: "webhook:push" },
+      { label: "读取分享数据", value: "share:list" },
+      { label: "读取 Git 仓库", value: "git:read" },
+      { label: "同步 Git 仓库", value: "git:sync" },
     ],
   },
 };
@@ -162,7 +171,12 @@ export const parsePerms = (permissions?: string) =>
     ? permissions
         .split(",")
         .map((permission) => permission.trim())
-        .filter(Boolean)
+        .filter(
+          (permission) =>
+            Boolean(permission) &&
+            permission !== "mcp:connect" &&
+            permission !== "mcp:*",
+        )
     : [];
 
 export const isExpired = (timestamp?: number) =>

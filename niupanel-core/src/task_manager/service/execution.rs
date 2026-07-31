@@ -5,7 +5,7 @@ use crate::settings::SettingsManager;
 use crate::task_log::LogSession;
 use niupanel_common::config::Config;
 use niupanel_common::constants::settings::{
-    FNM_NODE_DIST_MIRROR, NPM_REGISTRY_MIRROR, SYSTEM_DEFAULT_NODE_VERSION,
+    NPM_REGISTRY_MIRROR, PNPM_NODE_DIST_MIRROR, SYSTEM_DEFAULT_NODE_VERSION,
     SYSTEM_DEFAULT_PYTHON_VERSION, UV_PYPI_MIRROR, UV_PYTHON_MIRROR,
 };
 use niupanel_common::error::AppError;
@@ -15,9 +15,39 @@ use niupanel_entity::task_status::TaskStatus;
 use niupanel_entity::{task_runs, tasks};
 use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, QueryOrder, Set};
 use std::collections::HashMap;
+use std::sync::Arc;
+
+struct TaskStartGuard {
+    task_id: i32,
+    starting_tasks: Arc<dashmap::DashSet<i32>>,
+}
+
+impl TaskStartGuard {
+    fn acquire(task_id: i32, starting_tasks: Arc<dashmap::DashSet<i32>>) -> Result<Self, AppError> {
+        if !starting_tasks.insert(task_id) {
+            return Err(AppError::Generic(format!(
+                "任务 ID {} 正在启动，请勿重复提交",
+                task_id
+            )));
+        }
+        Ok(Self {
+            task_id,
+            starting_tasks,
+        })
+    }
+}
+
+impl Drop for TaskStartGuard {
+    fn drop(&mut self) {
+        self.starting_tasks.remove(&self.task_id);
+    }
+}
 
 impl TaskManagerService {
     pub async fn start_task(&self, task: &tasks::Model) -> Result<(u32, i32), AppError> {
+        // Reserve the task ID before the first await. This closes the window
+        // between is_running() and ProcessManager::insert().
+        let _start_guard = TaskStartGuard::acquire(task.id, self.starting_tasks.clone())?;
         if self.process_manager.is_running(task.id) {
             return Err(AppError::Generic(format!(
                 "任务 '{}' (ID: {}) 已经在运行中，请等待任务结束",
@@ -165,7 +195,7 @@ impl TaskManagerService {
         let global_vars = niupanel_entity::variables::Entity::find()
             .filter(niupanel_entity::variables::Column::Scope.eq("Global"))
             .filter(niupanel_entity::variables::Column::ScopeId.is_null())
-            .order_by_asc(niupanel_entity::variables::Column::Key)
+            .order_by_asc(niupanel_entity::variables::Column::SortOrder)
             .order_by_asc(niupanel_entity::variables::Column::Id)
             .all(&self.db)
             .await?;
@@ -181,6 +211,7 @@ impl TaskManagerService {
         } else {
             niupanel_entity::variables::Entity::find()
                 .filter(niupanel_entity::variables::Column::Id.is_in(relation_ids.clone()))
+                .filter(niupanel_entity::variables::Column::Scope.eq("Script"))
                 .all(&self.db)
                 .await?
         };
@@ -207,24 +238,11 @@ impl TaskManagerService {
         script_vars.extend(legacy_vars);
 
         let mut env_map = HashMap::new();
-        let mut insert_or_append = |key: String, value: String| {
-            env_map
-                .entry(key)
-                .and_modify(|v: &mut String| *v = format!("{}\n{}", v, value))
-                .or_insert(value);
-        };
 
-        for var in global_vars {
-            if var.enabled {
-                insert_or_append(var.key, var.value);
-            }
-        }
-
-        for var in script_vars {
-            if var.enabled {
-                insert_or_append(var.key, var.value);
-            }
-        }
+        // Later entries in the same scope win deterministically.
+        merge_enabled_variables(&mut env_map, global_vars);
+        // Task-scoped values intentionally override global values.
+        merge_enabled_variables(&mut env_map, script_vars);
 
         Ok(env_map)
     }
@@ -235,7 +253,7 @@ impl TaskManagerService {
         for (setting_key, env_key) in [
             (UV_PYTHON_MIRROR, "UV_PYTHON_INSTALL_MIRROR"),
             (UV_PYPI_MIRROR, "UV_INDEX_URL"),
-            (FNM_NODE_DIST_MIRROR, "FNM_NODE_DIST_MIRROR"),
+            (PNPM_NODE_DIST_MIRROR, "PNPM_NODE_DIST_MIRROR"),
             (NPM_REGISTRY_MIRROR, "npm_config_registry"),
         ] {
             if let Ok(value) = SettingsManager::get(&self.db, setting_key).await {
@@ -255,7 +273,7 @@ impl TaskManagerService {
     ) -> Result<Option<String>, AppError> {
         match ScriptType::try_from_str(env_type)? {
             ScriptType::Python => self.resolve_python_version(task_version).await.map(Some),
-            ScriptType::NodeJs => self.resolve_node_version(task_version).await.map(Some),
+            ScriptType::NodeJs => self.resolve_node_version(task_version).await,
             ScriptType::Shell => Ok(None),
         }
     }
@@ -274,18 +292,24 @@ impl TaskManagerService {
         })
     }
 
-    async fn resolve_node_version(&self, task_version: Option<&str>) -> Result<String, AppError> {
-        if let Some(version) = task_version.and_then(NodeEnvironment::normalize_version) {
-            return Ok(version);
+    async fn resolve_node_version(
+        &self,
+        task_version: Option<&str>,
+    ) -> Result<Option<String>, AppError> {
+        if let Some(version) = select_node_version(task_version, None, &[]) {
+            return Ok(Some(version));
         }
 
         let default_version = SettingsManager::get(&self.db, SYSTEM_DEFAULT_NODE_VERSION).await?;
-        NodeEnvironment::normalize_version(&default_version).ok_or_else(|| {
-            AppError::ValidationError(
-                "Node version must be specified. Set a task version or system default Node version."
-                    .to_string(),
-            )
-        })
+        if let Some(version) = select_node_version(None, Some(&default_version), &[]) {
+            return Ok(Some(version));
+        }
+
+        let local_versions = NodeEnvironment::list_local_node_versions()
+            .await
+            .unwrap_or_default();
+
+        Ok(select_node_version(None, None, &local_versions))
     }
 
     fn resolve_execution_config(
@@ -447,4 +471,109 @@ fn normalize_python_version(version: Option<&str>) -> Option<String> {
             .to_string(),
     )
     .filter(|value| !value.is_empty())
+}
+
+fn select_node_version(
+    task_version: Option<&str>,
+    configured_default: Option<&str>,
+    local_versions: &[(String, bool)],
+) -> Option<String> {
+    task_version
+        .and_then(NodeEnvironment::normalize_version)
+        .or_else(|| configured_default.and_then(NodeEnvironment::normalize_version))
+        .or_else(|| {
+            local_versions
+                .iter()
+                .find(|(_, is_default)| *is_default)
+                .map(|(version, _)| version.clone())
+        })
+        .or_else(|| local_versions.first().map(|(version, _)| version.clone()))
+}
+
+fn merge_enabled_variables(
+    env_map: &mut HashMap<String, String>,
+    variables: impl IntoIterator<Item = niupanel_entity::variables::Model>,
+) {
+    for variable in variables {
+        if variable.enabled {
+            env_map.insert(variable.key, variable.value);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{merge_enabled_variables, select_node_version};
+    use chrono::Utc;
+    use niupanel_entity::variables;
+    use std::collections::HashMap;
+
+    fn variable(id: i32, key: &str, value: &str, enabled: bool) -> variables::Model {
+        variables::Model {
+            id,
+            key: key.to_string(),
+            value: value.to_string(),
+            remarks: None,
+            enabled,
+            scope: "Global".to_string(),
+            scope_id: None,
+            sort_order: id,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        }
+    }
+
+    #[test]
+    fn task_values_override_globals_without_concatenating_secrets() {
+        let mut env = HashMap::new();
+        merge_enabled_variables(
+            &mut env,
+            vec![
+                variable(1, "TOKEN", "global-old", true),
+                variable(2, "TOKEN", "global-new", true),
+                variable(3, "DISABLED", "ignored", false),
+            ],
+        );
+        merge_enabled_variables(&mut env, vec![variable(4, "TOKEN", "task", true)]);
+
+        assert_eq!(env.get("TOKEN").map(String::as_str), Some("task"));
+        assert!(!env.contains_key("DISABLED"));
+        assert!(!env["TOKEN"].contains('\n'));
+    }
+
+    #[test]
+    fn node_version_prefers_task_then_configured_then_runtime_default() {
+        let local = vec![("20.11.0".to_string(), false), ("22.1.0".to_string(), true)];
+
+        assert_eq!(
+            select_node_version(Some("v24.1.0"), Some("20.11.0"), &local).as_deref(),
+            Some("24.1.0")
+        );
+        assert_eq!(
+            select_node_version(None, Some("v20.11.0"), &local).as_deref(),
+            Some("20.11.0")
+        );
+        assert_eq!(
+            select_node_version(None, Some("default"), &local).as_deref(),
+            Some("22.1.0")
+        );
+    }
+
+    #[test]
+    fn node_version_uses_first_installed_version_or_leaves_resolution_to_runtime() {
+        let only = vec![("20.11.1".to_string(), false)];
+        assert_eq!(
+            select_node_version(None, None, &only).as_deref(),
+            Some("20.11.1")
+        );
+        let multiple = vec![
+            ("22.14.0".to_string(), false),
+            ("20.11.1".to_string(), false),
+        ];
+        assert_eq!(
+            select_node_version(None, None, &multiple).as_deref(),
+            Some("22.14.0")
+        );
+        assert_eq!(select_node_version(None, None, &[]), None);
+    }
 }

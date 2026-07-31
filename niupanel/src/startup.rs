@@ -85,7 +85,9 @@ pub async fn run() -> Result<Option<tracing_appender::non_blocking::WorkerGuard>
 
     background::spawn_system_metrics_updater(sys, system_metrics);
 
-    let session_layer = session::build_session_layer(&db, &config.session_key).await?;
+    let session_layer =
+        session::build_session_layer(&db, &config.session_key, config.session_cookie_secure)
+            .await?;
     let app = app::create_router(state)
         .layer(session_layer)
         .layer(CookieManagerLayer::new());

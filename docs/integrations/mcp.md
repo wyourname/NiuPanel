@@ -9,19 +9,16 @@ NiuPanel 自身是 MCP Server。Claude、Codex 或其他支持 Streamable HTTP �
 | 传输协议 | Streamable HTTP |
 | MCP Endpoint | `https://panel.example.com/mcp` |
 | 鉴权 Header | `X-API-Key: <key>` |
-| 必需权限 | `mcp:connect` |
+| 必需权限 | 所调用工具对应的现有业务权限 |
 | 管理信息 | `GET /api/v1/mcp/info` |
 
 `/api/v1/mcp/info` 供已登录的 Web UI 展示连接地址和工具权限。真正的 MCP JSON-RPC、SSE 和会话请求只经过 `/mcp`。
 
 ## 创建 API Key
 
-在“设置 -> API 访问”创建独立密钥。密钥至少需要：
+在“设置 -> API 访问”创建独立密钥，并选择工具对应的业务权限，例如 `task:list`、`task:read`、`task:run`。“MCP 工具预设”只是这些现有权限的快捷组合，不会创建另一套 MCP 权限。
 
-- `mcp:connect`
-- 工具对应的业务权限，例如 `task:list`、`task:read`、`task:run`
-
-不要给自动化客户端授予 `*`。读取、执行和停止任务应使用不同权限组合；每次 MCP 工具调用都会写入审计日志。
+不要给自动化客户端授予 `*:*`。读取、执行和停止任务应使用不同权限组合；每次 MCP 工具调用都会写入审计日志。
 
 ## 客户端配置
 

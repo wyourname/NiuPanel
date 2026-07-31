@@ -1,19 +1,24 @@
-use super::super::models::{BackupOptions, CleanupLogsRequest};
+use super::super::models::{BackupOptions, CleanupLogsRequest, LogCleanupReport};
 use super::super::service;
+use crate::common::extractors::RealIp;
 use crate::common::state::AppState;
+use crate::modules::auth::service::AuthenticatedUser;
 use axum::{
     Json,
-    extract::{Multipart, Path, Query, Request, State},
+    extract::{Extension, Multipart, Path, Query, Request, State},
     http::header,
     response::IntoResponse,
 };
-use niupanel_common::config::Config;
+use niupanel_common::constants::defaults;
 use niupanel_common::error::{AppError, Result};
 use niupanel_common::response::ApiResponse;
-use std::path::Path as StdPath;
+use niupanel_core::audit::service::AuditService;
 use tokio::fs;
+use tokio::io::AsyncWriteExt;
 use tower::ServiceExt;
 use tower_http::services::ServeFile;
+
+const MAX_BACKUP_UPLOAD_SIZE: u64 = 512 * 1024 * 1024;
 
 #[utoipa::path(
     get,
@@ -99,10 +104,7 @@ pub async fn download_backup(
     Path(filename): Path<String>,
     req: Request,
 ) -> Result<impl IntoResponse> {
-    let backup_path = StdPath::new(&Config::global().backup_dir).join(&filename);
-    if !backup_path.exists() {
-        return Err(AppError::NotFound("备份文件不存在".to_string()));
-    }
+    let backup_path = service::resolve_backup_path(&filename).await?;
 
     let service = ServeFile::new(&backup_path);
     let mut res = service
@@ -119,17 +121,6 @@ pub async fn download_backup(
         header::CONTENT_TYPE,
         axum::http::HeaderValue::from_static("application/gzip"),
     );
-
-    let cleanup_path = backup_path.clone();
-    let cleanup_filename = filename.clone();
-    tokio::spawn(async move {
-        tokio::time::sleep(std::time::Duration::from_secs(300)).await;
-        match fs::remove_file(&cleanup_path).await {
-            Ok(_) => niupanel_common::info!("备份文件已在延迟清理后删除: {}", cleanup_filename),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-            Err(e) => niupanel_common::warn!("延迟清理备份文件失败: {}", e),
-        }
-    });
 
     Ok(res)
 }
@@ -181,32 +172,82 @@ pub async fn restore_backup(
     State(state): State<AppState>,
     mut multipart: Multipart,
 ) -> Result<ApiResponse<()>> {
-    let restore_dir = StdPath::new(&Config::global().restore_dir);
+    let restore_dir = &niupanel_common::config::Config::global().restore_dir;
     if !restore_dir.exists() {
         fs::create_dir_all(restore_dir)
             .await
             .map_err(AppError::Io)?;
     }
 
-    while let Some(field) = multipart
+    let Some(mut field) = multipart
         .next_field()
         .await
         .map_err(|e| AppError::Generic(e.to_string()))?
+    else {
+        return Err(AppError::ValidationError("未提供备份文件".to_string()));
+    };
+    let temp_tar_path = restore_dir.join(format!("upload_restore_{}.tar.gz", nanoid::nanoid!(12)));
+    let mut output = fs::OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .open(&temp_tar_path)
+        .await?;
+    #[cfg(unix)]
     {
-        let data = field
-            .bytes()
-            .await
-            .map_err(|e| AppError::Generic(e.to_string()))?;
-        let temp_tar_path = restore_dir.join("upload_restore.tar.gz");
-        fs::write(&temp_tar_path, data)
-            .await
-            .map_err(AppError::Io)?;
-
-        service::start_restore_task(state.db.clone(), temp_tar_path.clone()).await?;
-        return Ok(ApiResponse::success(()));
+        use std::os::unix::fs::PermissionsExt;
+        if let Err(err) =
+            fs::set_permissions(&temp_tar_path, std::fs::Permissions::from_mode(0o600)).await
+        {
+            drop(output);
+            let _ = fs::remove_file(&temp_tar_path).await;
+            return Err(AppError::Io(err));
+        }
     }
 
-    Err(AppError::ValidationError("未提供备份文件".to_string()))
+    let mut uploaded = 0_u64;
+    loop {
+        let chunk = match field.chunk().await {
+            Ok(Some(chunk)) => chunk,
+            Ok(None) => break,
+            Err(err) => {
+                drop(output);
+                let _ = fs::remove_file(&temp_tar_path).await;
+                return Err(AppError::Generic(err.to_string()));
+            }
+        };
+        uploaded = uploaded.saturating_add(chunk.len() as u64);
+        if uploaded > MAX_BACKUP_UPLOAD_SIZE {
+            drop(output);
+            let _ = fs::remove_file(&temp_tar_path).await;
+            return Err(AppError::FileSizeLimitExceeded(
+                "上传的备份文件不能超过 512 MB".to_string(),
+            ));
+        }
+        if let Err(err) = output.write_all(&chunk).await {
+            drop(output);
+            let _ = fs::remove_file(&temp_tar_path).await;
+            return Err(AppError::Io(err));
+        }
+    }
+    if uploaded == 0 {
+        drop(output);
+        let _ = fs::remove_file(&temp_tar_path).await;
+        return Err(AppError::ValidationError("备份文件不能为空".to_string()));
+    }
+    if let Err(err) = output.sync_all().await {
+        drop(output);
+        let _ = fs::remove_file(&temp_tar_path).await;
+        return Err(AppError::Io(err));
+    }
+    drop(output);
+
+    if let Err(err) =
+        service::start_restore_task(state.db.clone(), temp_tar_path.clone(), true).await
+    {
+        let _ = fs::remove_file(&temp_tar_path).await;
+        return Err(err);
+    }
+    Ok(ApiResponse::success(()))
 }
 
 #[utoipa::path(
@@ -225,30 +266,49 @@ pub async fn restore_from_local(
     State(state): State<AppState>,
     Path(filename): Path<String>,
 ) -> Result<ApiResponse<()>> {
-    let backup_path = StdPath::new(&Config::global().backup_dir).join(&filename);
-    if !backup_path.exists() {
-        return Err(AppError::NotFound("指定的备份文件不存在".to_string()));
-    }
+    let backup_path = service::resolve_backup_path(&filename).await?;
 
-    service::start_restore_task(state.db.clone(), backup_path).await?;
+    service::start_restore_task(state.db.clone(), backup_path, false).await?;
     Ok(ApiResponse::success(()))
 }
 
 #[utoipa::path(
     post,
-    path = "/api/v1/settings/cleanup-logs",
+    path = "/api/v1/settings/cleanup_logs",
     request_body = CleanupLogsRequest,
     responses(
-        (status = 200, description = "Cleanup old logs")
+        (status = 200, description = "Preview or clean expired logs", body = ApiResponse<LogCleanupReport>)
     ),
     tag = "Settings",
     security(("session_cookie" = []))
 )]
 pub async fn cleanup_logs(
     State(state): State<AppState>,
+    Extension(user): Extension<AuthenticatedUser>,
+    RealIp(ip): RealIp,
     Json(payload): Json<CleanupLogsRequest>,
-) -> Result<ApiResponse<u64>> {
-    let days = payload.days.unwrap_or(30);
-    let count = service::cleanup_logs(&state.db, days).await?;
-    Ok(ApiResponse::success(count))
+) -> Result<ApiResponse<LogCleanupReport>> {
+    let days = payload.days.unwrap_or(defaults::LOG_RETENTION_DAYS);
+    let report = if payload.dry_run {
+        service::preview_log_cleanup(&state.db, days).await?
+    } else {
+        service::cleanup_logs(&state.db, days).await?
+    };
+
+    if !payload.dry_run {
+        let details = serde_json::to_string(&report).ok();
+        AuditService::log(
+            &state.db,
+            Some(user.id),
+            "User",
+            "清理日志",
+            "settings",
+            None,
+            details,
+            Some(ip),
+        )
+        .await;
+    }
+
+    Ok(ApiResponse::success(report))
 }

@@ -364,15 +364,55 @@
         </label>
 
         <template v-else>
-          <input
-            type="file"
-            accept=".zip,.tar,.tar.gz,.tgz"
-            class="block w-full rounded-md border border-light bg-card px-3 py-2 text-[11px] text-secondary"
-            @change="handleInstallFile"
-          />
+          <label
+            class="group flex min-h-[76px] cursor-pointer items-center gap-3 rounded-lg border px-3.5 py-3 transition-[border-color,background-color,box-shadow] duration-200 focus-within:ring-2 focus-within:ring-primary/20"
+            :class="
+              installDialog.file
+                ? 'border-primary/45 bg-primary/5 hover:border-primary/65'
+                : 'border-dashed border-light bg-subtle/60 hover:border-primary/40 hover:bg-soft/70'
+            "
+          >
+            <input
+              type="file"
+              accept=".zip,.tar,.tar.gz,.tgz"
+              class="sr-only"
+              @change="handleInstallFile"
+            />
+            <span
+              class="h-10 w-10 shrink-0 rounded-lg flex-center transition-colors"
+              :class="
+                installDialog.file
+                  ? 'bg-primary text-white'
+                  : 'border border-light bg-card text-primary group-hover:border-primary/25'
+              "
+            >
+              <span
+                :class="installDialog.file ? 'i-ep-document-checked' : 'i-ep-upload-filled'"
+                class="text-[17px]"
+              ></span>
+            </span>
+            <span class="min-w-0 flex-1">
+              <span
+                class="block truncate text-[12px] font-bold"
+                :class="installDialog.file ? 'text-default' : 'text-secondary'"
+              >
+                {{ installDialog.file?.name || "选择扩展安装包" }}
+              </span>
+              <span class="mt-1 block text-[10px] leading-4 text-muted">
+                {{
+                  installDialog.file
+                    ? "安装包已就绪，点击此处可重新选择"
+                    : "支持 .zip、.tar、.tar.gz 和 .tgz 格式"
+                }}
+              </span>
+            </span>
+            <span
+              class="shrink-0 rounded-md border border-light bg-card px-2.5 py-1.5 text-[10px] font-bold text-secondary shadow-sm transition-colors group-hover:border-primary/25 group-hover:text-primary"
+            >
+              {{ installDialog.file ? "更换文件" : "浏览文件" }}
+            </span>
+          </label>
           <el-input v-model="installDialog.checksumSha256" placeholder="SHA-256 校验值（可选）" />
-          <el-input v-model="installDialog.signatureEd25519" type="textarea" :rows="2" placeholder="Ed25519 签名" />
-          <el-input v-model="installDialog.publicKeyEd25519" type="textarea" :rows="3" placeholder="Ed25519 公钥" />
         </template>
 
         <el-checkbox v-if="installDialog.operation === 'install'" v-model="installDialog.enable">安装后立即启用</el-checkbox>

@@ -35,8 +35,11 @@ pub struct TaskManagerService {
     db: DatabaseConnection,
     log_sessions: Arc<dashmap::DashMap<String, LogSession>>,
     active_task_runs: Arc<dashmap::DashMap<i32, i32>>,
+    starting_tasks: Arc<dashmap::DashSet<i32>>,
     scheduler: Arc<JobScheduler>,
     scheduled_jobs: Arc<dashmap::DashMap<i32, Uuid>>,
+    task_schedule_lock: Arc<tokio::sync::Mutex<()>>,
+    workflow_schedule_lock: Arc<tokio::sync::Mutex<()>>,
     running_permits: Arc<tokio::sync::Semaphore>,
     current_max_concurrency: Arc<Mutex<usize>>,
     system_job_handles: Arc<dashmap::DashMap<i32, tokio::task::AbortHandle>>,
@@ -90,7 +93,16 @@ impl TaskManagerService {
         let max_concurrency_str = SettingsManager::get(&db, SYSTEM_MAX_CONCURRENCY).await?;
         let max_concurrency = max_concurrency_str
             .parse::<usize>()
-            .unwrap_or(defaults::MAX_CONCURRENCY);
+            .ok()
+            .filter(|value| (1..=1024).contains(value))
+            .unwrap_or_else(|| {
+                warn!(
+                    "无效的最大并发数 '{}'，回退为 {}",
+                    max_concurrency_str,
+                    defaults::MAX_CONCURRENCY
+                );
+                defaults::MAX_CONCURRENCY
+            });
         info!("任务管理器初始化，最大并发数: {}", max_concurrency);
 
         let service = Self {
@@ -100,8 +112,11 @@ impl TaskManagerService {
             db,
             log_sessions: Arc::new(dashmap::DashMap::new()),
             active_task_runs: Arc::new(dashmap::DashMap::new()),
+            starting_tasks: Arc::new(dashmap::DashSet::new()),
             scheduler: Arc::new(scheduler),
             scheduled_jobs: Arc::new(dashmap::DashMap::new()),
+            task_schedule_lock: Arc::new(tokio::sync::Mutex::new(())),
+            workflow_schedule_lock: Arc::new(tokio::sync::Mutex::new(())),
             running_permits: Arc::new(Semaphore::new(max_concurrency)),
             current_max_concurrency: Arc::new(Mutex::new(max_concurrency)),
             system_job_handles: Arc::new(dashmap::DashMap::new()),

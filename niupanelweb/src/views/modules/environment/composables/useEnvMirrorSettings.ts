@@ -14,6 +14,7 @@ type UseEnvMirrorSettingsOptions = {
 };
 
 const DEFAULT_NODE_DIST_MIRROR = "https://mirrors.ustc.edu.cn/node/";
+const DEFAULT_PNPM_REGISTRY = "https://registry.npmmirror.com/";
 
 const toSettingsMap = (settings: SettingItem[]) => {
   return settings.reduce<Record<string, string>>((map, item) => {
@@ -44,7 +45,7 @@ const buildGeneralSettings = (
   uv_pypi_mirror: uvPypiMirror,
   default_python_version: settingsMap["system.default_python_version"] || "",
   default_node_version: settingsMap["system.default_node_version"] || "",
-  fnm_node_dist_mirror: nodeDistMirror,
+  pnpm_node_dist_mirror: nodeDistMirror,
   npm_registry_mirror: npmRegistryMirror,
 });
 
@@ -89,8 +90,11 @@ export function useEnvMirrorSettings({
       uvForm.pythonMirror = settingsMap["system.uv_python_mirror"] || "";
       uvForm.pypiMirror = settingsMap["system.uv_pypi_mirror"] || "";
       nodeForm.distMirror =
-        settingsMap["system.fnm_node_dist_mirror"] || DEFAULT_NODE_DIST_MIRROR;
-      nodeForm.registryMirror = settingsMap["system.npm_registry_mirror"] || "";
+        settingsMap["system.pnpm_node_dist_mirror"] ||
+        settingsMap["system.fnm_node_dist_mirror"] ||
+        DEFAULT_NODE_DIST_MIRROR;
+      nodeForm.registryMirror =
+        settingsMap["system.npm_registry_mirror"] || DEFAULT_PNPM_REGISTRY;
 
       fullSettings.value = buildGeneralSettings(
         settingsMap,
@@ -133,7 +137,7 @@ export function useEnvMirrorSettings({
 
     await settingsApi.updateGeneralSettings({
       ...settings,
-      fnm_node_dist_mirror: nodeForm.distMirror.trim(),
+      pnpm_node_dist_mirror: nodeForm.distMirror.trim(),
     });
     ElMessage.success("Node.js 下载镜像设置成功");
   };
@@ -146,7 +150,7 @@ export function useEnvMirrorSettings({
       ...settings,
       npm_registry_mirror: nodeForm.registryMirror.trim(),
     });
-    ElMessage.success("npm 包镜像设置成功");
+    ElMessage.success("pnpm 包镜像设置成功");
   };
 
   const submitLegacyMirror = async () => {
@@ -167,7 +171,7 @@ export function useEnvMirrorSettings({
         await submitUvSettings();
       } else if (filterType.value === "node" && activeTab.value === "node_dist") {
         await submitNodeDistSettings();
-      } else if (filterType.value === "node" && activeTab.value === "npm") {
+      } else if (filterType.value === "node" && activeTab.value === "pnpm") {
         await submitNodeRegistrySettings();
       } else {
         const submitted = await submitLegacyMirror();

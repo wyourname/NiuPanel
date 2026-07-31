@@ -9,6 +9,7 @@ pub struct LoginRequest {
 
 #[derive(Deserialize, ToSchema)]
 pub struct IdentifyRequest {
+    #[allow(dead_code)]
     pub username: String,
 }
 

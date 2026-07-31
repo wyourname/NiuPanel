@@ -24,7 +24,9 @@ pub mod settings {
     pub const SYSTEM_DEFAULT_PYTHON_VERSION: &str = "system.default_python_version";
     pub const SYSTEM_DEFAULT_NODE_VERSION: &str = "system.default_node_version";
     pub const SYSTEM_ONBOARDING_DONE: &str = "system.onboarding_done";
-    pub const FNM_NODE_DIST_MIRROR: &str = "system.fnm_node_dist_mirror";
+    pub const PNPM_NODE_DIST_MIRROR: &str = "system.pnpm_node_dist_mirror";
+    // 仅用于读取升级前的镜像配置，所有新写入都使用 PNPM_NODE_DIST_MIRROR。
+    pub const LEGACY_FNM_NODE_DIST_MIRROR: &str = "system.fnm_node_dist_mirror";
     pub const NPM_REGISTRY_MIRROR: &str = "system.npm_registry_mirror";
     pub const NODE_DEFAULT_PACKAGES: &str = "system.node_default_packages";
 
@@ -41,6 +43,8 @@ pub mod defaults {
     pub const MAX_CONCURRENCY: usize = 15;
     pub const TIMEZONE: &str = "Asia/Shanghai";
     pub const LOG_RETENTION_DAYS: i64 = 15;
+    pub const LOG_RETENTION_MIN_DAYS: i64 = 1;
+    pub const LOG_RETENTION_MAX_DAYS: i64 = 365;
     pub const MAX_SESSIONS: i32 = 2;
 }
 
@@ -48,7 +52,7 @@ pub mod defaults {
 pub mod script {
     /// 常见的解释器名称列表，用于在参数解析时忽略
     pub const INTERPRETERS: &[&str] = &[
-        "python", "python3", "python2", "py", "node", "nodejs", "npm", "deno", "sh", "bash", "zsh",
-        "go", "cargo", "java", "php", "ruby", "perl",
+        "python", "python3", "python2", "py", "node", "nodejs", "pnpm", "pnpx", "npm", "deno",
+        "sh", "bash", "zsh", "go", "cargo", "java", "php", "ruby", "perl",
     ];
 }

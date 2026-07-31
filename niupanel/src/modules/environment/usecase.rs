@@ -1,7 +1,9 @@
 use crate::common::state::AppState;
 use crate::modules::auth::service::AuthenticatedUser;
+use niupanel_common::constants::settings::SYSTEM_DEFAULT_NODE_VERSION;
 use niupanel_common::error::Result;
 use niupanel_core::audit::service::AuditService;
+use niupanel_core::script::interpreter::node::NodeEnvironment;
 use niupanel_core::settings::SettingsService;
 use niupanel_core::task_manager::service::TaskManagerService;
 use sea_orm::DatabaseConnection;
@@ -217,6 +219,17 @@ impl EnvironmentUseCase {
         name: String,
     ) -> Result<()> {
         let version = EnvironmentService::delete_node_env(&self.db, &name).await?;
+        let configured_default = self
+            .settings
+            .get(SYSTEM_DEFAULT_NODE_VERSION)
+            .await
+            .ok()
+            .and_then(|value| NodeEnvironment::normalize_version(&value));
+        if configured_default.as_deref() == Some(version.as_str()) {
+            self.settings
+                .set(SYSTEM_DEFAULT_NODE_VERSION, "", Some("System"))
+                .await?;
+        }
 
         self.log_user_action(
             user,

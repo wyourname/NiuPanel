@@ -90,13 +90,8 @@ pub async fn handle_var_manage_menu(
         _ => return,
     };
     let text = format!(
-        "⚙️ *管理变量*\n\n*Key:* `{}`\n*Value:* `{}`\n*作用域:* `{}`",
+        "⚙️ *管理变量*\n\n*Key:* `{}`\n*Value:* `***`\n*作用域:* `{}`",
         escape_tg_markdown(&v.key),
-        if v.value.len() > 20 {
-            "***".to_string()
-        } else {
-            escape_tg_markdown(&v.value)
-        },
         escape_tg_markdown(&v.scope)
     );
     let kb = InlineKeyboardMarkup::new(vec![

@@ -1,6 +1,6 @@
 <template>
   <div
-    class="flex items-center gap-4 px-4 py-3 bg-card active:bg-soft transition-colors border-b border-light/50"
+    class="variable-card flex items-center gap-4 px-4 py-3 bg-card active:bg-soft transition-colors border-b border-light/50"
     :class="[
       selected ? 'bg-soft ring-1 ring-primary/25' : '',
       dragOver ? 'ring-2 ring-primary/20 ring-inset' : '',
@@ -53,20 +53,21 @@
       <div class="text-[10px] text-muted mt-0.5 truncate flex items-center gap-1.5">
         <span class="font-mono">#{{ row.id }}</span>
         <span>·</span>
-        <span>{{ row.remarks || (valueVisible ? row.value.substring(0, 20) : "••••••••••••••••") }}</span>
+        <span>{{ row.remarks || (valueVisible ? (row.value ?? "").substring(0, 20) : "••••••••••••••••") }}</span>
       </div>
     </div>
 
     <div class="hidden min-w-0 items-center gap-1.5 md:flex shrink-0 w-1/3">
       <button
-      type="button"
-      class="flex min-w-0 flex-1 items-center gap-1.5 rounded-md border border-light bg-base/60 px-2.5 py-1.5 text-left transition-colors hover:bg-base"
-      title="显示或隐藏变量值"
+        type="button"
+        class="flex min-w-0 flex-1 items-center gap-1.5 rounded-md border border-light bg-base/60 px-2.5 py-1.5 text-left transition-colors hover:bg-base"
+        title="显示或隐藏变量值"
+        :disabled="valueLoading"
         @click.stop="emit('toggle-value', row.id)"
       >
         <div class="i-ep-lock shrink-0 text-[11px] text-primary/45"></div>
         <span class="min-w-0 truncate font-mono text-[11px] text-default opacity-80">
-          {{ valueVisible ? row.value : "••••••••••••••••" }}
+          {{ valueVisible ? row.value ?? "" : "••••••••••••••••" }}
         </span>
       </button>
       <button
@@ -74,16 +75,21 @@
         class="h-7 w-7 shrink-0 rounded-md text-muted flex-center transition-colors hover:bg-base hover:text-default"
         :title="valueVisible ? '隐藏变量值' : '显示变量值'"
         :aria-label="valueVisible ? '隐藏变量值' : '显示变量值'"
+        :disabled="valueLoading"
         @click.stop="emit('toggle-value', row.id)"
       >
-        <div :class="valueVisible ? 'i-ep-view' : 'i-ep-hide'" class="text-xs"></div>
+        <div
+          :class="valueLoading ? 'i-ep-loading animate-spin' : valueVisible ? 'i-ep-view' : 'i-ep-hide'"
+          class="text-xs"
+        ></div>
       </button>
       <button
         type="button"
         class="h-7 w-7 shrink-0 rounded-md text-muted flex-center transition-colors hover:bg-base hover:text-default"
         title="复制变量值"
         aria-label="复制变量值"
-        @click.stop="emit('copy-value', row.value)"
+        :disabled="valueLoading"
+        @click.stop="emit('copy-value', row.id)"
       >
         <div class="i-ep-copy-document text-xs"></div>
       </button>
@@ -135,12 +141,13 @@ defineProps<{
   searchQuery: string;
   taskNames: string;
   touchDragging: boolean;
+  valueLoading: boolean;
   valueVisible: boolean;
 }>();
 
 const emit = defineEmits<{
   (event: "card-click", row: VariablePageRow): void;
-  (event: "copy-value", value: string): void;
+  (event: "copy-value", id: number): void;
   (event: "delete", row: VariablePageRow): void;
   (event: "drag-end"): void;
   (event: "drag-over", index: number): void;

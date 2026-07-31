@@ -28,45 +28,17 @@ impl TaskManagerService {
     }
 
     pub(crate) fn spawn_settings_listener(&self) {
-        let service = self.clone();
+        let initial_max = *self.current_max_concurrency.lock().expect("Mutex poisoned");
+        let (desired_tx, mut desired_rx) = tokio::sync::watch::channel(initial_max);
+        let event_service = self.clone();
         tokio::spawn(async move {
-            let mut rx = service.event_bus.subscribe();
+            let mut rx = event_service.event_bus.subscribe();
             loop {
                 match rx.recv().await {
                     Ok(SystemEvent::System(SystemNotification::SettingChanged { key, value })) => {
                         if key == SYSTEM_MAX_CONCURRENCY {
-                            if let Ok(new_max) = value.parse::<usize>() {
-                                let old_max = {
-                                    let mut guard = service
-                                        .current_max_concurrency
-                                        .lock()
-                                        .expect("Mutex poisoned");
-                                    let old = *guard;
-                                    *guard = new_max;
-                                    old
-                                };
-
-                                let diff = new_max as isize - old_max as isize;
-                                if diff > 0 {
-                                    service.running_permits.add_permits(diff as usize);
-                                    info!("动态调整任务最大并发数: {} -> {}", old_max, new_max);
-                                } else if diff < 0 {
-                                    let to_acquire = diff.abs() as usize;
-                                    info!(
-                                        "动态缩减任务最大并发数: {} -> {}，将等待 {} 个任务完成...",
-                                        old_max, new_max, to_acquire
-                                    );
-                                    let permits_clone = service.running_permits.clone();
-                                    tokio::spawn(async move {
-                                        for _ in 0..to_acquire {
-                                            let _permit = permits_clone
-                                                .acquire()
-                                                .await
-                                                .expect("Semaphore closed unexpected");
-                                        }
-                                        info!("任务最大并发数已成功缩减至 {}", new_max);
-                                    });
-                                }
+                            if let Ok(new_max @ 1..=1024) = value.parse::<usize>() {
+                                desired_tx.send_replace(new_max);
                             } else {
                                 warn!("无法解析新的最大并发数 '{}'。", value);
                             }
@@ -81,6 +53,73 @@ impl TaskManagerService {
                         info!("设置监听器通道关闭");
                         break;
                     }
+                }
+            }
+        });
+
+        let controller_service = self.clone();
+        tokio::spawn(async move {
+            loop {
+                let desired = *desired_rx.borrow_and_update();
+                let current = *controller_service
+                    .current_max_concurrency
+                    .lock()
+                    .expect("Mutex poisoned");
+
+                if desired > current {
+                    controller_service
+                        .running_permits
+                        .add_permits(desired - current);
+                    *controller_service
+                        .current_max_concurrency
+                        .lock()
+                        .expect("Mutex poisoned") = desired;
+                    info!("动态调整任务最大并发数: {} -> {}", current, desired);
+                    continue;
+                }
+
+                if desired < current {
+                    let reduction = current - desired;
+                    info!(
+                        "动态缩减任务最大并发数: {} -> {}，等待回收 {} 个许可...",
+                        current, desired, reduction
+                    );
+                    let acquire = controller_service
+                        .running_permits
+                        .clone()
+                        .acquire_many_owned(reduction as u32);
+                    tokio::pin!(acquire);
+                    tokio::select! {
+                        result = &mut acquire => {
+                            match result {
+                                Ok(permits) => {
+                                    permits.forget();
+                                    *controller_service
+                                        .current_max_concurrency
+                                        .lock()
+                                        .expect("Mutex poisoned") = desired;
+                                    info!("任务最大并发数已成功缩减至 {}", desired);
+                                }
+                                Err(_) => {
+                                    warn!("任务并发控制器已关闭");
+                                    break;
+                                }
+                            }
+                        }
+                        changed = desired_rx.changed() => {
+                            if changed.is_err() {
+                                break;
+                            }
+                            // Cancelling the acquire future returns any partially
+                            // acquired permits before recomputing the latest target.
+                            continue;
+                        }
+                    }
+                    continue;
+                }
+
+                if desired_rx.changed().await.is_err() {
+                    break;
                 }
             }
         });
@@ -185,13 +224,24 @@ impl TaskManagerService {
         for i in 0..config.count {
             let random_offset = rand::rng().random_range(0..(end_seconds - start_seconds));
             let target_seconds = start_seconds + random_offset;
-            let target_time =
-                NaiveTime::from_num_seconds_from_midnight_opt(target_seconds, 0).unwrap();
-            let target_dt = now
+            let Some(target_time) =
+                NaiveTime::from_num_seconds_from_midnight_opt(target_seconds, 0)
+            else {
+                warn!("任务 {} 生成了无效的随机执行时间", task.id);
+                continue;
+            };
+            let Some(target_dt) = now
                 .date_naive()
                 .and_time(target_time)
                 .and_local_timezone(tz)
-                .unwrap();
+                .earliest()
+            else {
+                warn!(
+                    "任务 {} 的随机执行时间落在时区 {} 的无效本地时间，已跳过",
+                    task.id, tz
+                );
+                continue;
+            };
 
             if target_dt <= now {
                 continue;
@@ -267,6 +317,7 @@ impl TaskManagerService {
     }
 
     async fn rebalance_all_random_tasks(&self) -> Result<(), AppError> {
+        let _guard = self.task_schedule_lock.lock().await;
         let tasks = niupanel_entity::tasks::Entity::find()
             .filter(niupanel_entity::tasks::Column::Enabled.eq(true))
             .filter(niupanel_entity::tasks::Column::RandomConfig.is_not_null())
@@ -297,7 +348,8 @@ impl TaskManagerService {
         &self,
         task: &niupanel_entity::tasks::Model,
     ) -> Result<(), AppError> {
-        self.remove_task_schedule(task.id).await?;
+        let _guard = self.task_schedule_lock.lock().await;
+        self.remove_task_schedule_locked(task.id).await?;
         if task.enabled {
             self.schedule_task(task).await?;
             self.schedule_random_task_for_day(task).await?;
@@ -311,11 +363,21 @@ impl TaskManagerService {
     }
 
     pub async fn remove_task_schedule(&self, task_id: i32) -> Result<(), AppError> {
-        if let Some((_, job_uuid)) = self.scheduled_jobs.remove(&task_id) {
+        let _guard = self.task_schedule_lock.lock().await;
+        self.remove_task_schedule_locked(task_id).await
+    }
+
+    async fn remove_task_schedule_locked(&self, task_id: i32) -> Result<(), AppError> {
+        let job_uuid = self
+            .scheduled_jobs
+            .get(&task_id)
+            .map(|entry| *entry.value());
+        if let Some(job_uuid) = job_uuid {
             self.scheduler
                 .remove(&job_uuid)
                 .await
                 .map_err(|e| AppError::Generic(format!("从调度器移除任务失败: {}", e)))?;
+            self.scheduled_jobs.remove(&task_id);
             info!("已移除计划任务 {}", task_id);
         }
 
@@ -327,8 +389,15 @@ impl TaskManagerService {
             }
         }
         for key in keys_to_remove {
-            if let Some((_, uuid)) = self.scheduled_jobs.remove(&key) {
-                let _ = self.scheduler.remove(&uuid).await;
+            let uuid = self.scheduled_jobs.get(&key).map(|entry| *entry.value());
+            if let Some(uuid) = uuid {
+                self.scheduler.remove(&uuid).await.map_err(|e| {
+                    AppError::Generic(format!(
+                        "从调度器移除任务 {} 的随机计划失败: {}",
+                        task_id, e
+                    ))
+                })?;
+                self.scheduled_jobs.remove(&key);
             }
         }
 
@@ -342,7 +411,9 @@ impl TaskManagerService {
             .await?;
 
         for wf in workflows {
-            self.schedule_workflow(&wf).await?;
+            if let Err(err) = self.schedule_workflow(&wf).await {
+                warn!("加载工作流 {} 的调度失败: {}", wf.id, err);
+            }
         }
         Ok(())
     }
@@ -351,18 +422,29 @@ impl TaskManagerService {
         &self,
         wf: &niupanel_entity::tg_workflows::Model,
     ) -> Result<(), AppError> {
+        let _guard = self.workflow_schedule_lock.lock().await;
+        self.replace_workflow_schedule(wf).await
+    }
+
+    async fn replace_workflow_schedule(
+        &self,
+        wf: &niupanel_entity::tg_workflows::Model,
+    ) -> Result<(), AppError> {
         if wf.event_type != "cron" {
-            return Ok(());
+            return self.remove_workflow_schedule_locked(wf.id).await;
         }
 
         let wf_id = wf.id;
-        let config: serde_json::Value =
-            serde_json::from_str(&wf.config_json).unwrap_or(serde_json::json!({}));
+        let config: serde_json::Value = serde_json::from_str(&wf.config_json).map_err(|err| {
+            AppError::ValidationError(format!("工作流 {} 的配置不是有效 JSON: {}", wf_id, err))
+        })?;
         let cron = match config.get("cron").and_then(|v| v.as_str()) {
             Some(c) if !c.trim().is_empty() => Self::normalize_cron(c),
             _ => {
-                warn!("工作流ID: {} 是cron事件类型但缺失有效cron表达式", wf_id);
-                return Ok(());
+                return Err(AppError::ValidationError(format!(
+                    "工作流 {} 缺少有效的 cron 表达式",
+                    wf_id
+                )));
             }
         };
 
@@ -392,6 +474,22 @@ impl TaskManagerService {
             .add(job)
             .await
             .map_err(|e| AppError::Generic(format!("工作流 {} 调度失败: {}", wf_id, e)))?;
+
+        let old_job_uuid = self.scheduled_jobs.get(&-wf_id).map(|entry| *entry.value());
+        if let Some(old_job_uuid) = old_job_uuid
+            && let Err(remove_err) = self.scheduler.remove(&old_job_uuid).await
+        {
+            let cleanup_result = self.scheduler.remove(&job_uuid).await;
+            let cleanup_message = cleanup_result
+                .err()
+                .map(|err| format!("；新调度清理也失败: {}", err))
+                .unwrap_or_default();
+            return Err(AppError::Generic(format!(
+                "替换工作流 {} 的旧调度失败: {}{}",
+                wf_id, remove_err, cleanup_message
+            )));
+        }
+
         self.scheduled_jobs.insert(-wf_id, job_uuid);
         info!("已调度工作流 {}，Cron: {} (时区: {:?})", wf_id, cron, tz);
         Ok(())
@@ -401,17 +499,22 @@ impl TaskManagerService {
         &self,
         wf: &niupanel_entity::tg_workflows::Model,
     ) -> Result<(), AppError> {
-        self.remove_workflow_schedule(wf.id).await?;
-        self.schedule_workflow(wf).await?;
-        Ok(())
+        self.schedule_workflow(wf).await
     }
 
     pub async fn remove_workflow_schedule(&self, wf_id: i32) -> Result<(), AppError> {
-        if let Some((_, job_uuid)) = self.scheduled_jobs.remove(&-wf_id) {
+        let _guard = self.workflow_schedule_lock.lock().await;
+        self.remove_workflow_schedule_locked(wf_id).await
+    }
+
+    async fn remove_workflow_schedule_locked(&self, wf_id: i32) -> Result<(), AppError> {
+        let job_uuid = self.scheduled_jobs.get(&-wf_id).map(|entry| *entry.value());
+        if let Some(job_uuid) = job_uuid {
             self.scheduler
                 .remove(&job_uuid)
                 .await
                 .map_err(|e| AppError::Generic(format!("移除工作流 {} 失败: {}", wf_id, e)))?;
+            self.scheduled_jobs.remove(&-wf_id);
             info!("已移除工作流 {} 的计划", wf_id);
         }
         Ok(())

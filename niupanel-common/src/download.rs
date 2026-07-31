@@ -12,6 +12,8 @@ pub struct DownloadOptions {
     pub timeout: Option<Duration>,
     pub retries: u8,
     pub retry_delay: Duration,
+    /// Maximum final file size, including an existing partial download.
+    pub max_size: Option<u64>,
 }
 
 impl Default for DownloadOptions {
@@ -21,6 +23,7 @@ impl Default for DownloadOptions {
             timeout: None,
             retries: 1,
             retry_delay: Duration::from_secs(2),
+            max_size: None,
         }
     }
 }
@@ -66,6 +69,14 @@ where
             .await
             .map(|meta| meta.len())
             .unwrap_or(0);
+        if let Some(max_size) = options.max_size {
+            if existing_size > max_size {
+                return Err(AppError::FileSizeLimitExceeded(format!(
+                    "existing partial download exceeds {} bytes",
+                    max_size
+                )));
+            }
+        }
         on_event(DownloadEvent::Attempt {
             attempt,
             resumed_from: existing_size,
@@ -117,6 +128,14 @@ where
         let resumed = status == reqwest::StatusCode::PARTIAL_CONTENT;
         let mut downloaded = if resumed { existing_size } else { 0 };
         let total_size = parse_total_size(&response, expected_size, downloaded);
+        if let Some(max_size) = options.max_size {
+            if total_size > max_size {
+                return Err(AppError::FileSizeLimitExceeded(format!(
+                    "remote file is {} bytes, limit is {} bytes",
+                    total_size, max_size
+                )));
+            }
+        }
         let mut file = if resumed {
             tokio::fs::OpenOptions::new()
                 .create(true)
@@ -140,6 +159,14 @@ where
 
             match item {
                 Ok(chunk) => {
+                    if let Some(max_size) = options.max_size {
+                        if downloaded.saturating_add(chunk.len() as u64) > max_size {
+                            return Err(AppError::FileSizeLimitExceeded(format!(
+                                "download exceeds {} bytes",
+                                max_size
+                            )));
+                        }
+                    }
                     file.write_all(&chunk).await.map_err(AppError::Io)?;
                     downloaded += chunk.len() as u64;
 

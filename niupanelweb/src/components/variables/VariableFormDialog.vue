@@ -41,6 +41,8 @@
           </template>
           <el-input
             v-model="form.key"
+            :maxlength="128"
+            autocomplete="off"
             placeholder="例如: API_ENDPOINT"
             class="modern-input font-mono !text-xs"
           />
@@ -53,6 +55,7 @@
           <el-input
             v-model="form.value"
             type="textarea"
+            :maxlength="1048576"
             :rows="isMobile ? 6 : 6"
             :autosize="{ minRows: isMobile ? 6 : 5, maxRows: isMobile ? 12 : 12 }"
             placeholder="在此输入 Token、路径或配置值"
@@ -66,6 +69,7 @@
           </template>
           <el-input
             v-model="form.remarks"
+            :maxlength="2000"
             placeholder="简要说明此变量用途"
             class="modern-input"
           />

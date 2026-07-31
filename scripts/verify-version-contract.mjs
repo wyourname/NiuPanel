@@ -5,6 +5,7 @@ const versionSource = read('niupanel-common/src/version.rs')
 const migrationSource = read('migration/src/lib.rs')
 const coreCargo = read('niupanel/Cargo.toml')
 const launcherCargo = read('niupanel-launcher/Cargo.toml')
+const webPackage = JSON.parse(read('niupanelweb/package.json'))
 
 const constant = (name) => {
   const value = versionSource.match(new RegExp(`pub const ${name}: u32 = (\\d+);`))?.[1]
@@ -28,12 +29,20 @@ if (migrationCount !== schemaRevision) {
 const coreVersion = packageVersion(coreCargo, 'niupanel')
 const launcherVersion = packageVersion(launcherCargo, 'niupanel-launcher')
 if (coreVersion !== launcherVersion) {
-  throw new Error(`Core version ${coreVersion} and launcher version ${launcherVersion} must match for the 0.8 release protocol`)
+  throw new Error(
+    `Core version ${coreVersion} and launcher version ${launcherVersion} must match for the release protocol`
+  )
+}
+const releaseVersion = process.argv[2]?.replace(/^v/, '')
+if (releaseVersion && releaseVersion !== coreVersion) {
+  throw new Error(
+    `Release version ${releaseVersion} must match the Core package version ${coreVersion}`
+  )
 }
 if (constant('RELEASE_PROTOCOL_VERSION') < 1 || constant('API_CONTRACT_VERSION') < 1) {
   throw new Error('Release protocol and API contract versions must be positive')
 }
 
 console.log(
-  `Version contract verified: Core ${coreVersion}, schema ${constant('SCHEMA_EPOCH')}.${schemaRevision}, API ${constant('API_CONTRACT_VERSION')}`
+  `Version contract verified: Release ${releaseVersion || coreVersion}, Core ${coreVersion}, Web ${webPackage.version}, schema ${constant('SCHEMA_EPOCH')}.${schemaRevision}, API ${constant('API_CONTRACT_VERSION')}`
 )

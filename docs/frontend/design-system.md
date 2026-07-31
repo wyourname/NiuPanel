@@ -74,7 +74,7 @@
 
 ```bash
 cd niupanelweb
-npm run verify:ui-design-system
-npm exec vue-tsc -- --noEmit
-npm run build
+pnpm run verify:ui-design-system
+pnpm exec vue-tsc --noEmit
+pnpm run build
 ```

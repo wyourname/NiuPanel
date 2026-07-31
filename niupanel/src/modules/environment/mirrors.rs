@@ -1,9 +1,9 @@
 use niupanel_core::settings::{
-    FNM_NODE_DIST_MIRROR, NPM_REGISTRY_MIRROR, SettingsService, UV_PYPI_MIRROR, UV_PYTHON_MIRROR,
+    NPM_REGISTRY_MIRROR, PNPM_NODE_DIST_MIRROR, SettingsService, UV_PYPI_MIRROR, UV_PYTHON_MIRROR,
 };
 use std::collections::HashMap;
 
-const FNM_NODE_DIST_MIRROR_ENV: &str = "FNM_NODE_DIST_MIRROR";
+const PNPM_NODE_DIST_MIRROR_ENV: &str = "PNPM_NODE_DIST_MIRROR";
 const NPM_CONFIG_REGISTRY_ENV: &str = "npm_config_registry";
 const UV_INDEX_URL_ENV: &str = "UV_INDEX_URL";
 const UV_PYTHON_INSTALL_MIRROR_ENV: &str = "UV_PYTHON_INSTALL_MIRROR";
@@ -43,13 +43,13 @@ pub(super) async fn python_install_and_index(
 }
 
 pub(super) async fn node_distribution(settings: &SettingsService) -> HashMap<String, String> {
-    let fnm_mirror = settings
-        .get(FNM_NODE_DIST_MIRROR)
+    let node_mirror = settings
+        .get(PNPM_NODE_DIST_MIRROR)
         .await
         .unwrap_or_else(|_| DEFAULT_NODE_DIST_MIRROR.to_string());
     let mut mirrors = HashMap::new();
-    if !fnm_mirror.is_empty() {
-        mirrors.insert(FNM_NODE_DIST_MIRROR_ENV.to_string(), fnm_mirror);
+    if !node_mirror.is_empty() {
+        mirrors.insert(PNPM_NODE_DIST_MIRROR_ENV.to_string(), node_mirror);
     }
     mirrors
 }

@@ -82,20 +82,16 @@ DNS
         echo "hosts:          files dns" > /etc/nsswitch.conf
     fi
 
-    FNM_DIR="/app/fnm"
-    mkdir -p "$FNM_DIR"
-
     NEED_INIT=0
     if [ ! -f "/usr/bin/git" ]; then NEED_INIT=1; fi
     if [ ! -f "/usr/local/bin/uv" ] && [ ! -f "/usr/bin/uv" ]; then NEED_INIT=1; fi
-    if [ ! -f "/usr/local/bin/fnm" ] && [ ! -f "/usr/bin/fnm" ]; then NEED_INIT=1; fi
 
     if [ "$NEED_INIT" = "1" ]; then
         echo "[NiuPanel] 正在初始化 Debian 基础环境..."
         sed -i 's|deb.debian.org|mirrors.ustc.edu.cn|g' /etc/apt/sources.list 2>/dev/null
         sed -i 's|security.debian.org|mirrors.ustc.edu.cn/debian-security|g' /etc/apt/sources.list 2>/dev/null
         apt-get update -y
-        apt-get install -y curl ca-certificates unzip git python3 python3-venv --no-install-recommends
+        apt-get install -y curl ca-certificates unzip git python3 python3-venv libstdc++6 --no-install-recommends
         echo "[NiuPanel] Debian 基础环境安装完成"
     fi
 
@@ -115,29 +111,9 @@ DNS
         fi
     fi
 
-    if [ ! -f "/usr/local/bin/fnm" ] && [ ! -f "/usr/bin/fnm" ]; then
-        if [ -f "/app/tools/fnm" ]; then
-            echo "[NiuPanel] 植入离线 fnm..."
-            cp -f /app/tools/fnm /usr/local/bin/fnm
-            chmod +x /usr/local/bin/fnm
-            cp -f /app/tools/fnm "$FNM_DIR/fnm"
-            chmod +x "$FNM_DIR/fnm"
-            echo "[NiuPanel] fnm 植入成功: $(/usr/local/bin/fnm --version 2>/dev/null || echo 'unknown')"
-        else
-            echo "[NiuPanel] 离线 fnm 不存在，尝试在线安装..."
-            curl -fsSL https://fnm.vercel.app/install | bash -s -- --install-dir /usr/local/bin --skip-shell || true
-            if [ -f "/usr/local/bin/fnm" ]; then
-                cp -f /usr/local/bin/fnm "$FNM_DIR/fnm"
-            fi
-        fi
-    fi
-
-    export FNM_DIR="$FNM_DIR"
-    export PATH="/usr/local/bin:$FNM_DIR:$PATH"
-
-    if command -v fnm > /dev/null 2>&1; then
-        eval "$(fnm env)" 2>/dev/null || true
-    fi
+    export PNPM_NODE_DIST_MIRROR="https://mirrors.ustc.edu.cn/node/"
+    export NPM_CONFIG_REGISTRY="https://registry.npmmirror.com/"
+    export PATH="/usr/local/bin:$PATH"
 
     cd /app
     [ -L web ] || ln -snf /app/web web 2>/dev/null
@@ -152,7 +128,7 @@ DNS
     echo "  git:   $(git --version 2>/dev/null || echo '未安装')"
     echo "  python3: $(python3 --version 2>/dev/null || echo '未安装')"
     echo "  uv:    $(command -v uv >/dev/null 2>&1 && uv --version 2>/dev/null || echo '未找到')"
-    echo "  fnm:   $(command -v fnm >/dev/null 2>&1 && fnm --version 2>/dev/null || echo '未找到')"
+    echo "  pnpm:  由 NiuPanel 首次使用时自动准备"
 
     if ! pgrep niupanel > /dev/null; then
         echo "[NiuPanel] 启动中..."

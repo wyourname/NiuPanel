@@ -1,7 +1,7 @@
 import type { Ref } from "vue";
-import { ElMessage } from "element-plus";
+import { ElMessage, ElMessageBox } from "element-plus";
 import * as variableApi from "../api/variable";
-import type { VariableRequest } from "@/types";
+import type { Variable, VariableRequest } from "@/types";
 
 type UseVariableImportExportOptions = {
   activeTab: Ref<string>;
@@ -41,13 +41,33 @@ type LegacyVariableImportItem = {
   scope?: unknown;
   scope_id?: unknown;
   scope_ids?: unknown;
+  task_ids?: unknown;
 };
 
 const toStringValue = (value: unknown) =>
   typeof value === "string" ? value : String(value ?? "");
 
-const normalizeImportedVariables = (items: unknown[]): VariableRequest[] => {
+const normalizeTaskIds = (source: LegacyVariableImportItem) => {
+  const rawIds = Array.isArray(source.task_ids)
+    ? source.task_ids
+    : source.scope_ids;
+  return Array.isArray(rawIds)
+    ? rawIds.filter(
+        (scopeId): scopeId is number =>
+          typeof scopeId === "number" && Number.isInteger(scopeId),
+      )
+    : undefined;
+};
+
+const normalizeImportedVariables = (
+  items: unknown[],
+  activeScope: string,
+  scopedTaskId: number | null,
+): VariableRequest[] => {
   return items.map((item) => {
+    if (!item || typeof item !== "object") {
+      throw new Error("变量条目必须是对象");
+    }
     const source = item as LegacyVariableImportItem;
     if (
       source.name !== undefined &&
@@ -59,24 +79,36 @@ const normalizeImportedVariables = (items: unknown[]): VariableRequest[] => {
         value: toStringValue(source.value),
         remarks: toStringValue(source.remarks),
         enabled: source.status !== undefined ? source.status === 0 : true,
-        scope: "Global",
+        scope: activeScope,
+        scope_ids:
+          activeScope === "Script" && scopedTaskId ? [scopedTaskId] : undefined,
       };
     }
 
+    const scope =
+      source.scope === "Global" || source.scope === "Script"
+        ? source.scope
+        : activeScope;
+    const taskIds = normalizeTaskIds(source);
     return {
       key: toStringValue(source.key),
       value: toStringValue(source.value),
       remarks: toStringValue(source.remarks),
       enabled:
         typeof source.enabled === "boolean" ? source.enabled : true,
-      scope: typeof source.scope === "string" ? source.scope : "Global",
+      scope,
       scope_id:
-        typeof source.scope_id === "number" ? source.scope_id : undefined,
-      scope_ids: Array.isArray(source.scope_ids)
-        ? source.scope_ids.filter(
-            (scopeId): scopeId is number => typeof scopeId === "number",
-          )
-        : undefined,
+        scope === "Script" && typeof source.scope_id === "number"
+          ? source.scope_id
+          : undefined,
+      scope_ids:
+        scope === "Script"
+          ? taskIds?.length
+            ? taskIds
+            : scopedTaskId
+              ? [scopedTaskId]
+              : undefined
+          : undefined,
     };
   });
 };
@@ -88,22 +120,45 @@ export function useVariableImportExport({
 }: UseVariableImportExportOptions) {
   const handleExport = async () => {
     try {
-      const loadingMessage = ElMessage({
-        message: "正在导出数据，请稍候...",
-        type: "info",
-        duration: 0,
-      });
+      await ElMessageBox.confirm(
+        "导出文件将包含变量明文，请妥善保存并避免上传到公开位置。",
+        "导出敏感数据",
+        {
+          type: "warning",
+          confirmButtonText: "继续导出",
+          cancelButtonText: "取消",
+        },
+      );
+    } catch {
+      return;
+    }
 
-      const res = await variableApi.getVariables({
-        scope: activeTab.value,
-        scope_id: getScopedTaskId() ?? undefined,
-        page: 1,
-        page_size: 100000,
-      });
+    const loadingMessage = ElMessage({
+      message: "正在导出数据，请稍候...",
+      type: "info",
+      duration: 0,
+    });
+    try {
+      const items: Variable[] = [];
+      let page = 1;
+      let total = 0;
+      do {
+        const res = await variableApi.getVariablesWithValues({
+          scope: activeTab.value,
+          scope_id: getScopedTaskId() ?? undefined,
+          page,
+          page_size: 1000,
+        });
+        const pageItems = res.data.items || [];
+        if (pageItems.length === 0 && items.length < res.data.total) {
+          throw new Error("导出分页数据不完整");
+        }
+        items.push(...pageItems);
+        total = res.data.total;
+        page += 1;
+      } while (items.length < total);
 
-      loadingMessage.close();
-
-      const dataStr = JSON.stringify(res.data.items || [], null, 2);
+      const dataStr = JSON.stringify(items, null, 2);
       const blob = new Blob([dataStr], { type: "application/json" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -114,6 +169,8 @@ export function useVariableImportExport({
       ElMessage.success("导出成功");
     } catch {
       ElMessage.error("导出失败");
+    } finally {
+      loadingMessage.close();
     }
   };
 
@@ -124,13 +181,21 @@ export function useVariableImportExport({
     try {
       const text = await readFileText(file);
       const json = JSON.parse(text);
-      if (!Array.isArray(json)) return;
+      if (!Array.isArray(json)) {
+        throw new Error("JSON 顶层必须是数组");
+      }
 
-      await variableApi.importVariables(normalizeImportedVariables(json));
-      ElMessage.success("Imported");
+      await variableApi.importVariables(
+        normalizeImportedVariables(
+          json,
+          activeTab.value,
+          getScopedTaskId(),
+        ),
+      );
+      ElMessage.success("导入成功");
       reload();
     } catch {
-      ElMessage.error("Format error");
+      ElMessage.error("导入格式错误或数据不合法");
     }
   };
 

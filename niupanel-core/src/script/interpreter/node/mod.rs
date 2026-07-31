@@ -1,34 +1,55 @@
+mod pnpm;
+
 use crate::sys::tools::ToolService;
 use niupanel_common::config::Config;
 use niupanel_common::error::{AppError, Result};
 use niupanel_common::{debug, info};
+use pnpm::PnpmManager;
+use serde::Deserialize;
 use std::collections::HashMap;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 use tokio::sync::mpsc::UnboundedSender;
 
-// removed complex caching since we use pure native filesystem routing now
+const DEFAULT_NODE_DIST_MIRROR: &str = "https://mirrors.ustc.edu.cn/node/";
+const DEFAULT_VERSION_FILE: &str = "default-version";
 
 pub struct NodeEnvironment {
     pub mirrors: HashMap<String, String>,
     pub version: Option<String>,
 }
 
+#[derive(Debug, Default)]
+pub struct NodeVersionCatalog {
+    pub recommended_lts: Option<String>,
+    pub versions: String,
+}
+
+#[derive(Deserialize)]
+struct NodeRelease {
+    #[serde(default)]
+    files: Vec<String>,
+    #[serde(default)]
+    lts: serde_json::Value,
+    version: String,
+}
+
 impl NodeEnvironment {
-    /// 获取 fnm 二进制文件的完整路径
-    pub fn get_fnm_bin() -> PathBuf {
-        ToolService::ensure_fnm().unwrap_or_else(|_| PathBuf::from("fnm"))
+    pub fn get_pnpm_bin() -> PathBuf {
+        PnpmManager::resolve_bin().unwrap_or_else(|| PathBuf::from("pnpm"))
     }
 
-    /// 确保系统上存在 fnm
-    pub async fn ensure_fnm_installed() -> Result<()> {
-        let fnm_bin = ToolService::ensure_fnm()?;
-        info!("Using fnm from {}", fnm_bin.display());
-        Ok(())
+    pub async fn ensure_pnpm_installed(
+        mirrors: Option<&HashMap<String, String>>,
+    ) -> Result<PathBuf> {
+        let empty = HashMap::new();
+        let pnpm = PnpmManager::ensure_installed(mirrors.unwrap_or(&empty)).await?;
+        info!("Using pnpm from {}", pnpm.display());
+        Ok(pnpm)
     }
 
-    /// 打开一个已有的 Node 环境（只读操作，不执行 fnm install）
-    /// 适用于：列出包、查询状态等不需要修改环境的场景
+    /// 打开已有的 Node 环境。该操作不下载运行时。
     pub fn open(
         _env_dir: PathBuf,
         version: String,
@@ -40,49 +61,19 @@ impl NodeEnvironment {
         })
     }
 
+    /// 创建或打开一个由 `pnpm runtime` 管理的 Node 版本目录。
     pub async fn new(
         _env_dir: PathBuf,
         version: String,
         mirrors: Option<HashMap<String, String>>,
     ) -> Result<Self> {
-        Self::ensure_fnm_installed().await?;
-
         let mirrors = mirrors.unwrap_or_default();
         let version = Self::normalize_version(&version).ok_or_else(|| {
             AppError::ValidationError("Node version must be specified".to_string())
         })?;
 
-        // 1. Install Node version if not already installed via fnm
-        //    First check if already installed to avoid redundant downloads
-        let using_arg = format!("--using={}", version);
-        let fnm_env = ToolService::build_fnm_env(Some(&mirrors))?;
-        let version_check = ToolService::run_status(
-            &Self::get_fnm_bin(),
-            &["exec", &using_arg, "node", "--version"],
-            None,
-            Some(&fnm_env),
-            true,
-        )
-        .await;
-
-        if !matches!(version_check, Ok(s) if s.success()) {
-            debug!("Node {} not installed, downloading via fnm...", version);
-            ToolService::run_checked(
-                &Self::get_fnm_bin(),
-                &["install", &version],
-                None,
-                Some(&fnm_env),
-                "fnm install",
-            )
-            .await?;
-        } else {
-            debug!(
-                "Node {} already installed via fnm, skipping download.",
-                version
-            );
-        }
-
-        // Do not create env_dir sandboxes anymore.
+        Self::ensure_pnpm_installed(Some(&mirrors)).await?;
+        Self::ensure_runtime_project(&version, &mirrors).await?;
 
         Ok(Self {
             mirrors,
@@ -91,18 +82,15 @@ impl NodeEnvironment {
     }
 
     pub async fn create(
-        _env_dir: PathBuf,
+        env_dir: PathBuf,
         version: String,
         sender: UnboundedSender<String>,
         mirrors: Option<HashMap<String, String>>,
     ) -> Result<()> {
         info!("Downloading Node runtime version...");
-        let _ = sender.send(format!("Downloading Node {}...", version));
-
-        let _env = Self::new(_env_dir.clone(), version.clone(), mirrors).await?;
-
+        let _ = sender.send(format!("Downloading Node {} with pnpm runtime...", version));
+        Self::new(env_dir, version, mirrors).await?;
         let _ = sender.send("Node version installed successfully.".to_string());
-
         Ok(())
     }
 
@@ -112,13 +100,22 @@ impl NodeEnvironment {
             return None;
         }
 
-        trimmed
+        let value = trimmed
             .strip_prefix("venv_")
             .unwrap_or(trimmed)
             .split_whitespace()
-            .next()
-            .map(|value| value.trim_start_matches('v').to_string())
-            .filter(|value| !value.is_empty())
+            .next()?
+            .trim_start_matches('v');
+        if value.is_empty()
+            || !value.as_bytes().first().is_some_and(u8::is_ascii_digit)
+            || value.contains("..")
+            || !value
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'+'))
+        {
+            return None;
+        }
+        Some(value.to_string())
     }
 
     pub fn shared_root_for_version(version: &str) -> PathBuf {
@@ -139,14 +136,18 @@ impl NodeEnvironment {
         Self::shared_node_modules_for_version(version).join(".bin")
     }
 
+    pub fn node_bin_for_version(version: &str) -> PathBuf {
+        Self::shared_bin_for_version(version).join("node")
+    }
+
     pub fn package_install_path(pkg: &str) -> PathBuf {
         let normalized = pkg.trim();
 
-        if let Some(scoped) = normalized.strip_prefix('@') {
-            if let Some((scope, rest)) = scoped.split_once('/') {
-                let package_name = rest.rsplit_once('@').map(|(name, _)| name).unwrap_or(rest);
-                return PathBuf::from(format!("@{}", scope)).join(package_name);
-            }
+        if let Some(scoped) = normalized.strip_prefix('@')
+            && let Some((scope, rest)) = scoped.split_once('/')
+        {
+            let package_name = rest.rsplit_once('@').map(|(name, _)| name).unwrap_or(rest);
+            return PathBuf::from(format!("@{}", scope)).join(package_name);
         }
 
         let package_name = normalized
@@ -156,178 +157,193 @@ impl NodeEnvironment {
         PathBuf::from(package_name)
     }
 
-    /// 解析 fnm list 获取所有已安装版本及 active 信息
     pub async fn list_local_node_versions() -> Result<Vec<(String, bool)>> {
-        Self::ensure_fnm_installed().await?;
-        let envs = ToolService::build_fnm_env(None)?;
-        let output =
-            ToolService::capture_output(&Self::get_fnm_bin(), &["list"], None, Some(&envs)).await?;
-
-        let stdout = String::from_utf8_lossy(&output.stdout);
+        let default = Self::read_default_version().await;
+        let shared_root = Self::shared_root();
         let mut versions = Vec::new();
-        // fnm list 输出示例:
-        //   * v20.11.0
-        //   * v20.11.1 default   ← 仅此行包含 "default" 表示全局活跃版本
-        //   * v22.1.0
-        //   * system
-        // 注：'*' 表示"已安装"，不是"活跃"，所有已安装版本都有 *
-        for line in stdout.lines() {
-            let line = line.trim();
-            if line.is_empty() || line.contains("system") {
+        let mut entries = match tokio::fs::read_dir(&shared_root).await {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(versions),
+            Err(error) => return Err(AppError::Io(error)),
+        };
+
+        while let Some(entry) = entries.next_entry().await.map_err(AppError::Io)? {
+            if !entry.file_type().await.map_err(AppError::Io)?.is_dir() {
                 continue;
             }
-            // 只有包含 "default" 关键字的行才是当前全局活跃版本
-            let is_default = line.contains("default");
-            let parts: Vec<&str> = line.split_whitespace().collect();
-            // 找到以 'v' 开头的版本号（跳过 '*' 前缀）
-            if let Some(version_str) = parts.iter().find(|&&p| p.starts_with('v')) {
-                let v = version_str
-                    .strip_prefix('v')
-                    .unwrap_or(version_str)
-                    .to_string();
-                versions.push((v, is_default));
+            let version = entry.file_name().to_string_lossy().to_string();
+            if Self::normalize_version(&version).as_deref() != Some(version.as_str())
+                || !Self::node_bin_for_version(&version).is_file()
+            {
+                continue;
             }
+            versions.push((
+                version.clone(),
+                default.as_deref() == Some(version.as_str()),
+            ));
+        }
+        versions.sort_by(|left, right| compare_node_versions(&right.0, &left.0));
+        if !versions.iter().any(|(_, is_default)| *is_default) && !versions.is_empty() {
+            versions[0].1 = true;
         }
         Ok(versions)
     }
 
-    pub async fn uninstall_node_version(version: &str) -> Result<()> {
-        Self::ensure_fnm_installed().await?;
-        let envs = ToolService::build_fnm_env(None)?;
-        let status = ToolService::run_status(
-            &Self::get_fnm_bin(),
-            &["uninstall", version],
-            None,
-            Some(&envs),
-            false,
-        )
-        .await?;
-        if !status.success() {
-            return Err(AppError::Generic(format!(
-                "Failed to uninstall Node.js version {}",
-                version
+    pub async fn resolve_default_version() -> Result<String> {
+        if let Some(version) = Self::read_default_version().await
+            && Self::node_bin_for_version(&version).is_file()
+        {
+            return Ok(version);
+        }
+
+        let installed = Self::list_local_node_versions().await?;
+        if let Some((version, _)) = installed.first() {
+            return Ok(version.clone());
+        }
+        Err(AppError::ValidationError(
+            "No Node.js runtime is installed. Install a version before running this script."
+                .to_string(),
+        ))
+    }
+
+    pub async fn set_default_version(version: &str) -> Result<()> {
+        let version = Self::normalize_version(version).ok_or_else(|| {
+            AppError::ValidationError("Node version must be specified".to_string())
+        })?;
+        if !Self::node_bin_for_version(&version).is_file() {
+            return Err(AppError::ValidationError(format!(
+                "Node.js {version} is not installed"
             )));
+        }
+        let marker = Self::default_version_path();
+        if let Some(parent) = marker.parent() {
+            tokio::fs::create_dir_all(parent)
+                .await
+                .map_err(AppError::Io)?;
+        }
+        tokio::fs::write(marker, format!("{version}\n"))
+            .await
+            .map_err(AppError::Io)
+    }
+
+    pub async fn uninstall_node_version(version: &str) -> Result<()> {
+        let version = Self::normalize_version(version).ok_or_else(|| {
+            AppError::ValidationError("Node version must be specified".to_string())
+        })?;
+        let root = Self::shared_root_for_version(&version);
+        let metadata = match tokio::fs::symlink_metadata(&root).await {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(error) => return Err(AppError::Io(error)),
+        };
+        if metadata.file_type().is_symlink() {
+            tokio::fs::remove_file(&root).await.map_err(AppError::Io)?;
+        } else {
+            tokio::fs::remove_dir_all(&root)
+                .await
+                .map_err(AppError::Io)?;
+        }
+
+        if Self::read_default_version().await.as_deref() == Some(version.as_str()) {
+            match tokio::fs::remove_file(Self::default_version_path()).await {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => return Err(AppError::Io(error)),
+            }
         }
         Ok(())
     }
 
-    /// 执行在特定环境下的 fnm + node 命令
-    pub fn command_fnm_exec(&self) -> std::process::Command {
-        let mut cmd = std::process::Command::new(Self::get_fnm_bin());
-        if let Ok(envs) = ToolService::build_fnm_env(None) {
-            cmd.envs(envs);
-        }
-        cmd.arg("exec").arg(self.fnm_using_arg());
-        cmd
-    }
-
-    /// 使用当前环境版本构建 node 执行命令（保留兼容接口）
     pub async fn command(&self, script_path: &Path) -> Result<std::process::Command> {
-        self.command_with_version(script_path, &self.fnm_using_arg())
-            .await
+        let version = self.resolved_version().await?;
+        self.command_with_version(script_path, &version).await
     }
 
-    /// 使用指定版本构建 node 执行命令
-    /// `fnm_using_arg` 例如: "--using=20.11.1" 或 "--using=default"
     pub async fn command_with_version(
         &self,
         script_path: &Path,
-        fnm_using_arg: &str,
+        version: &str,
     ) -> Result<std::process::Command> {
-        let mut envs = self.runtime_envs()?;
-        let version = Self::version_from_using_arg(fnm_using_arg).or_else(|| self.version.clone());
-        if let Some(version) = version.as_deref() {
-            Self::inject_shared_dependency_env(&mut envs, version);
+        let version = Self::normalize_version(version).ok_or_else(|| {
+            AppError::ValidationError("Node version must be specified".to_string())
+        })?;
+        let node = Self::node_bin_for_version(&version);
+        if !node.is_file() {
+            return Err(AppError::Environment(format!(
+                "Node.js {version} is not installed"
+            )));
         }
 
-        let mut cmd = ToolService::build_fnm_exec_command(fnm_using_arg, script_path, Some(&envs))?;
+        let mut envs = self.runtime_envs()?;
+        Self::inject_shared_dependency_env(&mut envs, &version);
+        let mut cmd = std::process::Command::new(node);
+        cmd.arg(script_path).envs(envs);
 
-        // Set default memory limit if not already set in NODE_OPTIONS
         let existing_node_options = std::env::var("NODE_OPTIONS").unwrap_or_default();
         if !existing_node_options.contains("--max-old-space-size") {
-            let mut options = existing_node_options;
-            if !options.is_empty() {
-                options.push(' ');
-            }
-            // Default to 2GB if not specified, which is usually enough for most scripts
-            // but prevents the default ~512MB limit in some environments
-            options.push_str("--max-old-space-size=2048");
-            cmd.env("NODE_OPTIONS", options);
+            let separator = if existing_node_options.is_empty() {
+                ""
+            } else {
+                " "
+            };
+            cmd.env(
+                "NODE_OPTIONS",
+                format!("{existing_node_options}{separator}--max-old-space-size=2048"),
+            );
         }
-
         Ok(cmd)
     }
 
-    /// 使用当前环境版本安装包（保留兼容接口）
     pub async fn install_packages(
         &self,
         packages: &[String],
         sender: UnboundedSender<String>,
     ) -> Result<()> {
-        self.install_packages_with_version(packages, &self.fnm_using_arg(), sender)
+        let version = self.resolved_version().await?;
+        self.install_packages_with_version(packages, &version, sender)
             .await
     }
 
-    /// 使用指定版本安装包
     pub async fn install_packages_with_version(
         &self,
         packages: &[String],
-        fnm_using_arg: &str,
+        version: &str,
         sender: UnboundedSender<String>,
     ) -> Result<()> {
         if packages.is_empty() {
             return Ok(());
         }
 
-        let package_list = packages.join(" ");
-        info!(
-            "Installing packages '{}' ({})...",
-            package_list, fnm_using_arg
-        );
-        let _ = sender.send(format!("Installing packages '{}'...", package_list));
-
-        let version = Self::version_from_using_arg(fnm_using_arg)
-            .or_else(|| self.version.clone())
-            .ok_or_else(|| {
-                AppError::ValidationError(
-                    "Node version must be specified for package install".to_string(),
-                )
-            })?;
+        let version = Self::normalize_version(version).ok_or_else(|| {
+            AppError::ValidationError(
+                "Node version must be specified for package install".to_string(),
+            )
+        })?;
+        Self::ensure_runtime_project(&version, &self.mirrors).await?;
         let shared_root = Self::shared_root_for_version(&version);
-        tokio::fs::create_dir_all(&shared_root)
-            .await
-            .map_err(AppError::Io)?;
-
-        ensure_shared_package_json(&shared_root).await?;
-
-        let desc = format!("npm install {} ({})", package_list, version);
-
-        let args = vec![
-            "exec".to_string(),
-            fnm_using_arg.to_string(),
-            "npm".to_string(),
-            "install".to_string(),
-            "--prefix".to_string(),
-            shared_root.to_string_lossy().to_string(),
+        let package_list = packages.join(" ");
+        let _ = sender.send(format!(
+            "Installing packages '{}' with pnpm...",
+            package_list
+        ));
+        let mut args = vec![
+            "add".to_string(),
+            "--save-prod".to_string(),
+            "--".to_string(),
         ];
-
-        let mut final_args = args;
-        final_args.extend_from_slice(packages);
-
-        let mut env_override = self.runtime_envs()?;
-        Self::inject_shared_dependency_env(&mut env_override, &version);
+        args.extend_from_slice(packages);
+        let mut envs = self.runtime_envs()?;
+        Self::inject_shared_dependency_env(&mut envs, &version);
 
         ToolService::run_streaming(
-            &Self::get_fnm_bin(),
-            &final_args,
+            &Self::get_pnpm_bin(),
+            &args,
             Some(&shared_root),
-            Some(&env_override),
-            &desc,
+            Some(&envs),
+            &format!("pnpm add {} ({version})", package_list),
             sender,
         )
-        .await?;
-
-        Ok(())
+        .await
     }
 
     pub async fn uninstall_package(
@@ -335,174 +351,132 @@ impl NodeEnvironment {
         package_name: &str,
         sender: UnboundedSender<String>,
     ) -> Result<()> {
-        info!(
-            "Uninstalling package {} from Node shared environment...",
-            package_name
-        );
-        let _ = sender.send(format!("Uninstalling package {}...", package_name));
-
-        let version = self.version.clone().ok_or_else(|| {
-            AppError::ValidationError(
-                "Node version must be specified for package uninstall".to_string(),
-            )
-        })?;
+        let version = self.resolved_version().await?;
+        Self::ensure_runtime_project(&version, &self.mirrors).await?;
         let shared_root = Self::shared_root_for_version(&version);
-        tokio::fs::create_dir_all(&shared_root)
-            .await
-            .map_err(AppError::Io)?;
-        ensure_shared_package_json(&shared_root).await?;
-
+        let mut envs = self.runtime_envs()?;
+        Self::inject_shared_dependency_env(&mut envs, &version);
         let args = vec![
-            "exec".to_string(),
-            self.fnm_using_arg(),
-            "npm".to_string(),
-            "uninstall".to_string(),
-            "--prefix".to_string(),
-            shared_root.to_string_lossy().to_string(),
+            "remove".to_string(),
+            "--".to_string(),
             package_name.to_string(),
         ];
-
-        let mut env_override = self.runtime_envs()?;
-        Self::inject_shared_dependency_env(&mut env_override, &version);
-
+        let _ = sender.send(format!(
+            "Uninstalling package {} with pnpm...",
+            package_name
+        ));
         ToolService::run_streaming(
-            &Self::get_fnm_bin(),
+            &Self::get_pnpm_bin(),
             &args,
             Some(&shared_root),
-            Some(&env_override),
-            "npm uninstall",
+            Some(&envs),
+            "pnpm remove",
             sender,
         )
-        .await?;
-
-        Ok(())
+        .await
     }
 
     pub async fn list_packages(&self) -> Result<String> {
-        let version = self.version.clone().ok_or_else(|| {
-            AppError::ValidationError(
-                "Node version must be specified for package listing".to_string(),
-            )
-        })?;
+        let version = self.resolved_version().await?;
+        Self::ensure_runtime_project(&version, &self.mirrors).await?;
         let shared_root = Self::shared_root_for_version(&version);
-        tokio::fs::create_dir_all(&shared_root)
-            .await
-            .map_err(AppError::Io)?;
-        ensure_shared_package_json(&shared_root).await?;
         let mut envs = self.runtime_envs()?;
         Self::inject_shared_dependency_env(&mut envs, &version);
-
-        // npm list may exit with non-zero when there are peer dep issues,
-        // but still outputs valid JSON. Capture stdout even on failure.
         let output = ToolService::capture_output(
-            &Self::get_fnm_bin(),
-            &[
-                "exec",
-                &self.fnm_using_arg(),
-                "npm",
-                "list",
-                "--prefix",
-                &shared_root.to_string_lossy(),
-                "--depth=0",
-                "--json",
-            ],
+            &Self::get_pnpm_bin(),
+            &["list", "--depth=0", "--json"],
             Some(&shared_root),
             Some(&envs),
         )
         .await?;
-        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+        let stdout = String::from_utf8_lossy(&output.stdout);
         if stdout.trim().is_empty() {
-            Ok(serde_json::json!({ "dependencies": {} }).to_string())
-        } else {
-            Ok(stdout)
+            return Ok(serde_json::json!({ "dependencies": {} }).to_string());
         }
+
+        let value: serde_json::Value = serde_json::from_str(&stdout)
+            .map_err(|error| AppError::Environment(format!("Invalid pnpm list output: {error}")))?;
+        let mut project = value
+            .as_array()
+            .and_then(|projects| projects.first())
+            .cloned()
+            .unwrap_or(value);
+        if let Some(object) = project.as_object_mut() {
+            object
+                .entry("dependencies")
+                .or_insert_with(|| serde_json::json!({}));
+        }
+        serde_json::to_string(&project).map_err(|error| AppError::Generic(error.to_string()))
     }
 
-    pub async fn list_available_node_versions() -> Result<String> {
-        Self::ensure_fnm_installed().await?;
-        let envs = ToolService::build_fnm_env(None)?;
-        ToolService::run_stdout(
-            &Self::get_fnm_bin(),
-            &["ls-remote"],
-            None,
-            Some(&envs),
-            "fnm ls-remote",
-        )
-        .await
+    pub async fn list_available_node_versions(
+        mirrors: Option<HashMap<String, String>>,
+    ) -> Result<String> {
+        Ok(Self::available_node_version_catalog(mirrors)
+            .await?
+            .versions)
     }
 
-    #[allow(dead_code)]
+    pub async fn available_node_version_catalog(
+        mirrors: Option<HashMap<String, String>>,
+    ) -> Result<NodeVersionCatalog> {
+        let mirrors = mirrors.unwrap_or_default();
+        let base = node_dist_mirror(&mirrors)?;
+        let url = format!("{}/index.json", base.trim_end_matches('/'));
+        let client = reqwest::Client::builder()
+            .connect_timeout(Duration::from_secs(15))
+            .timeout(Duration::from_secs(30))
+            .build()
+            .map_err(|error| AppError::Generic(error.to_string()))?;
+        let releases = client
+            .get(url)
+            .send()
+            .await
+            .map_err(|error| {
+                AppError::Environment(format!("Node.js version query failed: {error}"))
+            })?
+            .error_for_status()
+            .map_err(|error| {
+                AppError::Environment(format!("Node.js version query failed: {error}"))
+            })?
+            .json::<Vec<NodeRelease>>()
+            .await
+            .map_err(|error| {
+                AppError::Environment(format!("Invalid Node.js version index: {error}"))
+            })?;
+        Ok(node_version_catalog_from_releases(
+            releases,
+            node_release_file_for_arch(std::env::consts::ARCH),
+        ))
+    }
+
     pub async fn version(&self) -> Result<String> {
-        let envs = ToolService::build_fnm_env(None)?;
-        let using_arg = self.fnm_using_arg();
-        ToolService::run_stdout(
-            &Self::get_fnm_bin(),
-            &["exec", &using_arg, "node", "--version"],
-            None,
-            Some(&envs),
-            "node --version",
-        )
-        .await
-    }
-
-    /// 获取当前默认 Node.js 的 bin 目录路径
-    /// 优化方案：优先从 fnm 的目录结构推断，避免进程调用开销
-    pub async fn get_default_node_bin_dir() -> Option<PathBuf> {
-        // 1. 尝试从 FNM_DIR 推断 (Docker 或手动设置)
-        let fnm_dir = if let Ok(dir) = std::env::var("FNM_DIR") {
-            Some(PathBuf::from(dir))
-        } else {
-            home::home_dir().map(|h| h.join(".local/share/fnm"))
-        };
-
-        if let Some(base) = fnm_dir {
-            // fnm 通常维护 aliases/default 软链接
-            let default_bin = base.join("aliases/default/bin");
-            if default_bin.exists() {
-                return Some(default_bin);
-            }
-        }
-
-        // 2. Fallback: 如果推断失败，再尝试运行一次命令（仅作为保底）
-        let envs = ToolService::build_fnm_env(None).ok()?;
+        let version = self.resolved_version().await?;
         let output = ToolService::capture_output(
-            &Self::get_fnm_bin(),
-            &[
-                "exec",
-                "--using=default",
-                "node",
-                "-e",
-                "console.log(require('path').dirname(process.execPath))",
-            ],
+            &Self::node_bin_for_version(&version),
+            &["--version"],
             None,
-            Some(&envs),
+            Some(&self.runtime_envs()?),
         )
-        .await
-        .ok()?;
-
-        if output.status.success() {
-            let path_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            if !path_str.is_empty() {
-                let path = PathBuf::from(path_str);
-                if path.exists() {
-                    return Some(path);
-                }
-            }
+        .await?;
+        if !output.status.success() {
+            return Err(AppError::Environment(format!(
+                "Node.js {version} failed to run"
+            )));
         }
-        None
+        Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
     }
 
-    pub fn fnm_using_arg(&self) -> String {
-        self.version
-            .as_deref()
-            .map(|version| format!("--using={version}"))
-            .unwrap_or_else(|| "--using=default".to_string())
+    pub async fn get_default_node_bin_dir() -> Option<PathBuf> {
+        let version = Self::resolve_default_version().await.ok()?;
+        let bin = Self::shared_bin_for_version(&version);
+        bin.is_dir().then_some(bin)
     }
 
     pub fn runtime_envs(&self) -> Result<HashMap<String, String>> {
-        let mut envs = self.mirrors.clone();
+        let mut envs = PnpmManager::build_env(Some(&self.mirrors));
         envs.insert("NO_COLOR".to_string(), "1".to_string());
-        ToolService::build_fnm_env(Some(&envs))
+        Ok(envs)
     }
 
     pub fn inject_shared_dependency_env(env: &mut HashMap<String, String>, version: &str) {
@@ -512,10 +486,68 @@ impl NodeEnvironment {
         prepend_path_like(env, "PATH", bin_dir);
     }
 
-    fn version_from_using_arg(fnm_using_arg: &str) -> Option<String> {
-        fnm_using_arg
-            .strip_prefix("--using=")
-            .and_then(Self::normalize_version)
+    async fn resolved_version(&self) -> Result<String> {
+        match self.version.clone() {
+            Some(version) => Ok(version),
+            None => Self::resolve_default_version().await,
+        }
+    }
+
+    async fn ensure_runtime_project(
+        version: &str,
+        mirrors: &HashMap<String, String>,
+    ) -> Result<()> {
+        let shared_root = Self::shared_root_for_version(version);
+        tokio::fs::create_dir_all(&shared_root)
+            .await
+            .map_err(AppError::Io)?;
+        ensure_shared_package_json(&shared_root).await?;
+        ensure_pnpm_workspace(&shared_root, mirrors).await?;
+
+        let node = Self::node_bin_for_version(version);
+        if node_matches_version(&node, version).await {
+            debug!("Node {} already installed via pnpm runtime.", version);
+            return Ok(());
+        }
+
+        debug!("Installing Node {} via pnpm runtime...", version);
+        let pnpm = Self::ensure_pnpm_installed(Some(mirrors)).await?;
+        let envs = PnpmManager::build_env(Some(mirrors));
+        ToolService::run_checked(
+            &pnpm,
+            &["runtime", "set", "node", version],
+            Some(&shared_root),
+            Some(&envs),
+            "pnpm runtime set node",
+        )
+        .await?;
+
+        if !node_matches_version(&node, version).await {
+            return Err(AppError::Environment(format!(
+                "pnpm completed but Node.js {version} is unavailable"
+            )));
+        }
+        Ok(())
+    }
+
+    fn shared_root() -> PathBuf {
+        absolute_config_path(Config::global().runtimes_dir.join("node").join("shared"))
+    }
+
+    fn default_version_path() -> PathBuf {
+        absolute_config_path(
+            Config::global()
+                .runtimes_dir
+                .join("node")
+                .join(DEFAULT_VERSION_FILE),
+        )
+    }
+
+    async fn read_default_version() -> Option<String> {
+        let content = tokio::fs::read_to_string(Self::default_version_path())
+            .await
+            .ok()?;
+        Self::normalize_version(&content)
     }
 }
 
@@ -525,14 +557,105 @@ async fn ensure_shared_package_json(shared_root: &Path) -> Result<()> {
         return Ok(());
     }
 
-    let content = serde_json::json!({
+    let content = serde_json::to_vec_pretty(&serde_json::json!({
         "private": true,
         "name": "niupanel-node-shared-environment"
-    })
-    .to_string();
+    }))
+    .map_err(|error| AppError::Generic(error.to_string()))?;
     tokio::fs::write(package_json, content)
         .await
         .map_err(AppError::Io)
+}
+
+async fn ensure_pnpm_workspace(
+    shared_root: &Path,
+    mirrors: &HashMap<String, String>,
+) -> Result<()> {
+    let mirror = node_dist_mirror(mirrors)?;
+    let quoted =
+        serde_json::to_string(&mirror).map_err(|error| AppError::Generic(error.to_string()))?;
+    let content = format!("nodeDownloadMirrors:\n  release: {quoted}\n");
+    tokio::fs::write(shared_root.join("pnpm-workspace.yaml"), content)
+        .await
+        .map_err(AppError::Io)
+}
+
+fn node_dist_mirror(mirrors: &HashMap<String, String>) -> Result<String> {
+    let value = mirrors
+        .get("PNPM_NODE_DIST_MIRROR")
+        .or_else(|| mirrors.get("FNM_NODE_DIST_MIRROR"))
+        .map(String::as_str)
+        .unwrap_or(DEFAULT_NODE_DIST_MIRROR)
+        .trim();
+    let parsed = reqwest::Url::parse(value)
+        .map_err(|_| AppError::ValidationError("无效的 Node.js 发行版镜像 URL".to_string()))?;
+    if !matches!(parsed.scheme(), "http" | "https") {
+        return Err(AppError::ValidationError(
+            "Node.js 发行版镜像仅支持 HTTP 或 HTTPS".to_string(),
+        ));
+    }
+    Ok(value.trim_end_matches('/').to_string())
+}
+
+async fn node_matches_version(node: &Path, expected: &str) -> bool {
+    let Ok(output) = tokio::process::Command::new(node)
+        .arg("--version")
+        .output()
+        .await
+    else {
+        return false;
+    };
+    if !output.status.success() {
+        return false;
+    }
+    let actual = String::from_utf8_lossy(&output.stdout);
+    actual.trim().trim_start_matches('v') == expected
+}
+
+fn compare_node_versions(left: &str, right: &str) -> std::cmp::Ordering {
+    let parse = |value: &str| {
+        value
+            .split(['.', '-', '+'])
+            .take(3)
+            .map(|part| part.parse::<u64>().unwrap_or(0))
+            .collect::<Vec<_>>()
+    };
+    parse(left).cmp(&parse(right)).then_with(|| left.cmp(right))
+}
+
+fn node_release_file_for_arch(arch: &str) -> Option<&'static str> {
+    match arch {
+        "x86_64" => Some("linux-x64"),
+        "aarch64" => Some("linux-arm64"),
+        "arm" => Some("linux-armv7l"),
+        _ => None,
+    }
+}
+
+fn node_version_catalog_from_releases(
+    releases: Vec<NodeRelease>,
+    required_file: Option<&str>,
+) -> NodeVersionCatalog {
+    let mut versions = Vec::new();
+    let mut recommended_lts = None;
+
+    for release in releases {
+        if required_file.is_some_and(|file| !release.files.iter().any(|item| item == file)) {
+            continue;
+        }
+        let Some(version) = NodeEnvironment::normalize_version(&release.version) else {
+            continue;
+        };
+        if recommended_lts.is_none() && release.lts.as_str().is_some() {
+            recommended_lts = Some(version.clone());
+        }
+        versions.push(format!("v{version}"));
+    }
+
+    NodeVersionCatalog {
+        recommended_lts,
+        versions: versions.join("\n"),
+    }
 }
 
 fn prepend_path_like(env: &mut HashMap<String, String>, key: &str, path: PathBuf) {
@@ -558,8 +681,63 @@ fn absolute_config_path(path: PathBuf) -> PathBuf {
     if path.is_absolute() {
         return path;
     }
-
     std::env::current_dir()
         .map(|cwd| cwd.join(&path))
         .unwrap_or(path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{NodeEnvironment, NodeRelease, node_version_catalog_from_releases};
+
+    #[test]
+    fn node_version_normalization_rejects_paths() {
+        assert_eq!(
+            NodeEnvironment::normalize_version("v22.11.0"),
+            Some("22.11.0".to_string())
+        );
+        assert_eq!(NodeEnvironment::normalize_version("../../tmp"), None);
+        assert_eq!(NodeEnvironment::normalize_version("22/../../tmp"), None);
+    }
+
+    #[test]
+    fn package_paths_handle_scoped_and_versioned_packages() {
+        assert_eq!(
+            NodeEnvironment::package_install_path("@scope/pkg@1.2.3"),
+            std::path::PathBuf::from("@scope/pkg")
+        );
+        assert_eq!(
+            NodeEnvironment::package_install_path("lodash@4.17.21"),
+            std::path::PathBuf::from("lodash")
+        );
+    }
+
+    #[test]
+    fn recommended_lts_respects_the_runtime_architecture() {
+        let releases = || {
+            vec![
+                NodeRelease {
+                    files: vec!["linux-x64".to_string(), "linux-arm64".to_string()],
+                    lts: serde_json::json!("Krypton"),
+                    version: "v24.18.0".to_string(),
+                },
+                NodeRelease {
+                    files: vec![
+                        "linux-x64".to_string(),
+                        "linux-arm64".to_string(),
+                        "linux-armv7l".to_string(),
+                    ],
+                    lts: serde_json::json!("Jod"),
+                    version: "v22.23.1".to_string(),
+                },
+            ]
+        };
+
+        let x64 = node_version_catalog_from_releases(releases(), Some("linux-x64"));
+        assert_eq!(x64.recommended_lts.as_deref(), Some("24.18.0"));
+
+        let armv7 = node_version_catalog_from_releases(releases(), Some("linux-armv7l"));
+        assert_eq!(armv7.recommended_lts.as_deref(), Some("22.23.1"));
+        assert!(!armv7.versions.contains("v24.18.0"));
+    }
 }

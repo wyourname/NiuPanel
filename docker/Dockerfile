@@ -13,9 +13,8 @@ ENV TZ=Asia/Shanghai \
     UV_TOOL_DIR=/app/data/uv/tool \
     UV_CACHE_DIR=/app/data/uv/cache \
     UV_PYTHON_INSTALL_DIR=/app/data/uv/python \
-    FNM_DIR=/app/data/fnm \
-    FNM_NODE_DIST_MIRROR=https://mirrors.ustc.edu.cn/node/
-    # removed FNM_DIR from PATH as fnm binary will now strictly be in /usr/local/bin
+    PNPM_NODE_DIST_MIRROR=https://mirrors.ustc.edu.cn/node/ \
+    NPM_CONFIG_REGISTRY=https://registry.npmmirror.com/
 
 RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
@@ -36,14 +35,15 @@ RUN set -ex; \
         git \
         python3 \
         python3-pip \
-        libatomic1; \
+        libatomic1 \
+        libstdc++6; \
     # 清理缓存
     apt-get clean;
 
-# 2. 复制并解压应用
-# 注意：COPY 指令会增加一层镜像体积，即使后面删除了文件。
-# 如果想进一步优化体积，建议在 docker build 前只拷贝对应架构的包，或使用 ARG 传递文件名。
-COPY niupanel_linux_*.tar.gz /tmp/app_pkgs/
+# 2. 只复制当前目标架构的应用包。
+# `packages/{amd64,arm64,arm}/niupanel.tar.gz` 由本地构建脚本或 CI 准备，
+# 避免把另外两个架构的归档写入镜像层。
+COPY packages/${TARGETARCH}/niupanel.tar.gz /tmp/niupanel.tar.gz
 
 RUN set -ex; \
     FILE_ARCH=""; \
@@ -56,15 +56,23 @@ RUN set -ex; \
     esac; \
      \
     echo "Extracting application for: ${FILE_ARCH} ..."; \
-    TAR_FILE=$(find /tmp/app_pkgs/ -name "niupanel_linux_${FILE_ARCH}.tar.gz" | head -n 1); \
-    if [ -z "$TAR_FILE" ]; then \
-        echo "Error: Could not find package for ${FILE_ARCH}"; \
-        ls -l /tmp/app_pkgs/; \
+    tar -xzf /tmp/niupanel.tar.gz -C /app/; \
+    chmod +x /app/niupanel /app/niupanel-launcher /app/tools/uv /app/tools/pnpm; \
+    test ! -e /app/tools/fnm; \
+    BUNDLED_PNPM_VERSION=$(/app/tools/pnpm --version); \
+    if [ "$BUNDLED_PNPM_VERSION" != "11.18.0" ]; then \
+        echo "Unexpected bundled pnpm version: $BUNDLED_PNPM_VERSION"; \
         exit 1; \
     fi; \
-    tar -xzf "$TAR_FILE" -C /app/; \
-    chmod +x /app/niupanel /app/niupanel-launcher; \
-    rm -rf /tmp/app_pkgs
+    /app/tools/uv --version; \
+    rm -f /tmp/niupanel.tar.gz
+
+ARG NIUPANEL_ENVIRONMENT_VERSION=unknown
+ARG NIUPANEL_CORE_VERSION=unknown
+
+LABEL org.opencontainers.image.title="NiuPanel" \
+      org.opencontainers.image.version="${NIUPANEL_ENVIRONMENT_VERSION}" \
+      io.niupanel.core.version="${NIUPANEL_CORE_VERSION}"
 
 # 3. 暴露端口与启动
 EXPOSE 7788

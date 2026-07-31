@@ -9,20 +9,67 @@ use niupanel_core::settings::SettingsManager;
 use niupanel_entity::{tasks, variables};
 use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder};
 use std::collections::{HashMap, HashSet};
+use std::path::Path;
 use tokio::fs::{self, File};
 use tokio::io::{AsyncReadExt, BufReader};
 
-pub(super) async fn read_package(path: &str) -> Result<NiuPackage> {
+const MAX_DECOMPRESSED_PACKAGE_SIZE: u64 = 256 * 1024 * 1024;
+const MAX_PACKAGE_TASKS: usize = 100;
+const MAX_FILES_PER_TASK: usize = 1_000;
+const MAX_PACKAGE_FILE_SIZE: usize = 10 * 1024 * 1024;
+
+pub(super) async fn read_package(path: &Path) -> Result<NiuPackage> {
     let file = File::open(path).await.map_err(AppError::Io)?;
-    let mut decoder = async_compression::tokio::bufread::GzipDecoder::new(BufReader::new(file));
+    let decoder = async_compression::tokio::bufread::GzipDecoder::new(BufReader::new(file));
+    let mut limited = decoder.take(MAX_DECOMPRESSED_PACKAGE_SIZE + 1);
     let mut decompressed_bytes = Vec::new();
-    decoder
+    limited
         .read_to_end(&mut decompressed_bytes)
         .await
         .map_err(AppError::Io)?;
+    if decompressed_bytes.len() as u64 > MAX_DECOMPRESSED_PACKAGE_SIZE {
+        return Err(AppError::FileSizeLimitExceeded(
+            "分享包解压后超过 256MB 限制".to_string(),
+        ));
+    }
 
-    rmp_serde::decode::from_slice(&decompressed_bytes)
-        .map_err(|e| AppError::Serialization(format!("MsgPack 反序列化失败: {}", e)))
+    let package: NiuPackage = rmp_serde::decode::from_slice(&decompressed_bytes)
+        .map_err(|e| AppError::Serialization(format!("MsgPack 反序列化失败: {}", e)))?;
+    validate_package_limits(&package)?;
+    Ok(package)
+}
+
+fn validate_package_limits(package: &NiuPackage) -> Result<()> {
+    if package.version != 1 {
+        return Err(AppError::ValidationError(format!(
+            "不支持的分享包版本: {}",
+            package.version
+        )));
+    }
+    if package.tasks.len() > MAX_PACKAGE_TASKS {
+        return Err(AppError::FileSizeLimitExceeded(format!(
+            "分享包任务数超过 {} 个限制",
+            MAX_PACKAGE_TASKS
+        )));
+    }
+
+    for task in &package.tasks {
+        if task.files.len() > MAX_FILES_PER_TASK {
+            return Err(AppError::FileSizeLimitExceeded(format!(
+                "任务 '{}' 的文件数超过 {} 个限制",
+                task.meta.name, MAX_FILES_PER_TASK
+            )));
+        }
+        for file in &task.files {
+            if file.content.len() > MAX_PACKAGE_FILE_SIZE {
+                return Err(AppError::FileSizeLimitExceeded(format!(
+                    "文件 '{}' 超过 10MB 限制",
+                    file.path
+                )));
+            }
+        }
+    }
+    Ok(())
 }
 
 pub(super) async fn get_station_config(db: &DatabaseConnection) -> (String, String) {

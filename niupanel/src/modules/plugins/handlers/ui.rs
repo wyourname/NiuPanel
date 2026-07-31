@@ -177,12 +177,12 @@ pub async fn proxy_plugin_api_request(
     path = "/api/v1/plugins/{id}/invoke",
     request_body = PluginInvokeRequest,
     responses(
-        (status = 200, description = "Invoke an enabled agent plugin action")
+        (status = 200, description = "Invoke an enabled native plugin action")
     ),
     tag = "Plugins",
     security(("session_cookie" = []))
 )]
-pub async fn invoke_agent_plugin(
+pub async fn invoke_plugin_action(
     State(state): State<AppState>,
     Extension(user): Extension<AuthenticatedUser>,
     AxumPath(plugin_id): AxumPath<String>,
@@ -199,9 +199,9 @@ pub async fn invoke_agent_plugin(
                 "Plugin is not enabled".to_string(),
             ));
         }
-        if !plugin_has_capability(&record.manifest.capabilities, "agents.invoke") {
+        if !plugin_ui_may_invoke(&record.manifest.capabilities) {
             return Err(AppError::ValidationError(
-                "Plugin does not declare agents.invoke capability".to_string(),
+                "Plugin does not declare ui.invoke capability".to_string(),
             ));
         }
 
@@ -235,6 +235,11 @@ pub async fn invoke_agent_plugin(
             Err(error)
         }
     }
+}
+
+fn plugin_ui_may_invoke(capabilities: &[String]) -> bool {
+    plugin_has_capability(capabilities, "ui.invoke")
+        || plugin_has_capability(capabilities, "agents.invoke")
 }
 
 async fn audit_plugin_request(
@@ -285,4 +290,17 @@ async fn audit_plugin_invoke(
         Some(details.to_string()),
     )
     .await;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::plugin_ui_may_invoke;
+
+    #[test]
+    fn ui_invoke_accepts_native_and_legacy_agent_capabilities() {
+        assert!(plugin_ui_may_invoke(&["ui.invoke".to_string()]));
+        assert!(plugin_ui_may_invoke(&["agents.invoke".to_string()]));
+        assert!(plugin_ui_may_invoke(&["ui.*".to_string()]));
+        assert!(!plugin_ui_may_invoke(&["yyb.accounts".to_string()]));
+    }
 }

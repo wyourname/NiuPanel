@@ -63,7 +63,7 @@
             </el-input>
             <div class="text-[10px] text-muted mt-2 opacity-60">
               <span v-if="form.envType === 'python'">通过 uv 工具自动拉取对应 Python 版本并创建虚拟环境。</span>
-              <span v-else>通过 fnm 下载指定 Node.js 版本，依赖会安装到该版本共享目录。</span>
+              <span v-else>通过 pnpm runtime 下载指定 Node.js 版本，依赖会安装到该版本共享目录。</span>
             </div>
           </el-form-item>
         </el-form>

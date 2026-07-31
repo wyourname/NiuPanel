@@ -14,8 +14,15 @@ pub fn create_router() -> Router<AppState> {
             Router::new()
                 .route("/", get(handlers::list_variables))
                 .route("/tasks/all", get(handlers::list_tasks_simple))
-                .route("/by-key", get(handlers::get_variable_by_key))
                 .require(Permission::VarList),
+        )
+        // Sensitive values are intentionally isolated from metadata listing.
+        .merge(
+            Router::new()
+                .route("/with-values", get(handlers::list_variables_with_values))
+                .route("/{id}/value", get(handlers::get_variable_value))
+                .route("/by-key", get(handlers::get_variable_by_key))
+                .require(Permission::VarRead),
         )
         // --- 2. 创建/导入权限 ---
         .merge(
@@ -29,6 +36,7 @@ pub fn create_router() -> Router<AppState> {
             Router::new()
                 .route("/by-key", patch(handlers::update_variable_by_key))
                 .route("/toggle", post(handlers::batch_toggle_variables))
+                .route("/batch-save", post(handlers::batch_save_variables))
                 .route("/reorder", post(handlers::batch_reorder_variables))
                 .route("/{id}", patch(handlers::update_variable))
                 .require(Permission::VarUpdate),

@@ -13,10 +13,6 @@ impl ToolService {
         niupanel_common::tools::require_tool_path("uv", "Python 环境管理")
     }
 
-    pub fn ensure_fnm() -> Result<PathBuf> {
-        niupanel_common::tools::require_tool_path("fnm", "Node.js 环境管理")
-    }
-
     pub fn ensure_git() -> Result<PathBuf> {
         niupanel_common::tools::require_tool_path("git", "Git 同步")
     }
@@ -114,41 +110,5 @@ impl ToolService {
             sender,
         )
         .await
-    }
-
-    pub fn build_fnm_env(
-        extra_envs: Option<&HashMap<String, String>>,
-    ) -> Result<HashMap<String, String>> {
-        let fnm_bin = Self::ensure_fnm()?;
-        let mut envs = extra_envs.cloned().unwrap_or_default();
-
-        if let Some(parent) = fnm_bin.parent() {
-            let existing_path = envs
-                .get("PATH")
-                .cloned()
-                .unwrap_or_else(|| std::env::var("PATH").unwrap_or_default());
-            envs.insert(
-                "PATH".to_string(),
-                format!("{}:{}", parent.to_string_lossy(), existing_path),
-            );
-        }
-
-        Ok(envs)
-    }
-
-    pub fn build_fnm_exec_command(
-        fnm_using_arg: &str,
-        script_path: &Path,
-        extra_envs: Option<&HashMap<String, String>>,
-    ) -> Result<std::process::Command> {
-        let fnm_bin = Self::ensure_fnm()?;
-        let mut cmd = std::process::Command::new(fnm_bin);
-        let envs = Self::build_fnm_env(extra_envs)?;
-        cmd.envs(&envs);
-        cmd.arg("exec")
-            .arg(fnm_using_arg)
-            .arg("node")
-            .arg(script_path);
-        Ok(cmd)
     }
 }

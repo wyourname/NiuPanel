@@ -51,11 +51,13 @@
             <div class="flex items-center">
               <el-input
                 v-model="emailPrefix"
-                placeholder="邮箱前缀"
+                type="email"
+                placeholder="完整邮箱地址"
                 class="flex-1 font-mono"
                 @keyup.enter="$emit('sendCode')"
               />
               <div
+                v-if="emailSuffix"
                 class="bg-base border border-l-0 border-base px-3 h-10 flex items-center text-secondary font-mono rounded-r-lg"
               >
                 @{{ emailSuffix }}

@@ -31,7 +31,7 @@ import 'monaco-editor/esm/vs/basic-languages/dockerfile/dockerfile.contribution'
 import 'monaco-editor/esm/vs/basic-languages/rust/rust.contribution'
 import 'monaco-editor/esm/vs/basic-languages/go/go.contribution'
 
-// 使用本地 npm 包，不依赖 CDN（支持国内网络）
+// 使用本地 pnpm 依赖，不依赖 CDN（支持国内网络）
 // 由 vite-plugin-monaco-editor 处理 worker 注入
 loader.config({ monaco })
 

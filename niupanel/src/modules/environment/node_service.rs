@@ -5,6 +5,7 @@ use super::requirements::{self, VERSIONED_PACKAGE_SEPARATORS};
 use niupanel_common::constants::settings::{NODE_DEFAULT_PACKAGES, SYSTEM_DEFAULT_NODE_VERSION};
 use niupanel_common::error::{AppError, Result};
 use niupanel_core::runtime::RuntimeManager;
+use niupanel_core::script::interpreter::node::NodeVersionCatalog;
 use niupanel_core::settings::SettingsService;
 use niupanel_core::sys::command::CommandExt;
 use niupanel_core::task_manager::service::TaskManagerService;
@@ -29,11 +30,11 @@ impl NodeEnvironmentService {
             });
 
         if let Ok(local_versions) = RuntimeManager::list_local_node_versions().await {
-            for (version, is_fnm_default) in local_versions {
+            for (version, is_runtime_default) in local_versions {
                 let is_default = configured_default
                     .as_ref()
                     .map(|default| default == &version)
-                    .unwrap_or(is_fnm_default);
+                    .unwrap_or(is_runtime_default);
                 envs.push(EnvironmentInfo {
                     name: version.clone(),
                     path: RuntimeKind::node_path_label(is_default).to_string(),
@@ -48,8 +49,13 @@ impl NodeEnvironmentService {
         envs
     }
 
-    pub(super) async fn list_available_versions() -> Result<String> {
-        RuntimeManager::list_available_node_versions().await
+    pub(super) async fn available_version_catalog(
+        settings: &SettingsService,
+    ) -> Result<NodeVersionCatalog> {
+        RuntimeManager::available_node_version_catalog(Some(
+            mirrors::node_distribution(settings).await,
+        ))
+        .await
     }
 
     pub(super) async fn list_packages(settings: &SettingsService, name: &str) -> Result<String> {
@@ -82,7 +88,7 @@ impl NodeEnvironmentService {
                 version: Set(version.clone()),
                 ..Default::default()
             };
-            let _ = active.insert(db).await;
+            active.insert(db).await?;
         }
         let restored_requirements = existing_env.and_then(|model| model.requirements);
         let default_packages = settings
@@ -94,58 +100,39 @@ impl NodeEnvironmentService {
         let version_clone = version.clone();
         task_manager
             .submit_system_task(format!("Install Node {}", version), move |tx| async move {
-                match RuntimeManager::create_node_environment(
+                RuntimeManager::create_node_environment(
                     version_clone.clone(),
                     tx.clone(),
                     Some(mirrors.clone()),
                 )
-                .await
-                {
-                    Ok(_) => {
-                        let mut requirements_to_install = default_packages;
-                        if let Some(restored) = restored_requirements {
-                            if !restored.trim().is_empty() {
-                                let _ = tx.send(format!(
-                                    "[System] Found recorded dependencies, restoring: \n{}",
-                                    restored
-                                ));
-                                requirements_to_install =
-                                    format!("{}\n{}", requirements_to_install, restored);
-                            }
-                        }
+                .await?;
 
-                        let requirements: Vec<String> = requirements_to_install
-                            .lines()
-                            .map(|line| line.trim().to_string())
-                            .filter(|line| !line.is_empty())
-                            .collect();
-
-                        if !requirements.is_empty() {
-                            match RuntimeManager::open_node_environment(
-                                Some(&version_clone),
-                                Some(mirrors.clone()),
-                            ) {
-                                Ok(env) => {
-                                    if let Err(e) =
-                                        env.install_packages(&requirements, tx.clone()).await
-                                    {
-                                        let _ = tx.send(format!(
-                                            "Node version installed but failed to install packages: {}",
-                                            e
-                                        ));
-                                    }
-                                }
-                                Err(e) => {
-                                    let _ =
-                                        tx.send(format!("Failed to load Node environment: {}", e));
-                                }
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        let _ = tx.send(format!("Error creating Node version: {}", e));
+                let mut requirements_to_install = default_packages;
+                if let Some(restored) = restored_requirements {
+                    if !restored.trim().is_empty() {
+                        let _ = tx.send(format!(
+                            "[System] Found recorded dependencies, restoring: \n{}",
+                            restored
+                        ));
+                        requirements_to_install =
+                            format!("{}\n{}", requirements_to_install, restored);
                     }
                 }
+
+                let requirements: Vec<String> = requirements_to_install
+                    .lines()
+                    .map(|line| line.trim().to_string())
+                    .filter(|line| !line.is_empty())
+                    .collect();
+
+                if !requirements.is_empty() {
+                    let env = RuntimeManager::open_node_environment(
+                        Some(&version_clone),
+                        Some(mirrors.clone()),
+                    )?;
+                    env.install_packages(&requirements, tx.clone()).await?;
+                }
+                Ok(())
             })
             .await
     }
@@ -176,13 +163,8 @@ impl NodeEnvironmentService {
             .await?;
 
         if let Some(env_model) = existing_env {
-            let _ = requirements::remove_requirement(
-                db,
-                env_model,
-                &package,
-                VERSIONED_PACKAGE_SEPARATORS,
-            )
-            .await;
+            requirements::remove_requirement(db, env_model, &package, VERSIONED_PACKAGE_SEPARATORS)
+                .await?;
         }
 
         let package_clone = package.clone();
@@ -192,24 +174,10 @@ impl NodeEnvironmentService {
             .submit_system_task(
                 format!("Uninstall {}", package_clone),
                 move |tx| async move {
-                    let env = match RuntimeManager::open_node_environment(
-                        Some(&version),
-                        Some(mirrors),
-                    ) {
-                        Ok(env) => env,
-                        Err(e) => {
-                            let _ = tx.send(format!("Error loading Node environment: {}", e));
-                            return;
-                        }
-                    };
-                    match env.uninstall_package(&package_clone, tx.clone()).await {
-                        Ok(_) => {
-                            let _ = tx.send("Uninstallation completed successfully.".to_string());
-                        }
-                        Err(e) => {
-                            let _ = tx.send(format!("Error uninstalling package: {}", e));
-                        }
-                    }
+                    let env = RuntimeManager::open_node_environment(Some(&version), Some(mirrors))?;
+                    env.uninstall_package(&package_clone, tx.clone()).await?;
+                    let _ = tx.send("Uninstallation completed successfully.".to_string());
+                    Ok(())
                 },
             )
             .await
@@ -226,9 +194,14 @@ impl NodeEnvironmentService {
     }
 
     pub(super) async fn set_mirror_source(mirror_url: &str) -> Result<()> {
-        let mut cmd = Command::new("npm");
-        cmd.arg("config").arg("set").arg("registry").arg(mirror_url);
-        cmd.execute_checked("npm config set registry").await?;
+        let pnpm =
+            niupanel_core::script::interpreter::node::NodeEnvironment::ensure_pnpm_installed(None)
+                .await?;
+        let env = RuntimeManager::open_node_environment(None, None)?;
+        let mut cmd = Command::new(pnpm);
+        cmd.args(["config", "set", "--global", "registry", mirror_url])
+            .envs(env.runtime_envs()?);
+        cmd.execute_checked("pnpm config set registry").await?;
         Ok(())
     }
 }

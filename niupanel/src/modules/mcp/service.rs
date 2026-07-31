@@ -83,12 +83,6 @@ impl PanelMcpServer {
             .get::<AuthenticatedUser>()
             .cloned()
             .ok_or_else(|| ErrorData::invalid_request("MCP authentication is required", None))?;
-        if !user.has_permission(Permission::McpConnect) {
-            return Err(ErrorData::invalid_request(
-                "API key is missing mcp:connect permission",
-                None,
-            ));
-        }
         if !user.has_permission(permission) {
             return Err(ErrorData::invalid_request(
                 format!("API key is missing {} permission", permission),
@@ -281,7 +275,7 @@ impl PanelMcpServer {
 impl ServerHandler for PanelMcpServer {
     fn get_info(&self) -> ServerInfo {
         ServerInfo::new(ServerCapabilities::builder().enable_tools().build()).with_instructions(
-            "Manage this NiuPanel instance through task, variable, script file, environment, share, Git, release, system job, audit, and notification tools. Every request requires X-API-Key, mcp:connect, and the permission declared by the selected tool. Destructive tools should only be called after explicit user confirmation.",
+            "Manage this NiuPanel instance through task, variable, script file, environment, share, Git, release, system job, audit, and notification tools. Every request requires X-API-Key and the existing NiuPanel permission declared by the selected tool. Destructive tools should only be called after explicit user confirmation.",
         )
     }
 }

@@ -1,8 +1,7 @@
-use crate::script::interpreter::node::NodeEnvironment;
+use crate::script::interpreter::node::{NodeEnvironment, NodeVersionCatalog};
 use crate::script::interpreter::python::PythonEnvironment;
 use crate::script::sdk_env;
-use crate::sys::tools::ToolService;
-use niupanel_common::error::{AppError, Result};
+use niupanel_common::error::Result;
 use std::collections::HashMap;
 use std::path::Path;
 use std::path::PathBuf;
@@ -15,8 +14,16 @@ impl RuntimeManager {
         NodeEnvironment::list_local_node_versions().await
     }
 
-    pub async fn list_available_node_versions() -> Result<String> {
-        NodeEnvironment::list_available_node_versions().await
+    pub async fn list_available_node_versions(
+        mirrors: Option<HashMap<String, String>>,
+    ) -> Result<String> {
+        NodeEnvironment::list_available_node_versions(mirrors).await
+    }
+
+    pub async fn available_node_version_catalog(
+        mirrors: Option<HashMap<String, String>>,
+    ) -> Result<NodeVersionCatalog> {
+        NodeEnvironment::available_node_version_catalog(mirrors).await
     }
 
     pub async fn list_available_python_versions(
@@ -49,24 +56,7 @@ impl RuntimeManager {
     }
 
     pub async fn set_node_default(version: &str) -> Result<()> {
-        NodeEnvironment::ensure_fnm_installed().await?;
-        let envs = ToolService::build_fnm_env(None)?;
-        let status = ToolService::run_status(
-            &NodeEnvironment::get_fnm_bin(),
-            &["default", version],
-            None,
-            Some(&envs),
-            false,
-        )
-        .await?;
-
-        if !status.success() {
-            return Err(AppError::Generic(format!(
-                "Failed to set Node.js {} as default",
-                version
-            )));
-        }
-        Ok(())
+        NodeEnvironment::set_default_version(version).await
     }
 
     pub async fn open_python_environment(
@@ -105,21 +95,21 @@ impl RuntimeManager {
     pub async fn install_node_packages(
         env: &NodeEnvironment,
         packages: &[String],
-        fnm_using_arg: &str,
+        version: &str,
         sender: UnboundedSender<String>,
     ) -> Result<()> {
-        env.install_packages_with_version(packages, fnm_using_arg, sender)
+        env.install_packages_with_version(packages, version, sender)
             .await
     }
 
     pub async fn build_node_command(
         env: &NodeEnvironment,
         script_path: &Path,
-        fnm_using_arg: &str,
+        version: &str,
         args: &[String],
         env_vars: &HashMap<String, String>,
     ) -> Result<std::process::Command> {
-        let mut cmd = env.command_with_version(script_path, fnm_using_arg).await?;
+        let mut cmd = env.command_with_version(script_path, version).await?;
         cmd.args(args);
 
         if let Some(parent) = script_path.parent() {
@@ -131,13 +121,7 @@ impl RuntimeManager {
         sdk_env::inject_python_sdk_path(&mut final_env);
         sdk_env::inject_node_sdk_path(&mut final_env);
         sdk_env::inject_node_sdk_preload(&mut final_env);
-        if let Some(version) = fnm_using_arg
-            .strip_prefix("--using=")
-            .and_then(NodeEnvironment::normalize_version)
-            .or_else(|| env.version.clone())
-        {
-            NodeEnvironment::inject_shared_dependency_env(&mut final_env, &version);
-        }
+        NodeEnvironment::inject_shared_dependency_env(&mut final_env, version);
         cmd.envs(&final_env);
         Ok(cmd)
     }

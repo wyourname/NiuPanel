@@ -109,8 +109,8 @@ pub async fn dispatch_env_cmd(
             )
             .await
         }
-        Some("npm") => {
-            deps::handle_npm(
+        Some("pnpm") => {
+            deps::handle_pnpm(
                 bot,
                 chat_id,
                 tm,
@@ -131,7 +131,7 @@ pub async fn dispatch_env_cmd(
         }
         _ => {
             let _ = bot
-                .send_message(chat_id, "ℹ️ 用法: `/env <list|pip|npm|apt>`")
+                .send_message(chat_id, "ℹ️ 用法: `/env <list|pip|pnpm|apt>`")
                 .await;
         }
     }

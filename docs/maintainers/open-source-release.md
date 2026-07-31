@@ -7,9 +7,10 @@ This repository previously contained local runtime state and downloaded build to
 1. Confirm `LICENSE`, `SECURITY.md`, `CONTRIBUTING.md`, and `CODE_OF_CONDUCT.md` are present.
 2. Confirm the README describes the project as open source and documents the Apache-2.0 license.
 3. Run `bash scripts/verify-public-release-gate.sh`.
-4. Inspect `git status` and `git ls-files` for runtime state, archives, private keys, and downloaded executables.
-5. Run a secret scanner such as Gitleaks or TruffleHog against the complete history.
-6. Generate release archives in CI; do not commit them to the source branch.
+4. Run `node scripts/verify-version-contract.mjs v<core-version>` and ensure the release tag matches `niupanel/Cargo.toml`.
+5. Inspect `git status` and `git ls-files` for runtime state, archives, private keys, and downloaded executables.
+6. Run a secret scanner such as Gitleaks or TruffleHog against the complete history.
+7. Generate release archives in CI; do not commit them to the source branch.
 
 ## History cleanup
 
@@ -27,11 +28,16 @@ Rotate any credentials, session keys, API keys, bot tokens, signing keys, or pas
 
 ## Third-party tools
 
-`uv` and `fnm` are downloaded by build scripts. Release bundles that redistribute them must include their upstream license notices. Keep version pins and checksums in build automation, and generate a third-party notice file for every binary release.
+Release and Magisk packages bundle `uv` plus pnpm; they must never bundle fnm. `scripts/prepare-runtime-tools.sh` prepares pnpm from pinned `@pnpm/exe` artifacts and verifies SHA-512 before packaging. ARMv7 uses an additional pinned Node.js bootstrap verified by SHA-256. NiuPanel retains the same verified first-use bootstrap as a fallback when the bundled executable cannot run on the host. Keep these pins and checksums current, and include upstream notices whenever a release bundle redistributes third-party binaries.
 
 ## Publishing model
 
 - Source code: Apache License 2.0.
-- GitHub releases and container images: generated from tagged commits by CI.
+- The formal application version is the Core version. Git tag, Core package, and launcher package must match.
+- Web keeps its own component version and declares compatible Core versions in `release-manifest.json`.
+- Docker keeps an independent environment version in `docker/VERSION`; bump it only when the base image, system dependencies, bundled runtime tools, or container contract changes.
+- `v<core-version>` Tag 只生成 GitHub Release。它包含三架构 Core 包、Web 包和 `niupanel-release.json`，后者绑定 Core/Web 的校验和与 Git SHA。
+- Published Docker images use the environment tag `<docker-environment-version>`, with `latest` as a rolling alias. Architecture-specific tags append `-amd64`, `-arm64`, or `-armv7`; the bundled Core version and Dockerfile source revision are recorded in OCI labels.
+- Docker 镜像仅通过 `Publish Docker Image` 的手动工作流构建。输入一个已经存在的 Core Release Tag 和 Docker 源码引用；工作流下载并根据该 Release 的 `niupanel-release.json` 校验三架构 Core 包，再进行多架构构建。
 - Plugins: independently versioned packages; their manifests must declare their own license.
 - User data and imported scripts: never part of the source distribution.

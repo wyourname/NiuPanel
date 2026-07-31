@@ -37,6 +37,7 @@ impl MigratorTrait for Migrator {
             Box::new(m::m20260618_000001_create_agent_sessions::Migration),
             Box::new(m::m20260619_000001_create_agent_memories::Migration),
             Box::new(m::m20260619_000002_create_agent_memory_events::Migration),
+            Box::new(m::m20260728_000001_reconcile_variable_bindings::Migration),
         ]
     }
 }

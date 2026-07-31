@@ -87,13 +87,26 @@ impl SettingsManager {
 
         // 2. Try DB
         let setting = settings::Entity::find_by_id(key).one(db).await?;
+        let has_current_setting = setting.is_some();
         if let Some(s) = setting {
             if !s.value.is_empty() {
                 return Ok(s.value);
             }
         }
 
-        // 3. Try Default
+        // 3. Read the pre-pnpm key once for upgrade compatibility.
+        if key == PNPM_NODE_DIST_MIRROR && !has_current_setting {
+            let legacy = settings::Entity::find_by_id(LEGACY_FNM_NODE_DIST_MIRROR)
+                .one(db)
+                .await?;
+            if let Some(setting) = legacy
+                && !setting.value.is_empty()
+            {
+                return Ok(setting.value);
+            }
+        }
+
+        // 4. Try Default
         if let Some(d) = def {
             Ok(d.default_value.clone())
         } else {
@@ -108,6 +121,7 @@ impl SettingsManager {
     {
         let mut result = HashMap::new();
         let mut db_keys = Vec::new();
+        let mut has_pnpm_db_setting = false;
 
         for key in keys {
             let def = SETTINGS_REGISTRY.get(*key);
@@ -138,10 +152,24 @@ impl SettingsManager {
                 .await?;
 
             for s in found_settings {
+                if s.key == PNPM_NODE_DIST_MIRROR {
+                    has_pnpm_db_setting = true;
+                }
                 if !s.value.is_empty() {
                     result.insert(s.key, s.value);
                 }
             }
+        }
+
+        if keys.contains(&PNPM_NODE_DIST_MIRROR)
+            && !result.contains_key(PNPM_NODE_DIST_MIRROR)
+            && !has_pnpm_db_setting
+            && let Some(setting) = settings::Entity::find_by_id(LEGACY_FNM_NODE_DIST_MIRROR)
+                .one(db)
+                .await?
+            && !setting.value.is_empty()
+        {
+            result.insert(PNPM_NODE_DIST_MIRROR.to_string(), setting.value);
         }
 
         // Fill missing with defaults
@@ -202,10 +230,19 @@ impl SettingsManager {
         C: ConnectionTrait,
     {
         let all_settings = settings::Entity::find().all(db).await?;
+        let has_pnpm_mirror = all_settings
+            .iter()
+            .any(|setting| setting.key == PNPM_NODE_DIST_MIRROR);
         let mut result = Vec::new();
 
         // Use registry to filter secrets
-        for s in all_settings {
+        for mut s in all_settings {
+            if s.key == LEGACY_FNM_NODE_DIST_MIRROR {
+                if has_pnpm_mirror {
+                    continue;
+                }
+                s.key = PNPM_NODE_DIST_MIRROR.to_string();
+            }
             if let Some(def) = SETTINGS_REGISTRY.get(s.key.as_str()) {
                 if !def.is_secret {
                     result.push(s);

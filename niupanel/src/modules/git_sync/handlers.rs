@@ -1,4 +1,6 @@
-use super::models::{DiscoveredTask, FileEntry, GitRepoRequest, ImportTasksRequest, SyncResult};
+use super::models::{
+    DiscoveredTask, FileEntry, GitRepoRequest, GitRepoResponse, ImportTasksRequest, SyncResult,
+};
 use super::service::GitService;
 use crate::common::extractors::RealIp;
 use crate::common::state::AppState;
@@ -10,7 +12,6 @@ use axum::{
 use niupanel_common::error::Result;
 use niupanel_common::response::ApiResponse;
 use niupanel_core::audit::service::AuditService;
-use niupanel_entity::git_repositories;
 use serde::Deserialize;
 
 #[derive(Deserialize, utoipa::ToSchema)]
@@ -29,9 +30,11 @@ pub struct ListFilesQuery {
 )]
 pub async fn list_repos(
     State(state): State<AppState>,
-) -> Result<ApiResponse<Vec<git_repositories::Model>>> {
+) -> Result<ApiResponse<Vec<GitRepoResponse>>> {
     let repos = GitService::list_repos(&state.db).await?;
-    Ok(ApiResponse::success(repos))
+    Ok(ApiResponse::success(
+        repos.into_iter().map(GitRepoResponse::from).collect(),
+    ))
 }
 
 #[utoipa::path(
@@ -128,7 +131,7 @@ pub async fn create_repo(
     Extension(user): Extension<AuthenticatedUser>,
     RealIp(_ip): RealIp,
     Json(payload): Json<GitRepoRequest>,
-) -> Result<ApiResponse<git_repositories::Model>> {
+) -> Result<ApiResponse<GitRepoResponse>> {
     let repo = GitService::create_repo(&state.db, payload).await?;
 
     AuditService::log_user(
@@ -141,7 +144,7 @@ pub async fn create_repo(
     )
     .await;
 
-    Ok(ApiResponse::success(repo))
+    Ok(ApiResponse::success(repo.into()))
 }
 
 #[utoipa::path(
@@ -162,7 +165,7 @@ pub async fn update_repo(
     Extension(user): Extension<AuthenticatedUser>,
     Path(id): Path<i32>,
     Json(payload): Json<GitRepoRequest>,
-) -> Result<ApiResponse<git_repositories::Model>> {
+) -> Result<ApiResponse<GitRepoResponse>> {
     let repo = GitService::update_repo(&state.db, id, payload).await?;
 
     AuditService::log_user(
@@ -175,7 +178,7 @@ pub async fn update_repo(
     )
     .await;
 
-    Ok(ApiResponse::success(repo))
+    Ok(ApiResponse::success(repo.into()))
 }
 
 #[utoipa::path(

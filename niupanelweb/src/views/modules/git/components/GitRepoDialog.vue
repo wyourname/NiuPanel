@@ -30,8 +30,20 @@
               v-model="form.auth_token"
               type="password"
               show-password
-              placeholder="私有仓库填写"
+              :placeholder="
+                isEdit && form.has_auth_token
+                  ? '已配置；留空将保持不变'
+                  : '私有仓库填写'
+              "
+              :disabled="form.clear_auth_token"
             />
+            <el-checkbox
+              v-if="isEdit && form.has_auth_token"
+              v-model="form.clear_auth_token"
+              class="mt-1"
+            >
+              清除已保存的令牌
+            </el-checkbox>
           </el-form-item>
         </div>
         <el-form-item label="网络代理 (可选)">

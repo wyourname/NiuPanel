@@ -28,37 +28,42 @@ impl FileManagerService {
             let search_items =
                 tokio::task::spawn_blocking(move || -> Result<Vec<FileSystemItem>> {
                     let mut results = Vec::new();
-                    for entry in walkdir::WalkDir::new(&target_path)
-                        .into_iter()
-                        .filter_map(|e| e.ok())
-                    {
+                    for entry in walkdir::WalkDir::new(&target_path) {
+                        let entry = entry.map_err(|err| {
+                            AppError::Io(
+                                err.into_io_error()
+                                    .unwrap_or_else(|| std::io::Error::other("遍历搜索目录失败")),
+                            )
+                        })?;
                         if entry
                             .file_name()
                             .to_string_lossy()
                             .to_lowercase()
                             .contains(&q_lower)
                         {
-                            if let Ok(metadata) = entry.metadata() {
-                                let is_dir = metadata.is_dir();
-                                let size = metadata.len();
-                                let mtime = metadata
-                                    .modified()
-                                    .ok()
-                                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                                    .map(|d| d.as_secs() as i64);
+                            let metadata = entry.metadata().map_err(|err| {
+                                AppError::Io(err.into_io_error().unwrap_or_else(|| {
+                                    std::io::Error::other("读取搜索结果元数据失败")
+                                }))
+                            })?;
+                            let is_dir = metadata.is_dir();
+                            let size = metadata.len();
+                            let mtime = metadata
+                                .modified()
+                                .ok()
+                                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                                .map(|d| d.as_secs() as i64);
 
-                                let name = entry.file_name().to_string_lossy().to_string();
-                                let path_buf = entry.path().to_path_buf();
-                                if let Ok(rel_path) = get_relative_path(&path_buf) {
-                                    results.push(FileSystemItem {
-                                        name,
-                                        path: rel_path,
-                                        size,
-                                        is_dir,
-                                        mtime,
-                                    });
-                                }
-                            }
+                            let name = entry.file_name().to_string_lossy().to_string();
+                            let path_buf = entry.path().to_path_buf();
+                            let rel_path = get_relative_path(&path_buf)?;
+                            results.push(FileSystemItem {
+                                name,
+                                path: rel_path,
+                                size,
+                                is_dir,
+                                mtime,
+                            });
 
                             if results.len() >= 1000 {
                                 break;

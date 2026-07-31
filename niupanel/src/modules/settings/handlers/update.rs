@@ -1,12 +1,14 @@
 use crate::common::state::AppState;
 use axum::{Json, extract::State};
-use niupanel_common::error::Result;
+use niupanel_common::error::{AppError, Result};
 use niupanel_common::models::update::ReleaseInfo;
 use niupanel_common::models::update::UpdateStatus;
 use niupanel_common::response::ApiResponse;
 use niupanel_core::settings::SYSTEM_UPDATE_CHANNEL;
 
 use crate::modules::settings::models::UpdateChannelRequest;
+
+const MAX_LOCAL_UPDATE_UPLOAD_SIZE: usize = 512 * 1024 * 1024;
 
 #[utoipa::path(
     get,
@@ -98,25 +100,35 @@ pub async fn upload_update(
     State(state): State<AppState>,
     mut multipart: axum::extract::Multipart,
 ) -> Result<ApiResponse<()>> {
-    while let Some(field) = multipart
+    let Some(mut field) = multipart
         .next_field()
         .await
-        .map_err(|e| niupanel_common::error::AppError::Generic(e.to_string()))?
-    {
-        let _file_name = field.file_name().unwrap_or("update.tar.gz").to_string();
-        let data = field
-            .bytes()
-            .await
-            .map_err(|e| niupanel_common::error::AppError::Generic(e.to_string()))?;
+        .map_err(|e| AppError::Generic(e.to_string()))?
+    else {
+        return Err(AppError::ValidationError(
+            "No update file provided".to_string(),
+        ));
+    };
 
-        state
-            .update_service
-            .execute_local_update(data.to_vec())
-            .await?;
-        return Ok(ApiResponse::success(()));
+    let mut data = Vec::new();
+    while let Some(chunk) = field
+        .chunk()
+        .await
+        .map_err(|e| AppError::Generic(e.to_string()))?
+    {
+        if data.len().saturating_add(chunk.len()) > MAX_LOCAL_UPDATE_UPLOAD_SIZE {
+            return Err(AppError::FileSizeLimitExceeded(
+                "Local update package cannot exceed 512 MB".to_string(),
+            ));
+        }
+        data.extend_from_slice(&chunk);
+    }
+    if data.is_empty() {
+        return Err(AppError::ValidationError(
+            "Update file cannot be empty".to_string(),
+        ));
     }
 
-    Err(niupanel_common::error::AppError::Generic(
-        "No file provided".to_string(),
-    ))
+    state.update_service.execute_local_update(data).await?;
+    Ok(ApiResponse::success(()))
 }

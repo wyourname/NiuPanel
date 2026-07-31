@@ -45,6 +45,7 @@
               :done="nodeDone"
               :job-id="nodeJobId"
               :loading="nodeLoading"
+              :recommended-version="recommendedNodeVersion"
               :status="nodeStatus"
               @back="goBackFromNode"
               @create="createNodeEnv"
@@ -96,6 +97,7 @@ const {
   nodeLoading,
   nodeStatus,
   nodeVersion,
+  recommendedNodeVersion,
   pythonDone,
   pythonJobId,
   pythonLoading,

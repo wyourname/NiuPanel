@@ -70,4 +70,10 @@ mod tests {
 
         assert!(matches!(err, AppError::Forbidden(_)));
     }
+
+    #[test]
+    fn accepts_unsigned_authenticated_admin_upload() {
+        validate_admin_upload_integrity(b"plugin package bytes", None, None, None)
+            .expect("authenticated administrator uploads do not require signing metadata");
+    }
 }

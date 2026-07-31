@@ -8,6 +8,8 @@ export type GitRepoForm = {
   repo_url: string;
   branch: string;
   auth_token: string;
+  has_auth_token: boolean;
+  clear_auth_token: boolean;
   proxy_url: string;
   auto_sync: boolean;
 };
@@ -21,6 +23,8 @@ const createDefaultForm = (): GitRepoForm => ({
   repo_url: "",
   branch: "main",
   auth_token: "",
+  has_auth_token: false,
+  clear_auth_token: false,
   proxy_url: "",
   auto_sync: false,
 });
@@ -29,7 +33,8 @@ const buildPayload = (form: GitRepoForm): GitRepoRequest => ({
   name: form.name,
   repo_url: form.repo_url,
   branch: form.branch,
-  auth_token: form.auth_token,
+  auth_token: form.auth_token.trim() || undefined,
+  clear_auth_token: form.clear_auth_token,
   proxy_url: form.proxy_url,
   auto_sync: form.auto_sync,
 });
@@ -66,7 +71,9 @@ export function useGitRepoForm({ onSaved }: UseGitRepoFormOptions) {
       name: row.name,
       repo_url: row.repo_url,
       branch: row.branch,
-      auth_token: row.auth_token || "",
+      auth_token: "",
+      has_auth_token: row.has_auth_token,
+      clear_auth_token: false,
       proxy_url: row.proxy_url || "",
       auto_sync: row.auto_sync,
     });

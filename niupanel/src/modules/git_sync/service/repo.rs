@@ -149,12 +149,17 @@ impl GitService {
         db: &DatabaseConnection,
         req: GitRepoRequest,
     ) -> Result<git_repositories::Model> {
+        validate_repo_url(&req.repo_url)?;
+        validate_repo_name(&req.name)?;
+        validate_proxy_url(req.proxy_url.as_deref())?;
+        let branch = req.branch.unwrap_or_else(|| "main".to_string());
+        validate_branch(&branch)?;
         let active = git_repositories::ActiveModel {
-            name: Set(req.name),
-            repo_url: Set(req.repo_url),
-            branch: Set(req.branch.unwrap_or_else(|| "main".to_string())),
-            auth_token: Set(req.auth_token),
-            proxy_url: Set(req.proxy_url),
+            name: Set(req.name.trim().to_string()),
+            repo_url: Set(req.repo_url.trim().to_string()),
+            branch: Set(branch),
+            auth_token: Set(normalize_optional_secret(req.auth_token)),
+            proxy_url: Set(normalize_optional_secret(req.proxy_url)),
             auto_sync: Set(req.auto_sync.unwrap_or(false)),
             ..Default::default()
         };
@@ -166,15 +171,25 @@ impl GitService {
         id: i32,
         req: GitRepoRequest,
     ) -> Result<git_repositories::Model> {
+        validate_repo_url(&req.repo_url)?;
+        validate_repo_name(&req.name)?;
+        validate_proxy_url(req.proxy_url.as_deref())?;
+        if let Some(branch) = req.branch.as_deref() {
+            validate_branch(branch)?;
+        }
         let repo = Self::get_repo(db, id).await?;
         let mut active: git_repositories::ActiveModel = repo.into();
-        active.name = Set(req.name);
-        active.repo_url = Set(req.repo_url);
+        active.name = Set(req.name.trim().to_string());
+        active.repo_url = Set(req.repo_url.trim().to_string());
         if let Some(branch) = req.branch {
             active.branch = Set(branch);
         }
-        active.auth_token = Set(req.auth_token);
-        active.proxy_url = Set(req.proxy_url);
+        if req.clear_auth_token {
+            active.auth_token = Set(None);
+        } else if let Some(token) = normalize_optional_secret(req.auth_token) {
+            active.auth_token = Set(Some(token));
+        }
+        active.proxy_url = Set(normalize_optional_secret(req.proxy_url));
         if let Some(auto_sync) = req.auto_sync {
             active.auto_sync = Set(auto_sync);
         }
@@ -201,5 +216,170 @@ impl GitService {
         } else {
             ("sh".to_string(), None)
         }
+    }
+}
+
+fn normalize_optional_secret(value: Option<String>) -> Option<String> {
+    value
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+fn validate_repo_url(repo_url: &str) -> Result<()> {
+    let trimmed = repo_url.trim();
+    if trimmed.is_empty() {
+        return Err(AppError::ValidationError(
+            "Git 仓库地址不能为空".to_string(),
+        ));
+    }
+    if trimmed.chars().any(char::is_control) {
+        return Err(AppError::ValidationError(
+            "Git 仓库地址不能包含控制字符".to_string(),
+        ));
+    }
+
+    if let Ok(url) = reqwest::Url::parse(trimmed) {
+        match url.scheme() {
+            "http" | "https" => {
+                if url.host_str().is_none()
+                    || !url.username().is_empty()
+                    || url.password().is_some()
+                {
+                    return Err(AppError::ValidationError(
+                        "HTTP Git 地址必须包含主机且不能内嵌凭据，请使用访问令牌字段".to_string(),
+                    ));
+                }
+            }
+            "ssh" => {
+                if url.host_str().is_none() || url.password().is_some() {
+                    return Err(AppError::ValidationError(
+                        "SSH Git 地址格式无效".to_string(),
+                    ));
+                }
+            }
+            _ => {
+                return Err(AppError::ValidationError(
+                    "Git 仓库地址只允许 http、https、ssh 或 user@host:path 格式".to_string(),
+                ));
+            }
+        }
+        return Ok(());
+    }
+
+    let Some((authority, remote_path)) = trimmed.split_once(':') else {
+        return Err(AppError::ValidationError(
+            "不允许本地文件路径作为 Git 仓库地址".to_string(),
+        ));
+    };
+    let host = authority
+        .rsplit_once('@')
+        .map(|(_, host)| host)
+        .unwrap_or(authority);
+    if host.is_empty()
+        || authority.contains(['/', '\\'])
+        || authority.chars().any(char::is_whitespace)
+        || remote_path.is_empty()
+        || remote_path.starts_with(['/', '-'])
+        || remote_path.contains('\\')
+        || remote_path.chars().any(char::is_whitespace)
+    {
+        return Err(AppError::ValidationError(
+            "SCP 风格 Git 仓库地址格式无效".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_repo_name(name: &str) -> Result<()> {
+    let name = name.trim();
+    if name.is_empty() || name.len() > 128 || name.chars().any(char::is_control) {
+        return Err(AppError::ValidationError(
+            "Git 仓库名称长度必须为 1 到 128 个字符".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_branch(branch: &str) -> Result<()> {
+    let branch = branch.trim();
+    if branch.is_empty()
+        || branch.len() > 255
+        || branch.starts_with(['-', '/', '.'])
+        || branch.ends_with(['/', '.'])
+        || branch.ends_with(".lock")
+        || branch.contains("..")
+        || branch.contains("//")
+        || branch.contains("@{")
+        || branch == "@"
+        || branch
+            .chars()
+            .any(|ch| ch.is_control() || ch.is_whitespace() || "~^:?*[\\\\".contains(ch))
+    {
+        return Err(AppError::ValidationError(
+            "Git 分支名称格式无效".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_proxy_url(proxy_url: Option<&str>) -> Result<()> {
+    let Some(proxy_url) = proxy_url.map(str::trim).filter(|url| !url.is_empty()) else {
+        return Ok(());
+    };
+    let url = reqwest::Url::parse(proxy_url)
+        .map_err(|_| AppError::ValidationError("Git 代理地址格式无效".to_string()))?;
+    if !matches!(url.scheme(), "http" | "https")
+        || url.host_str().is_none()
+        || !url.username().is_empty()
+        || url.password().is_some()
+    {
+        return Err(AppError::ValidationError(
+            "Git 代理地址只允许不含凭据的 http/https URL".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn repository_url_rejects_local_paths_options_and_embedded_credentials() {
+        for invalid in [
+            "../private-repo",
+            "/srv/private-repo",
+            "--upload-pack=/tmp/payload",
+            "file:///srv/private-repo",
+            "https://user:token@example.com/repo.git",
+            r"C:\private\repo",
+        ] {
+            assert!(
+                validate_repo_url(invalid).is_err(),
+                "{invalid:?} should be rejected"
+            );
+        }
+        assert!(validate_repo_url("https://example.com/org/repo.git").is_ok());
+        assert!(validate_repo_url("ssh://git@example.com/org/repo.git").is_ok());
+        assert!(validate_repo_url("git@example.com:org/repo.git").is_ok());
+    }
+
+    #[test]
+    fn branch_validation_rejects_ref_and_option_injection() {
+        for invalid in [
+            "",
+            "--help",
+            "../main",
+            "feature..name",
+            "bad branch",
+            "x.lock",
+        ] {
+            assert!(
+                validate_branch(invalid).is_err(),
+                "{invalid:?} should be rejected"
+            );
+        }
+        assert!(validate_branch("main").is_ok());
+        assert!(validate_branch("feature/safe-name").is_ok());
     }
 }

@@ -252,9 +252,13 @@ pub(super) fn permission_for_plugin_api_request(
             }
         },
         "variables" => match method {
-            &Method::GET => Permission::VarList,
+            &Method::GET => match segments.get(1).copied() {
+                Some("with-values") | Some("by-key") => Permission::VarRead,
+                Some(_) if segments.get(2).copied() == Some("value") => Permission::VarRead,
+                _ => Permission::VarList,
+            },
             &Method::POST => match segments.get(1).copied() {
-                Some("toggle") | Some("reorder") => Permission::VarUpdate,
+                Some("toggle") | Some("reorder") | Some("batch-save") => Permission::VarUpdate,
                 _ => Permission::VarCreate,
             },
             &Method::PATCH | &Method::PUT => Permission::VarUpdate,

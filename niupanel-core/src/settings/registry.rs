@@ -15,12 +15,28 @@ pub struct SettingDef {
     pub category: &'static str,
 }
 
-fn validate_pos_int(val: &str) -> Result<()> {
-    let v = val
+fn validate_log_retention(val: &str) -> Result<()> {
+    let value = val
         .parse::<i64>()
-        .map_err(|_| AppError::Generic("Value must be an integer".to_string()))?;
-    if v < 0 {
-        return Err(AppError::Generic("Value must be positive".to_string()));
+        .map_err(|_| AppError::Generic("Log retention days must be an integer".to_string()))?;
+    if !(defaults::LOG_RETENTION_MIN_DAYS..=defaults::LOG_RETENTION_MAX_DAYS).contains(&value) {
+        return Err(AppError::Generic(format!(
+            "Log retention days must be between {} and {}",
+            defaults::LOG_RETENTION_MIN_DAYS,
+            defaults::LOG_RETENTION_MAX_DAYS
+        )));
+    }
+    Ok(())
+}
+
+fn validate_max_concurrency(val: &str) -> Result<()> {
+    let value = val
+        .parse::<usize>()
+        .map_err(|_| AppError::Generic("Max concurrency must be an integer".to_string()))?;
+    if !(1..=1024).contains(&value) {
+        return Err(AppError::Generic(
+            "Max concurrency must be between 1 and 1024".to_string(),
+        ));
     }
     Ok(())
 }
@@ -100,7 +116,7 @@ pub static SETTINGS_REGISTRY: LazyLock<HashMap<&'static str, SettingDef>> = Lazy
             key: SYSTEM_MAX_CONCURRENCY,
             description: "Max concurrent tasks",
             default_value: defaults::MAX_CONCURRENCY.to_string(),
-            validator: validate_pos_int,
+            validator: validate_max_concurrency,
             env_var: Some("NIU_SYSTEM_MAX_CONCURRENCY"),
             is_secret: false,
             category: "System",
@@ -136,7 +152,7 @@ pub static SETTINGS_REGISTRY: LazyLock<HashMap<&'static str, SettingDef>> = Lazy
             key: SYSTEM_LOG_RETENTION,
             description: "Log retention days",
             default_value: defaults::LOG_RETENTION_DAYS.to_string(),
-            validator: validate_pos_int,
+            validator: validate_log_retention,
             env_var: Some("NIU_SYSTEM_LOG_RETENTION"),
             is_secret: false,
             category: "System",
@@ -144,7 +160,9 @@ pub static SETTINGS_REGISTRY: LazyLock<HashMap<&'static str, SettingDef>> = Lazy
         SettingDef {
             key: SYSTEM_SESSION_KEY,
             description: "System Session Key",
-            default_value: "1PxkXmg3LzINVOa6N9JMPhLeibzrh+zSDzZ7kze41WUUwaBB6T0FhJ+WvtLrbu5in8Yy7AsbP7DwcWmOkADxMg==".to_string(),
+            // Bootstrap generates and persists an installation-specific key.
+            // A registry default must never be a usable shared signing secret.
+            default_value: String::new(),
             validator: validate_string,
             env_var: Some("NIU_SESSION_KEY"),
             is_secret: true,
@@ -314,18 +332,18 @@ pub static SETTINGS_REGISTRY: LazyLock<HashMap<&'static str, SettingDef>> = Lazy
             category: "System",
         },
         SettingDef {
-            key: FNM_NODE_DIST_MIRROR,
-            description: "FNM Node.js distribution mirror URL",
+            key: PNPM_NODE_DIST_MIRROR,
+            description: "pnpm runtime Node.js distribution mirror URL",
             default_value: "https://mirrors.ustc.edu.cn/node/".to_string(),
             validator: validate_url,
-            env_var: Some("FNM_NODE_DIST_MIRROR"),
+            env_var: Some("PNPM_NODE_DIST_MIRROR"),
             is_secret: false,
             category: "System",
         },
         SettingDef {
             key: NPM_REGISTRY_MIRROR,
-            description: "npm registry mirror URL",
-            default_value: "".to_string(),
+            description: "pnpm package registry mirror URL",
+            default_value: "https://registry.npmmirror.com/".to_string(),
             validator: validate_url,
             env_var: Some("NPM_CONFIG_REGISTRY"),
             is_secret: false,
@@ -393,3 +411,44 @@ pub static SETTINGS_REGISTRY: LazyLock<HashMap<&'static str, SettingDef>> = Lazy
 
     m
 });
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn max_concurrency_rejects_zero_invalid_and_excessive_values() {
+        assert!(validate_max_concurrency("0").is_err());
+        assert!(validate_max_concurrency("-1").is_err());
+        assert!(validate_max_concurrency("1025").is_err());
+        assert!(validate_max_concurrency("not-a-number").is_err());
+    }
+
+    #[test]
+    fn max_concurrency_accepts_supported_boundaries() {
+        assert!(validate_max_concurrency("1").is_ok());
+        assert!(validate_max_concurrency("1024").is_ok());
+    }
+
+    #[test]
+    fn log_retention_uses_shared_supported_range() {
+        assert!(validate_log_retention(&defaults::LOG_RETENTION_MIN_DAYS.to_string()).is_ok());
+        assert!(validate_log_retention(&defaults::LOG_RETENTION_MAX_DAYS.to_string()).is_ok());
+        assert!(
+            validate_log_retention(&(defaults::LOG_RETENTION_MIN_DAYS - 1).to_string()).is_err()
+        );
+        assert!(
+            validate_log_retention(&(defaults::LOG_RETENTION_MAX_DAYS + 1).to_string()).is_err()
+        );
+        assert!(validate_log_retention("not-a-number").is_err());
+    }
+
+    #[test]
+    fn session_key_has_no_shared_registry_default() {
+        let definition = SETTINGS_REGISTRY
+            .get(SYSTEM_SESSION_KEY)
+            .expect("session key setting must exist");
+        assert!(definition.default_value.is_empty());
+        assert!(definition.is_secret);
+    }
+}

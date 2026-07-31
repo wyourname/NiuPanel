@@ -9,6 +9,7 @@ pub mod metrics;
 pub mod models;
 pub mod response;
 pub mod tools;
+pub mod variable;
 pub mod version;
 
 pub use logger::{debug, error, info, trace, warn};

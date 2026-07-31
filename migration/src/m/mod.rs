@@ -27,3 +27,4 @@ pub mod m20260501_000001_add_timeout_sec_to_tasks;
 pub mod m20260618_000001_create_agent_sessions;
 pub mod m20260619_000001_create_agent_memories;
 pub mod m20260619_000002_create_agent_memory_events;
+pub mod m20260728_000001_reconcile_variable_bindings;

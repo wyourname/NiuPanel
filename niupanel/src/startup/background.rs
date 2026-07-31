@@ -1,6 +1,6 @@
 use anyhow::Result;
 use niupanel_common::constants::settings::{
-    FNM_NODE_DIST_MIRROR, NPM_REGISTRY_MIRROR, UV_PYPI_MIRROR, UV_PYTHON_MIRROR,
+    NPM_REGISTRY_MIRROR, PNPM_NODE_DIST_MIRROR, UV_PYPI_MIRROR, UV_PYTHON_MIRROR,
 };
 use niupanel_common::{error, info, warn};
 use niupanel_core as core;
@@ -27,7 +27,6 @@ pub async fn spawn_background_tasks(
     crate::modules::settings::service::start_log_cleanup_scheduler(db.clone()).await;
     crate::modules::git_sync::service::GitService::start_auto_sync_scheduler(db.clone()).await;
     start_login_attempts_cleanup_scheduler(db.clone()).await;
-    start_audit_logs_cleanup_scheduler(db.clone()).await;
     start_api_keys_cleanup_scheduler(db.clone()).await;
     spawn_upgrade_self_check(db.clone(), event_bus.clone());
     start_sandbox_environments_recovery(db.clone()).await;
@@ -414,32 +413,6 @@ async fn start_api_keys_cleanup_scheduler(db: DatabaseConnection) {
     });
 }
 
-async fn start_audit_logs_cleanup_scheduler(db: DatabaseConnection) {
-    use niupanel_entity::audit_logs;
-
-    tokio::spawn(async move {
-        let mut interval = tokio::time::interval(std::time::Duration::from_secs(24 * 3600));
-        loop {
-            interval.tick().await;
-            info!("运行定期日志清理任务...");
-
-            let threshold = chrono::Utc::now() - chrono::Duration::days(30);
-            let res = audit_logs::Entity::delete_many()
-                .filter(audit_logs::Column::CreatedAt.lt(threshold))
-                .exec(&db)
-                .await;
-
-            match res {
-                Ok(res) if res.rows_affected > 0 => {
-                    info!("Cleaned up {} old audit log records", res.rows_affected);
-                }
-                Err(e) => error!("Failed to cleanup audit logs: {}", e),
-                _ => {}
-            }
-        }
-    });
-}
-
 async fn start_login_attempts_cleanup_scheduler(db: DatabaseConnection) {
     use niupanel_entity::login_attempts;
 
@@ -484,8 +457,8 @@ async fn start_sandbox_environments_recovery(db: DatabaseConnection) {
                 if let Ok(m) = SettingsManager::get(&db, UV_PYPI_MIRROR).await {
                     mirrors.insert("UV_INDEX_URL".to_string(), m);
                 }
-                if let Ok(m) = SettingsManager::get(&db, FNM_NODE_DIST_MIRROR).await {
-                    mirrors.insert("FNM_NODE_DIST_MIRROR".to_string(), m);
+                if let Ok(m) = SettingsManager::get(&db, PNPM_NODE_DIST_MIRROR).await {
+                    mirrors.insert("PNPM_NODE_DIST_MIRROR".to_string(), m);
                 }
                 if let Ok(m) = SettingsManager::get(&db, NPM_REGISTRY_MIRROR).await {
                     mirrors.insert("npm_config_registry".to_string(), m);

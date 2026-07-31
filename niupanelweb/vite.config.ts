@@ -14,6 +14,15 @@ const apiProxyTarget = process.env.VITE_API_PROXY_TARGET || 'http://127.0.0.1:77
 const frontendPackage = JSON.parse(
   readFileSync(fileURLToPath(new URL('./package.json', import.meta.url)), 'utf8')
 ) as { version: string }
+const corePackageSource = readFileSync(
+  fileURLToPath(new URL('../niupanel/Cargo.toml', import.meta.url)),
+  'utf8'
+)
+const corePackageVersion =
+  corePackageSource.match(/^version\s*=\s*"([^"]+)"/m)?.[1] || ''
+if (!corePackageVersion) {
+  throw new Error('Unable to read Core version from niupanel/Cargo.toml')
+}
 const versionContractSource = readFileSync(
   fileURLToPath(new URL('../niupanel-common/src/version.rs', import.meta.url)),
   'utf8'
@@ -25,7 +34,7 @@ const apiContractVersion = Number.parseInt(
 if (!Number.isFinite(apiContractVersion)) {
   throw new Error('Unable to read API_CONTRACT_VERSION from niupanel-common/src/version.rs')
 }
-const webCoreMinVersion = process.env.NIUPANEL_WEB_CORE_MIN || '0.8.0'
+const webCoreMinVersion = process.env.NIUPANEL_WEB_CORE_MIN || corePackageVersion
 const webCoreMaxVersion = process.env.NIUPANEL_WEB_CORE_MAX || null
 const setForwardedHost = (proxyReq: ClientRequest, req: IncomingMessage) => {
   const host = req.headers.host

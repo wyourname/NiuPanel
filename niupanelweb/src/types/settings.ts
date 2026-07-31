@@ -15,7 +15,7 @@ export interface GeneralSettings {
   uv_pypi_mirror: string;
   default_python_version: string;
   default_node_version: string;
-  fnm_node_dist_mirror: string;
+  pnpm_node_dist_mirror: string;
   npm_registry_mirror: string;
 }
 
@@ -58,6 +58,19 @@ export interface MaintenanceStatus {
   message: string;
   status: MaintenanceTaskStatus | string;
   filename: string | null;
+}
+
+export interface LogCleanupReport {
+  dry_run: boolean;
+  cutoff_at: string;
+  files: number;
+  task_runs: number;
+  system_jobs: number;
+  audit_logs: number;
+  bytes: number;
+  empty_directories: number;
+  protected_files: number;
+  warnings: string[];
 }
 
 export interface UpdateInfo {

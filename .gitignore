@@ -43,6 +43,11 @@ packages/*/dist/
 /docker/*.tar.gz
 *.tar.gz
 *.zip
+.pnpm-store/
+
+# Private plugin release assets belong to the NiuPanelPrivatePlugins repository.
+/plugins/*.tgz
+/plugins/niupanel-private-plugins.json
 
 # Python and native build artifacts
 .venv/

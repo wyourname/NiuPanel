@@ -16,8 +16,8 @@ Build the UI before installing the plugin directory:
 
 ```bash
 cd examples/plugins/agents/app-template/ui
-npm install
-npm run build
+pnpm install
+pnpm run build
 ```
 
 Install from the panel with the server-side path:

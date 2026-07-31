@@ -26,12 +26,14 @@ use sha2::{Digest, Sha256};
 use sqlx::Row;
 use std::collections::HashMap;
 use std::str::FromStr;
+use std::sync::OnceLock;
 use tower_sessions_sqlx_store::sqlx::SqlitePool;
 
 pub const USER_ID_KEY: &str = "user_id";
 pub const USER_ROLE_KEY: &str = "user_role";
 const MAX_FAILURES: i32 = 5;
 const COOLDOWN_MINUTES: i64 = 5;
+static ADMIN_REGISTRATION_LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
 
 pub struct SessionService;
 pub struct AuthService;
@@ -154,47 +156,36 @@ impl SessionService {
 
 impl AuthService {
     pub async fn identify_reset(
-        db: &DatabaseConnection,
-        payload: IdentifyRequest,
+        _db: &DatabaseConnection,
+        _payload: IdentifyRequest,
     ) -> Result<ResetInfoResponse> {
-        let user = users::Entity::find()
-            .filter(users::Column::Username.eq(payload.username))
-            .one(db)
-            .await?;
-
-        match user {
-            Some(user) => {
-                if let Some(email) = user.email {
-                    let suffix = email.split('@').last().unwrap_or("").to_string();
-                    Ok(ResetInfoResponse { suffix })
-                } else {
-                    Err(AppError::ValidationError(
-                        "该账户未绑定邮箱，无法通过此方式找回密码".into(),
-                    ))
-                }
-            }
-            None => Err(AppError::ValidationError(
-                "账户验证失败，请检查用户名是否正确".into(),
-            )),
-        }
+        // Preserve the API shape without disclosing account existence,
+        // email binding state, or the user's email provider.
+        Ok(ResetInfoResponse {
+            suffix: String::new(),
+        })
     }
 
     pub async fn forgot_password(
         db: &DatabaseConnection,
         payload: ForgotPasswordRequest,
     ) -> Result<()> {
-        let email = payload.email.trim();
-        let username = payload.username.trim();
+        const MIN_RESPONSE_TIME: std::time::Duration = std::time::Duration::from_millis(250);
+        let started_at = tokio::time::Instant::now();
+        let email = payload.email.trim().to_string();
+        let username = payload.username.trim().to_string();
 
         let user = users::Entity::find()
-            .filter(users::Column::Username.eq(username))
+            .filter(users::Column::Username.eq(&username))
             .one(db)
-            .await?
-            .ok_or(AppError::NotFound("用户不存在".into()))?;
+            .await?;
 
-        if user.email.as_deref() != Some(email) {
-            return Err(AppError::ValidationError("绑定的邮箱地址校验失败".into()));
-        }
+        let Some(user) = user.filter(|user| user.email.as_deref() == Some(email.as_str())) else {
+            // Keep the public response indistinguishable for unknown users and
+            // mismatched email addresses.
+            tokio::time::sleep_until(started_at + MIN_RESPONSE_TIME).await;
+            return Ok(());
+        };
 
         let last_reset = password_resets::Entity::find()
             .filter(password_resets::Column::UserId.eq(user.id))
@@ -205,10 +196,8 @@ impl AuthService {
         if let Some(record) = last_reset {
             let elapsed = Utc::now().timestamp() - record.created_at.timestamp();
             if elapsed < 60 {
-                return Err(AppError::Forbidden(format!(
-                    "请求过于频繁，请在 {} 秒后重试",
-                    60 - elapsed
-                )));
+                tokio::time::sleep_until(started_at + MIN_RESPONSE_TIME).await;
+                return Ok(());
             }
         }
 
@@ -246,24 +235,32 @@ impl AuthService {
         let mail_pass = SettingsManager::get(db, MAIL_PASSWORD).await?;
 
         if mail_host.is_empty() || mail_user.is_empty() {
-            return Err(AppError::Generic("邮件服务未配置，请联系管理员".into()));
+            niupanel_common::warn!("密码重置邮件未发送：邮件服务未配置");
+            tokio::time::sleep_until(started_at + MIN_RESPONSE_TIME).await;
+            return Ok(());
         }
 
+        let recipient_name = user.username;
         let body = format!(
             "您好 {}，\n\n您的验证码是：\n\n【 {} 】\n\n该验证码用于重置密码，将在 10 分钟后过期。请勿将验证码泄露给他人。\n\n来自你的NiuPanel 面板",
-            user.username, code
+            recipient_name, code
         );
+        tokio::spawn(async move {
+            if let Err(error) = NotificationService::send_email(
+                &mail_host,
+                &mail_user,
+                &mail_pass,
+                &email,
+                "密码重置验证码",
+                &body,
+            )
+            .await
+            {
+                niupanel_common::warn!("密码重置邮件发送失败: {}", error);
+            }
+        });
 
-        NotificationService::send_email(
-            &mail_host,
-            &mail_user,
-            &mail_pass,
-            email,
-            "密码重置验证码",
-            &body,
-        )
-        .await?;
-
+        tokio::time::sleep_until(started_at + MIN_RESPONSE_TIME).await;
         Ok(())
     }
 
@@ -272,14 +269,20 @@ impl AuthService {
         ip: &str,
         payload: VerifyCodeRequest,
     ) -> Result<String> {
+        const MIN_FAILURE_TIME: std::time::Duration = std::time::Duration::from_millis(150);
+        let started_at = tokio::time::Instant::now();
         let email = payload.email.trim();
         Self::check_rate_limit(state, ip, email).await?;
 
         let user = users::Entity::find()
             .filter(users::Column::Email.eq(email))
             .one(&state.db)
-            .await?
-            .ok_or(AppError::NotFound("用户不存在".into()))?;
+            .await?;
+        let Some(user) = user else {
+            Self::record_login_attempt(state, ip, email, false).await?;
+            tokio::time::sleep_until(started_at + MIN_FAILURE_TIME).await;
+            return Err(AppError::Auth("验证码错误或已失效".into()));
+        };
 
         let mut hasher = Sha256::new();
         hasher.update(payload.code.as_bytes());
@@ -294,7 +297,8 @@ impl AuthService {
         if let Some(record) = record {
             if Utc::now() > record.expires_at {
                 Self::record_login_attempt(state, ip, email, false).await?;
-                return Err(AppError::Auth("验证码已过期".into()));
+                tokio::time::sleep_until(started_at + MIN_FAILURE_TIME).await;
+                return Err(AppError::Auth("验证码错误或已失效".into()));
             }
 
             Self::record_login_attempt(state, ip, email, true).await?;
@@ -312,6 +316,7 @@ impl AuthService {
             Ok(token)
         } else {
             Self::record_login_attempt(state, ip, email, false).await?;
+            tokio::time::sleep_until(started_at + MIN_FAILURE_TIME).await;
             Err(AppError::Auth("验证码错误或已失效".into()))
         }
     }
@@ -490,6 +495,11 @@ impl AuthService {
         ip: String,
         payload: RegisterRequest,
     ) -> Result<()> {
+        let _registration_guard = ADMIN_REGISTRATION_LOCK
+            .get_or_init(|| tokio::sync::Mutex::new(()))
+            .lock()
+            .await;
+
         if payload.username.trim().len() < 3 {
             return Err(AppError::ValidationError(
                 "用户名长度必须至少为 3 个字符".into(),
@@ -510,16 +520,6 @@ impl AuthService {
             None
         };
 
-        let user_count = users::Entity::find()
-            .filter(users::Column::Id.ne(0))
-            .count(db)
-            .await?;
-        if user_count > 0 {
-            return Err(AppError::Forbidden(
-                "系统已经初始化，无法重复创建管理员。".to_string(),
-            ));
-        }
-
         validate_password_strength(&payload.password)?;
 
         let salt = SaltString::generate(&mut OsRng);
@@ -529,6 +529,15 @@ impl AuthService {
             .to_string();
 
         let txn = db.begin().await?;
+        let user_count = users::Entity::find()
+            .filter(users::Column::Id.ne(0))
+            .count(&txn)
+            .await?;
+        if user_count > 0 {
+            return Err(AppError::Forbidden(
+                "系统已经初始化，无法重复创建管理员。".to_string(),
+            ));
+        }
         let new_admin = users::ActiveModel {
             username: Set(payload.username.clone()),
             email: Set(email.clone()),

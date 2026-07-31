@@ -1,7 +1,7 @@
 import type { Ref } from "vue";
 import { ElMessage } from "element-plus";
 import * as taskApi from "../api/tasks";
-import type { Task } from "@/types";
+import type { ApiResponse, Task, TaskRunResult } from "@/types";
 
 type RefreshTasks = (silent?: boolean) => Promise<void>;
 
@@ -15,6 +15,31 @@ type BatchTaskApi<Args extends unknown[]> = (
   ...args: Args
 ) => Promise<unknown>;
 
+  const showOperationFeedback = (
+    response: ApiResponse<unknown>,
+    successMessage: string,
+  ) => {
+    const results = Array.isArray(response.data)
+      ? (response.data as TaskRunResult[])
+      : null;
+    if (!results || !results.every((item) => item && typeof item.status === "string")) {
+      ElMessage.success(successMessage);
+      return;
+    }
+
+    const failures = results.filter((item) => item.status === "error");
+    const successCount = results.length - failures.length;
+    if (!failures.length) {
+      ElMessage.success(successMessage);
+    } else if (successCount > 0) {
+      ElMessage.warning(
+        `部分完成：成功 ${successCount} 个，失败 ${failures.length} 个`,
+      );
+    } else {
+      ElMessage.error(failures[0]?.message || "操作失败");
+    }
+  };
+
 export const createTaskOperations = ({
   loading,
   refreshTasks,
@@ -25,32 +50,32 @@ export const createTaskOperations = ({
 
   const runTask = async (id: number) => {
     try {
-      await taskApi.runTasks([id]);
-      ElMessage.success("任务已启动");
+      const response = await taskApi.runTasks([id]);
+      showOperationFeedback(response, "任务已启动");
       refreshSilently();
     } catch (e) {}
   };
 
   const stopTask = async (id: number) => {
     try {
-      await taskApi.stopTasks([id]);
-      ElMessage.success("停止命令已发送");
+      const response = await taskApi.stopTasks([id]);
+      showOperationFeedback(response, "停止命令已发送");
       refreshSilently();
     } catch (e) {}
   };
 
   const pauseTask = async (id: number) => {
     try {
-      await taskApi.pauseTasks([id]);
-      ElMessage.success("任务已暂停");
+      const response = await taskApi.pauseTasks([id]);
+      showOperationFeedback(response, "任务已暂停");
       refreshSilently();
     } catch (e) {}
   };
 
   const resumeTask = async (id: number) => {
     try {
-      await taskApi.resumeTasks([id]);
-      ElMessage.success("任务已恢复");
+      const response = await taskApi.resumeTasks([id]);
+      showOperationFeedback(response, "任务已恢复");
       refreshSilently();
     } catch (e) {}
   };
@@ -109,8 +134,8 @@ export const createTaskOperations = ({
     if (!ids.length) return;
     loading.value = true;
     try {
-      await apiFunc(ids, ...args);
-      ElMessage.success(successMsg);
+      const response = (await apiFunc(ids, ...args)) as ApiResponse<unknown>;
+      showOperationFeedback(response, successMsg);
       refreshSilently();
     } catch (e) {
     } finally {

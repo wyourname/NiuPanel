@@ -120,14 +120,9 @@ impl ShellEnvironmentService {
                 }
 
                 let desc = "apt-get install";
-                match cmd.execute_with_streaming(None, desc, tx.clone()).await {
-                    Ok(_) => {
-                        let _ = tx.send("Installation completed successfully.".to_string());
-                    }
-                    Err(e) => {
-                        let _ = tx.send(format!("Error: {}", e));
-                    }
-                }
+                cmd.execute_with_streaming(None, desc, tx.clone()).await?;
+                let _ = tx.send("Installation completed successfully.".to_string());
+                Ok(())
             })
             .await
     }

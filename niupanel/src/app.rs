@@ -17,40 +17,43 @@ pub fn create_router(state: AppState) -> Router {
     }
     let web_root = modules::system::web_releases::web_root();
     let cors = if config.cors_allowed_origins.is_empty() {
-        CorsLayer::new().allow_origin(tower_http::cors::AllowOrigin::mirror_request())
+        None
     } else {
         let origins: Vec<_> = config
             .cors_allowed_origins
             .iter()
             .filter_map(|o| o.parse().ok())
             .collect();
-        CorsLayer::new().allow_origin(tower_http::cors::AllowOrigin::list(origins))
-    }
-    .allow_methods([
-        Method::GET,
-        Method::POST,
-        Method::PUT,
-        Method::DELETE,
-        Method::PATCH,
-        Method::OPTIONS,
-        Method::HEAD,
-    ])
-    .allow_headers([
-        header::AUTHORIZATION,
-        header::CONTENT_TYPE,
-        header::ACCEPT,
-        header::ORIGIN,
-        header::COOKIE,
-        header::HeaderName::from_static("x-api-key"),
-        header::HeaderName::from_static("mcp-session-id"),
-        header::HeaderName::from_static("mcp-protocol-version"),
-        header::HeaderName::from_static("last-event-id"),
-    ])
-    .allow_credentials(true);
+        Some(
+            CorsLayer::new()
+                .allow_origin(tower_http::cors::AllowOrigin::list(origins))
+                .allow_methods([
+                    Method::GET,
+                    Method::POST,
+                    Method::PUT,
+                    Method::DELETE,
+                    Method::PATCH,
+                    Method::OPTIONS,
+                    Method::HEAD,
+                ])
+                .allow_headers([
+                    header::AUTHORIZATION,
+                    header::CONTENT_TYPE,
+                    header::ACCEPT,
+                    header::ORIGIN,
+                    header::COOKIE,
+                    header::HeaderName::from_static("x-api-key"),
+                    header::HeaderName::from_static("mcp-session-id"),
+                    header::HeaderName::from_static("mcp-protocol-version"),
+                    header::HeaderName::from_static("last-event-id"),
+                ])
+                .allow_credentials(true),
+        )
+    };
 
     let trace_layer = create_trace_layer();
 
-    Router::new()
+    let router = Router::new()
         .merge(modules::system::routes::create_public_router())
         .merge(modules::mcp::routes::create_protocol_router(state.clone()))
         .nest("/api/v1", create_internal_router(state.clone()))
@@ -63,15 +66,26 @@ pub fn create_router(state: AppState) -> Router {
         )
         .layer(DefaultBodyLimit::max(5 * 1024 * 1024))
         .layer(middleware::from_fn(web_cache_headers))
-        .layer(cors)
         .layer(trace_layer)
-        .with_state(state)
+        .with_state(state);
+
+    match cors {
+        Some(cors) => router.layer(cors),
+        None => router,
+    }
 }
 
 async fn web_cache_headers(request: Request<axum::body::Body>, next: Next) -> Response {
     let path = request.uri().path().to_string();
     let mut response = next.run(request).await;
-    if path == "/" || path.ends_with(".html") {
+    if path.starts_with("/api/") || path.starts_with("/open/api/") || path.starts_with("/mcp") {
+        response
+            .headers_mut()
+            .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+        response
+            .headers_mut()
+            .insert(header::PRAGMA, HeaderValue::from_static("no-cache"));
+    } else if path == "/" || path.ends_with(".html") {
         response.headers_mut().insert(
             header::CACHE_CONTROL,
             HeaderValue::from_static("no-cache, no-store, must-revalidate"),

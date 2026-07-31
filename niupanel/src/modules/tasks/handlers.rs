@@ -196,12 +196,12 @@ pub async fn batch_stop_tasks(
     State(state): State<AppState>,
     Extension(user): Extension<AuthenticatedUser>,
     Json(payload): Json<BatchIdRequest>,
-) -> Result<ApiResponse<()>> {
-    TaskUseCase::from_state(&state)
+) -> Result<ApiResponse<Vec<serde_json::Value>>> {
+    let results = TaskUseCase::from_state(&state)
         .batch_stop_tasks(&user, payload.ids)
         .await?;
 
-    Ok(ApiResponse::success(()))
+    Ok(ApiResponse::success(results))
 }
 
 #[utoipa::path(
@@ -218,12 +218,12 @@ pub async fn batch_pause_tasks(
     State(state): State<AppState>,
     Extension(user): Extension<AuthenticatedUser>,
     Json(payload): Json<BatchIdRequest>,
-) -> Result<ApiResponse<()>> {
-    TaskUseCase::from_state(&state)
+) -> Result<ApiResponse<Vec<serde_json::Value>>> {
+    let results = TaskUseCase::from_state(&state)
         .batch_pause_tasks(&user, payload.ids)
         .await?;
 
-    Ok(ApiResponse::success(()))
+    Ok(ApiResponse::success(results))
 }
 
 #[utoipa::path(
@@ -240,12 +240,12 @@ pub async fn batch_resume_tasks(
     State(state): State<AppState>,
     Extension(user): Extension<AuthenticatedUser>,
     Json(payload): Json<BatchIdRequest>,
-) -> Result<ApiResponse<()>> {
-    TaskUseCase::from_state(&state)
+) -> Result<ApiResponse<Vec<serde_json::Value>>> {
+    let results = TaskUseCase::from_state(&state)
         .batch_resume_tasks(&user, payload.ids)
         .await?;
 
-    Ok(ApiResponse::success(()))
+    Ok(ApiResponse::success(results))
 }
 
 #[utoipa::path(

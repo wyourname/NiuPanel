@@ -1,12 +1,14 @@
 use futures::stream::{self, StreamExt};
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, Set,
+    ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait, QueryFilter,
+    QueryOrder, Set, TransactionTrait,
 };
 
 use crate::task_manager::service::TaskManagerService;
 use niupanel_common::error::{AppError, Result};
 use niupanel_common::filesystem::resolve_path;
 use niupanel_common::info;
+use niupanel_common::variable::{normalize_variable_key, validate_variable_value};
 use niupanel_entity::task_status::TaskStatus;
 use niupanel_entity::{tasks, variables, variables_tasks};
 
@@ -75,12 +77,14 @@ pub async fn create_task_record(
         ..Default::default()
     };
 
-    let created = new_task.insert(db).await?;
+    let txn = db.begin().await?;
+    let created = new_task.insert(&txn).await?;
 
     if let Some(vars) = payload.variables {
-        insert_task_variables(db, created.id, vars).await?;
+        insert_task_variables(&txn, created.id, vars).await?;
     }
 
+    txn.commit().await?;
     Ok(created)
 }
 
@@ -94,54 +98,82 @@ pub async fn delete_task_records(
         return Ok(());
     }
 
-    if delete_script {
-        let tasks_to_delete = tasks::Entity::find()
+    let tasks_to_delete = if delete_script {
+        tasks::Entity::find()
             .filter(tasks::Column::Id.is_in(ids.clone()))
             .all(db)
-            .await?;
-        for task in tasks_to_delete {
-            if !task.path.is_empty() {
-                if let Ok(path) = resolve_path(&task.path) {
-                    let _ = tokio::fs::remove_file(path).await;
-                }
-            }
-        }
-    }
+            .await?
+    } else {
+        Vec::new()
+    };
 
-    if delete_var {
+    let txn = db.begin().await?;
+    let candidate_variable_ids = if delete_var {
         let relation_rows = variables_tasks::Entity::find()
             .filter(variables_tasks::Column::TaskId.is_in(ids.clone()))
-            .all(db)
+            .all(&txn)
             .await?;
         let mut candidate_ids: Vec<i32> = relation_rows.iter().map(|row| row.variable_id).collect();
         let legacy_vars = variables::Entity::find()
             .filter(variables::Column::Scope.eq("Script"))
             .filter(variables::Column::ScopeId.is_in(ids.clone()))
-            .all(db)
+            .all(&txn)
             .await?;
         candidate_ids.extend(legacy_vars.into_iter().map(|var| var.id));
+        candidate_ids
+    } else {
+        Vec::new()
+    };
 
-        variables_tasks::Entity::delete_many()
-            .filter(variables_tasks::Column::TaskId.is_in(ids.clone()))
-            .exec(db)
-            .await?;
+    variables_tasks::Entity::delete_many()
+        .filter(variables_tasks::Column::TaskId.is_in(ids.clone()))
+        .exec(&txn)
+        .await?;
 
-        cleanup_orphan_script_variables(db, &candidate_ids).await?;
+    if delete_var {
+        cleanup_orphan_script_variables(&txn, &candidate_variable_ids).await?;
     }
 
     tasks::Entity::delete_many()
         .filter(tasks::Column::Id.is_in(ids))
-        .exec(db)
+        .exec(&txn)
         .await?;
+    txn.commit().await?;
+
+    let mut cleanup_errors = Vec::new();
+    for task in tasks_to_delete {
+        if task.path.is_empty() {
+            continue;
+        }
+        match resolve_path(&task.path) {
+            Ok(path) => {
+                if let Err(err) = tokio::fs::remove_file(&path).await {
+                    if err.kind() != std::io::ErrorKind::NotFound {
+                        cleanup_errors.push(format!("{}: {}", path.display(), err));
+                    }
+                }
+            }
+            Err(err) => cleanup_errors.push(format!("{}: {}", task.path, err)),
+        }
+    }
+    if !cleanup_errors.is_empty() {
+        return Err(AppError::Generic(format!(
+            "任务记录已删除，但部分脚本清理失败: {}",
+            cleanup_errors.join("; ")
+        )));
+    }
 
     Ok(())
 }
 
-pub async fn replace_task_variables(
-    db: &DatabaseConnection,
+pub async fn replace_task_variables<C>(
+    db: &C,
     task_id: i32,
     variables: Vec<TaskVariableInput>,
-) -> Result<()> {
+) -> Result<()>
+where
+    C: ConnectionTrait,
+{
     let existing_relations = variables_tasks::Entity::find()
         .filter(variables_tasks::Column::TaskId.eq(task_id))
         .all(db)
@@ -196,18 +228,34 @@ pub async fn run_task_records(
         .await
 }
 
-pub async fn stop_task_records(task_manager: &TaskManagerService, ids: Vec<i32>) {
+pub async fn stop_task_records(
+    task_manager: &TaskManagerService,
+    ids: Vec<i32>,
+) -> Vec<serde_json::Value> {
     stream::iter(ids)
-        .for_each_concurrent(5, |id| {
+        .map(|id| {
             let task_manager = task_manager.clone();
             async move {
                 task_manager
                     .log_system_event(id, "###### 停止任务 ######".to_string())
                     .await;
-                let _ = task_manager.stop_task(id).await;
+                match task_manager.stop_task(id).await {
+                    Ok(()) => serde_json::json!({
+                        "task_id": id,
+                        "status": "success",
+                        "message": "Stop command sent"
+                    }),
+                    Err(error) => serde_json::json!({
+                        "task_id": id,
+                        "status": "error",
+                        "message": error.to_string()
+                    }),
+                }
             }
         })
-        .await;
+        .buffer_unordered(5)
+        .collect()
+        .await
 }
 
 pub fn effective_task_path(path: Option<&str>, command: Option<&str>) -> String {
@@ -328,20 +376,21 @@ fn is_env_assignment(part: &str) -> bool {
 
 fn is_script_interpreter(program: &str) -> bool {
     [
-        "python", "python3", "node", "sh", "bash", "ts-node", "uv", "uvx", "npx",
+        "python", "python3", "node", "sh", "bash", "ts-node", "uv", "uvx", "pnpm", "pnpx", "npx",
     ]
     .iter()
     .any(|item| program == *item || program.ends_with(&format!("/{item}")))
 }
 
-async fn insert_task_variables(
-    db: &DatabaseConnection,
-    task_id: i32,
-    vars: Vec<TaskVariableInput>,
-) -> Result<()> {
+async fn insert_task_variables<C>(db: &C, task_id: i32, vars: Vec<TaskVariableInput>) -> Result<()>
+where
+    C: ConnectionTrait,
+{
     for (index, var) in vars.into_iter().enumerate() {
+        let key = normalize_variable_key(&var.key)?;
+        validate_variable_value(&var.value)?;
         let created = variables::ActiveModel {
-            key: Set(var.key),
+            key: Set(key),
             value: Set(var.value),
             scope: Set("Script".to_string()),
             scope_id: Set(Some(task_id)),
@@ -362,10 +411,10 @@ async fn insert_task_variables(
     Ok(())
 }
 
-async fn cleanup_orphan_script_variables(
-    db: &DatabaseConnection,
-    variable_ids: &[i32],
-) -> Result<()> {
+pub async fn cleanup_orphan_script_variables<C>(db: &C, variable_ids: &[i32]) -> Result<()>
+where
+    C: ConnectionTrait,
+{
     for variable_id in variable_ids {
         let relation = variables_tasks::Entity::find()
             .filter(variables_tasks::Column::VariableId.eq(*variable_id))
@@ -379,6 +428,7 @@ async fn cleanup_orphan_script_variables(
                     if var.scope == "Script" && var.scope_id != Some(row.task_id) {
                         let mut active: variables::ActiveModel = var.into();
                         active.scope_id = Set(Some(row.task_id));
+                        active.updated_at = Set(chrono::Utc::now());
                         active.update(db).await?;
                     }
                 }

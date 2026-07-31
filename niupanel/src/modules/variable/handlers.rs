@@ -1,6 +1,7 @@
 pub use super::models::{
-    BatchIdRequest, BatchToggleRequest, KeyQuery, ReorderVariablesRequest, TaskSimpleResponse,
-    VariableDto, VariableQueryParams, VariableRequest,
+    BatchIdRequest, BatchSaveVariablesRequest, BatchToggleRequest, KeyQuery,
+    ReorderVariablesRequest, TaskSimpleResponse, VariableDto, VariableQueryParams, VariableRequest,
+    VariableSummaryDto, VariableUpsertRequest, VariableValueDto,
 };
 use super::service;
 use crate::common::state::AppState;
@@ -18,7 +19,7 @@ use niupanel_core::audit::service::AuditService;
     path = "/api/v1/variables",
     params(VariableQueryParams),
     responses(
-        (status = 200, description = "List variables", body = ApiResponse<PaginatedData<VariableDto>>)
+        (status = 200, description = "List variable metadata without sensitive values", body = ApiResponse<PaginatedData<VariableSummaryDto>>)
     ),
     tag = "Variables",
     security(("session_cookie" = []))
@@ -26,14 +27,73 @@ use niupanel_core::audit::service::AuditService;
 pub async fn list_variables(
     State(state): State<AppState>,
     Query(params): Query<VariableQueryParams>,
+) -> Result<ApiResponse<PaginatedData<VariableSummaryDto>>> {
+    let data = service::list_variables(&state.db, &params).await?;
+    Ok(ApiResponse::success(PaginatedData {
+        items: data.items.into_iter().map(Into::into).collect(),
+        total: data.total,
+    }))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/variables/with-values",
+    params(VariableQueryParams),
+    responses(
+        (status = 200, description = "List variables including sensitive values", body = ApiResponse<PaginatedData<VariableDto>>)
+    ),
+    tag = "Variables",
+    security(("session_cookie" = []))
+)]
+pub async fn list_variables_with_values(
+    State(state): State<AppState>,
+    Extension(user): Extension<AuthenticatedUser>,
+    Query(params): Query<VariableQueryParams>,
 ) -> Result<ApiResponse<PaginatedData<VariableDto>>> {
     let data = service::list_variables(&state.db, &params).await?;
+    AuditService::log_user(
+        &state.db,
+        &user,
+        "读取变量明文",
+        "variable",
+        None,
+        Some(format!("读取了 {} 个变量的明文", data.items.len())),
+    )
+    .await;
     Ok(ApiResponse::success(data))
 }
 
 #[utoipa::path(
     get,
-    path = "/api/v1/variables/tasks",
+    path = "/api/v1/variables/{id}/value",
+    params(("id" = i32, Path, description = "Variable ID")),
+    responses(
+        (status = 200, description = "Read one sensitive variable value", body = ApiResponse<VariableValueDto>)
+    ),
+    tag = "Variables",
+    security(("session_cookie" = []))
+)]
+pub async fn get_variable_value(
+    State(state): State<AppState>,
+    Extension(user): Extension<AuthenticatedUser>,
+    Path(id): Path<i32>,
+) -> Result<ApiResponse<VariableValueDto>> {
+    let value = service::get_variable_value(&state.db, id).await?;
+    AuditService::log_user(
+        &state.db,
+        &user,
+        "读取变量明文",
+        "variable",
+        Some(id.to_string()),
+        Some(format!("读取了变量 {} 的明文", value.key)),
+    )
+    .await;
+    Ok(ApiResponse::success(value))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/variables/tasks/all",
     responses(
         (status = 200, description = "List tasks with simple info for variable binding")
     ),
@@ -115,7 +175,7 @@ pub async fn update_variable(
 
 #[utoipa::path(
     post,
-    path = "/api/v1/variables/batch-toggle",
+    path = "/api/v1/variables/toggle",
     request_body = BatchToggleRequest,
     responses(
         (status = 200, description = "Batch toggle variables enabled state")
@@ -151,6 +211,39 @@ pub async fn batch_toggle_variables(
 
 #[utoipa::path(
     post,
+    path = "/api/v1/variables/batch-save",
+    request_body = BatchSaveVariablesRequest,
+    responses(
+        (status = 200, description = "Atomically save task variables", body = ApiResponse<Vec<VariableDto>>)
+    ),
+    tag = "Variables",
+    security(("session_cookie" = []))
+)]
+pub async fn batch_save_variables(
+    State(state): State<AppState>,
+    Extension(user): Extension<AuthenticatedUser>,
+    Json(payload): Json<BatchSaveVariablesRequest>,
+) -> Result<ApiResponse<Vec<VariableDto>>> {
+    let task_id = payload.task_id;
+    let upsert_count = payload.upserts.len();
+    let delete_count = payload.delete_ids.len();
+    let saved = service::batch_save_task_variables(&state.db, payload).await?;
+    AuditService::log_user(
+        &state.db,
+        &user,
+        "批量保存任务变量",
+        "variable",
+        Some(task_id.to_string()),
+        Some(format!(
+            "任务 {task_id} 原子保存 {upsert_count} 个变量，解除 {delete_count} 个关联"
+        )),
+    )
+    .await;
+    Ok(ApiResponse::success(saved))
+}
+
+#[utoipa::path(
+    post,
     path = "/api/v1/variables/reorder",
     request_body = ReorderVariablesRequest,
     responses(
@@ -168,7 +261,13 @@ pub async fn batch_reorder_variables(
         return Ok(ApiResponse::success(()));
     }
 
-    service::batch_reorder_variables(&state.db, payload.task_id, &payload.ids).await?;
+    service::batch_reorder_variables(
+        &state.db,
+        payload.task_id,
+        payload.scope.as_deref(),
+        &payload.ids,
+    )
+    .await?;
 
     AuditService::log_user(
         &state.db,
@@ -235,14 +334,28 @@ pub async fn import_variables(
 )]
 pub async fn get_variable_by_key(
     State(state): State<AppState>,
+    Extension(user): Extension<AuthenticatedUser>,
     Query(params): Query<KeyQuery>,
 ) -> Result<ApiResponse<Vec<VariableDto>>> {
     let data = service::get_variable_by_key(&state.db, &params.key).await?;
+    AuditService::log_user(
+        &state.db,
+        &user,
+        "读取变量明文",
+        "variable",
+        None,
+        Some(format!(
+            "通过 Key 读取了 {} 个变量的明文: {}",
+            data.len(),
+            params.key
+        )),
+    )
+    .await;
     Ok(ApiResponse::success(data))
 }
 
 #[utoipa::path(
-    put,
+    patch,
     path = "/api/v1/variables/by-key",
     params(KeyQuery),
     request_body = VariableRequest,
@@ -279,8 +392,9 @@ pub async fn update_variable_by_key(
 }
 
 #[utoipa::path(
-    post,
-    path = "/api/v1/variables/batch-delete",
+    delete,
+    path = "/api/v1/variables",
+    request_body = BatchIdRequest,
     responses(
         (status = 200, description = "Batch delete variables")
     ),

@@ -1,9 +1,106 @@
-use niupanel_common::escape_tg_markdown;
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::OnceLock;
+use std::time::{Duration, Instant};
+
+use niupanel_common::{config::Config, escape_tg_markdown};
 use niupanel_core::event_bus::{EventBus, SystemEvent, TelegramEvent};
-use niupanel_entity::{tasks, tg_commands, tg_workflows};
-use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
+use niupanel_entity::{tasks, tg_commands, tg_workflows, users};
+use sea_orm::{ColumnTrait, DatabaseConnection, DbErr, EntityTrait, QueryFilter, QueryOrder};
 use teloxide::prelude::*;
 use teloxide::types::{ChatId, InlineKeyboardButton, InlineKeyboardMarkup, ParseMode};
+
+struct PendingWorkflowApproval {
+    chat_id: String,
+    script: String,
+    created_at: Instant,
+}
+
+static PENDING_WORKFLOW_APPROVALS: OnceLock<
+    tokio::sync::Mutex<HashMap<String, PendingWorkflowApproval>>,
+> = OnceLock::new();
+
+fn pending_workflow_approvals()
+-> &'static tokio::sync::Mutex<HashMap<String, PendingWorkflowApproval>> {
+    PENDING_WORKFLOW_APPROVALS.get_or_init(|| tokio::sync::Mutex::new(HashMap::new()))
+}
+
+async fn create_pending_workflow_approval(chat_id: ChatId, script: String) -> String {
+    let nonce = generate_nanoid(24);
+    let mut approvals = pending_workflow_approvals().lock().await;
+    approvals.retain(|_, approval| approval.created_at.elapsed() < Duration::from_secs(600));
+    approvals.insert(
+        nonce.clone(),
+        PendingWorkflowApproval {
+            chat_id: chat_id.to_string(),
+            script,
+            created_at: Instant::now(),
+        },
+    );
+    nonce
+}
+
+pub async fn take_pending_workflow_approval(nonce: &str, chat_id: ChatId) -> Option<String> {
+    let mut approvals = pending_workflow_approvals().lock().await;
+    approvals.retain(|_, approval| approval.created_at.elapsed() < Duration::from_secs(600));
+    let matches_chat = approvals
+        .get(nonce)
+        .is_some_and(|approval| approval.chat_id == chat_id.to_string());
+    matches_chat
+        .then(|| approvals.remove(nonce).map(|approval| approval.script))
+        .flatten()
+}
+
+pub async fn discard_pending_workflow_approval(nonce: &str, chat_id: ChatId) -> bool {
+    let mut approvals = pending_workflow_approvals().lock().await;
+    let matches_chat = approvals
+        .get(nonce)
+        .is_some_and(|approval| approval.chat_id == chat_id.to_string());
+    if matches_chat {
+        approvals.remove(nonce);
+    }
+    matches_chat
+}
+
+pub async fn task_owner_id(db: &DatabaseConnection) -> Result<i32, DbErr> {
+    users::Entity::find()
+        .filter(users::Column::Role.eq("admin"))
+        .order_by_asc(users::Column::Id)
+        .one(db)
+        .await?
+        .map(|user| user.id)
+        .ok_or_else(|| DbErr::RecordNotFound("no administrator is available".to_string()))
+}
+
+pub async fn save_telegram_script(
+    extension: &str,
+    content: impl AsRef<[u8]>,
+) -> std::io::Result<(String, PathBuf)> {
+    let extension = match extension {
+        "py" => "py",
+        "js" => "js",
+        _ => "sh",
+    };
+    let relative_path = format!("telegram/{}.{}", nanoid::nanoid!(16), extension);
+    let full_path = Config::global().scripts_dir.join(&relative_path);
+    let parent = full_path
+        .parent()
+        .ok_or_else(|| std::io::Error::other("invalid Telegram script path"))?;
+
+    tokio::fs::create_dir_all(parent).await?;
+    let mut options = tokio::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        options.mode(0o600);
+    }
+    let mut file = options.open(&full_path).await?;
+    use tokio::io::AsyncWriteExt;
+    file.write_all(content.as_ref()).await?;
+    file.sync_all().await?;
+
+    Ok((relative_path, full_path))
+}
 
 /// Parse a task identifier (either numeric ID or task name)
 pub async fn parse_task_id(arg: &str, db: &DatabaseConnection) -> Option<i32> {
@@ -37,7 +134,7 @@ pub fn publish_audit(event_bus: &EventBus, chat_id: String, text: String) {
         file_id: None,
         timestamp: std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or_default()
             .as_secs(),
     }));
 }
@@ -61,19 +158,36 @@ pub async fn execute_custom_command(
         .parse_mode(ParseMode::MarkdownV2)
         .await;
 
-    let timestamp = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_secs();
-    let script_path = format!("/tmp/tg_cmd_{}_{}.sh", cmd.id, timestamp);
-    let _ = tokio::fs::write(&script_path, &cmd.script).await;
-
-    let output = tokio::process::Command::new("bash")
-        .arg(&script_path)
-        .output()
-        .await;
-
-    let _ = tokio::fs::remove_file(&script_path).await;
+    let mut child = match tokio::process::Command::new("bash")
+        .arg("-s")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
+    {
+        Ok(child) => child,
+        Err(err) => {
+            let _ = bot.send_message(chat_id, format!("执行失败: {err}")).await;
+            return;
+        }
+    };
+    let Some(mut stdin) = child.stdin.take() else {
+        let _ = child.kill().await;
+        let _ = bot
+            .send_message(chat_id, "执行失败: 无法打开脚本输入")
+            .await;
+        return;
+    };
+    use tokio::io::AsyncWriteExt;
+    if let Err(err) = stdin.write_all(cmd.script.as_bytes()).await {
+        drop(stdin);
+        let _ = child.kill().await;
+        let _ = bot.send_message(chat_id, format!("执行失败: {err}")).await;
+        return;
+    }
+    drop(stdin);
+    let output = child.wait_with_output().await;
 
     match output {
         Ok(out) => {
@@ -85,14 +199,26 @@ pub async fn execute_custom_command(
             if result_text.trim().is_empty() {
                 result_text = "执行完成，无输出".to_string();
             }
+            let mut result_chars = result_text.chars();
+            let mut visible_result = result_chars.by_ref().take(3500).collect::<String>();
+            if result_chars.next().is_some() {
+                visible_result.push_str("\n…输出已截断");
+            }
+            let status_text = if out.status.success() {
+                "执行完成"
+            } else {
+                "执行失败"
+            };
             let _ = bot
-                .send_message(chat_id, format!("```\n{}\n```", result_text))
-                .parse_mode(ParseMode::MarkdownV2)
+                .send_message(
+                    chat_id,
+                    format!("{status_text}（状态 {}）\n\n{visible_result}", out.status),
+                )
                 .await;
             publish_audit(
                 event_bus,
                 chat_id.to_string(),
-                format!("执行自定义指令: {}", cmd.name),
+                format!("{}自定义指令: {}", status_text, cmd.name),
             );
         }
         Err(e) => {
@@ -119,13 +245,13 @@ pub async fn execute_workflow(
             .and_then(|v| v.as_str())
             .unwrap_or("🚨 请求审批某项系统操作");
         let script = config.get("script").and_then(|v| v.as_str()).unwrap_or("");
-
-        let nonce = generate_nanoid(8);
-
-        // Save the pending script to a temporary file or database so the callback can read it
-        // For simplicity and resilience, we'll store it in a local temp file keyed by the nonce
-        let pending_script_path = format!("/tmp/tg_pending_approval_{}.sh", nonce);
-        let _ = tokio::fs::write(&pending_script_path, script).await;
+        if script.is_empty() || script.len() > 1024 * 1024 {
+            let _ = bot
+                .send_message(chat_id, "审批脚本为空或超过 1 MB 限制")
+                .await;
+            return;
+        }
+        let nonce = create_pending_workflow_approval(chat_id, script.to_string()).await;
 
         let kb = InlineKeyboardMarkup::new(vec![vec![
             InlineKeyboardButton::callback("✅ 授权执行", format!("wf_approve_{}", nonce)),
@@ -139,6 +265,7 @@ pub async fn execute_workflow(
 
         if let Err(e) = res {
             niupanel_common::logger::error!("Failed to send approval message: {}", e);
+            discard_pending_workflow_approval(&nonce, chat_id).await;
         }
 
         return;
@@ -183,6 +310,12 @@ pub async fn execute_workflow(
             updated_at: Default::default(),
         };
         execute_custom_command(bot, chat_id, db, event_bus, dummy_cmd).await;
+    } else {
+        niupanel_common::logger::warn!(
+            "Workflow {} uses unsupported action type '{}'",
+            workflow.id,
+            workflow.action_type
+        );
     }
 }
 
@@ -206,13 +339,7 @@ pub fn get_unique_path(dir: &std::path::Path, base_name: &str, ext: &str) -> std
 }
 
 pub fn generate_nanoid(len: usize) -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let ts = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    let s = format!("{:x}", ts);
-    s.chars().rev().take(len).collect()
+    nanoid::nanoid!(len)
 }
 
 pub fn format_uptime_cn(seconds: u64) -> String {

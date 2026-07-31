@@ -30,9 +30,7 @@ export function useTelegramWorkflows() {
     const map: Record<string, string> = {
       failed: "任务失败",
       success: "任务成功",
-      timeout: "任务超时",
       alert: "系统警报",
-      login: "登录通知",
       cron: "定时触发 (Cron)",
     };
     return map[val] || val;
@@ -41,8 +39,6 @@ export function useTelegramWorkflows() {
   const actionTypeLabel = (val: TelegramWorkflowActionType) => {
     const map: Record<string, string> = {
       notify: "TG 通知",
-      webhook: "Webhook",
-      retry: "重试任务",
       shell: "Shell 命令",
       approval: "请求人工审批 (交互式)",
     };
@@ -52,8 +48,6 @@ export function useTelegramWorkflows() {
   const actionConfigLabel = computed(() => {
     const map: Record<string, string> = {
       notify: "通知模板 (JSON)",
-      webhook: "Webhook URL",
-      retry: "重试配置 (JSON)",
       shell: "Shell 脚本",
       approval: "审批配置 (JSON)",
     };
@@ -67,8 +61,6 @@ export function useTelegramWorkflows() {
     }
     const map: Record<string, string> = {
       notify: "{\"template\": \"任务 {{task_id}} 失败\"}",
-      webhook: "https://example.com/webhook",
-      retry: "{\"max_retries\": 3, \"delay_seconds\": 60}",
       shell: "systemctl restart nginx",
       approval: "{\"message\": \"警报：是否清理磁盘？\\n[目前剩余1GB]\", \"script\": \"apt clean\"}",
     };

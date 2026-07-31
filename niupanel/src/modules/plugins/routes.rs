@@ -14,7 +14,7 @@ pub fn create_router() -> Router<AppState> {
                 .route("/apps", get(handlers::list_plugin_apps))
                 .route("/themes", get(handlers::list_plugin_themes))
                 .route("/{id}/api", post(handlers::proxy_plugin_api_request))
-                .route("/{id}/invoke", post(handlers::invoke_agent_plugin))
+                .route("/{id}/invoke", post(handlers::invoke_plugin_action))
                 .route(
                     "/{id}/ui/{*asset_path}",
                     get(handlers::serve_plugin_ui_asset),

@@ -232,7 +232,7 @@ Frontend host code must normalize plugin routes through
 `src/utils/pluginRoutes.ts`. This keeps direct routes, workspace windows, and
 extension gateways using the same `/plugins/{plugin_id}/...` to
 `context.route.path/query` mapping. The public release gate runs
-`npm run verify:plugin-route-contract` to prevent local duplicate parsers from
+`pnpm run verify:plugin-route-contract` to prevent local duplicate parsers from
 drifting.
 
 The host sends this request through:
@@ -389,7 +389,7 @@ Run the generated verification script before publishing a private market index:
 
 ```bash
 cd ../niupanel-private-plugins
-npm run verify
+pnpm run verify
 ```
 
 The generated manifests include:
@@ -420,7 +420,7 @@ For Vue plugin apps, build the UI before packaging:
 
 ```bash
 cd examples/plugins/agents/app-template/ui
-npm install
+pnpm install
 cd -
 node scripts/package-plugin.mjs examples/plugins/agents/app-template \
   --build-ui \
@@ -496,10 +496,26 @@ The host provides:
 - `context.route`
 - `context.route.onChange()` for in-app route changes without remounting
 - `context.api.request()`
-- `context.api.invoke()` for agent plugins
+- `context.api.invoke()` for native apps with a process backend
 - `context.ui.toast()`
 - `context.ui.confirm()`
 - `context.ui.navigate()`
+
+Native plugin apps that call their process backend through
+`context.api.invoke()` must declare the `ui.invoke` capability. The legacy
+`agents.invoke` capability remains accepted for existing agent plugins.
+
+```json
+{
+  "runtime": "process",
+  "protocol": "json_lines",
+  "capabilities": ["ui.invoke", "my-plugin.actions"]
+}
+```
+
+```ts
+const health = await context.api.invoke<{ ok: boolean }>("health", {});
+```
 
 ## Template
 
@@ -524,16 +540,16 @@ Build its UI before installing the plugin package:
 
 ```bash
 cd examples/plugins/vue-app-template/ui
-npm install
-npm run build
+pnpm install
+pnpm run build
 ```
 
 For the agent app template:
 
 ```bash
 cd examples/plugins/agents/app-template/ui
-npm install
-npm run build
+pnpm install
+pnpm run build
 ```
 
 Then install the package directory from the panel:
@@ -615,7 +631,7 @@ Create and sign a package:
 niupanel plugin pack examples/plugins/vue-app-template dist/vue-app-template.tgz --key plugin-ed25519.pem
 ```
 
-The command prints the upload fields expected by the panel:
+The command prints metadata for a signed market entry or an API client:
 
 ```text
 checksum_sha256: ...
@@ -705,16 +721,16 @@ uploaded archive before extraction and rejects the package if it does not match.
 Package extraction rejects absolute paths, parent-directory traversal, symlinks,
 and hard links. Only regular files and directories are extracted.
 
-Uploaded packages also support detached Ed25519 signatures. Configure trusted
-public keys on the server:
+Packages downloaded from a remote plugin market support detached Ed25519
+signatures. Configure trusted public keys on the server:
 
 ```env
 PLUGIN_SIGNATURE_REQUIRED=true
 TRUSTED_PLUGIN_PUBLIC_KEYS=sha256:<raw-public-key-sha256>
 ```
 
-Signature verification is enabled by default. Every uploaded install/update
-package must include:
+When `PLUGIN_SIGNATURE_REQUIRED=true`, every package downloaded from a market
+must include:
 
 ```text
 signature_ed25519=<base64 detached signature over the uploaded archive bytes>
@@ -722,12 +738,18 @@ public_key_ed25519=<PEM, base64 raw Ed25519 public key, or hex raw public key>
 ```
 
 The backend verifies that the submitted public key matches one configured in
-`TRUSTED_PLUGIN_PUBLIC_KEYS`, then verifies the signature over the exact uploaded
-archive bytes before extraction. A submitted public key is not trusted by itself.
+`TRUSTED_PLUGIN_PUBLIC_KEYS`, then verifies the signature over the exact archive
+bytes before extraction. A submitted public key is not trusted by itself.
 
-Server-side path installation is an explicit local administrator trust action.
-Native UI packages installed through upload or a market must be signed by a
-configured trusted key.
+Direct package uploads from the authenticated administrator are treated as an
+explicit local trust action. The upload dialog only needs the package file and
+an optional SHA-256 checksum; it no longer asks for `signature_ed25519` or
+`public_key_ed25519`. Low-level API clients may still provide both fields, in
+which case they are verified normally.
+
+Server-side path installation follows the same explicit local administrator
+trust model. Native UI packages downloaded from a market remain subject to the
+configured signature policy.
 
 ## Version History And Rollback
 

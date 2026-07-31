@@ -15,7 +15,7 @@ pub struct McpInfoResponse {
     pub endpoint: &'static str,
     pub transport: &'static str,
     pub auth_header: &'static str,
-    pub required_permission: &'static str,
+    pub required_permission: Option<&'static str>,
     pub tools: Vec<McpToolInfo>,
 }
 
@@ -26,7 +26,7 @@ impl McpInfoResponse {
             endpoint: "/mcp",
             transport: "streamable_http",
             auth_header: "X-API-Key",
-            required_permission: "mcp:connect",
+            required_permission: None,
             tools: vec![
                 McpToolInfo {
                     name: "system_status",

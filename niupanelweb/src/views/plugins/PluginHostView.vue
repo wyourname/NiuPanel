@@ -112,6 +112,15 @@ const manifestDeclaresPermission = (
   requiredPermission: string,
 ) => declaredPermissions.includes(requiredPermission);
 
+const pluginHasCapability = (capabilities: string[], required: string) =>
+  capabilities.some((rawCapability) => {
+    const capability = rawCapability.trim();
+    if (capability === required) return true;
+    if (!capability.endsWith(".*")) return false;
+    const prefix = capability.slice(0, -2);
+    return required.startsWith(`${prefix}.`);
+  });
+
 const permissionForApiRequest = (method: string, path: string) => {
   const [pathname] = path.split("?");
   const segments = pathname.split("/").filter(Boolean);
@@ -137,9 +146,17 @@ const permissionForApiRequest = (method: string, path: string) => {
     return "task:update";
   }
   if (first === "variables") {
-    if (method === "GET") return "var:list";
+    if (method === "GET") {
+      if (
+        ["with-values", "by-key"].includes(segments[1]) ||
+        segments[2] === "value"
+      ) {
+        return "var:read";
+      }
+      return "var:list";
+    }
     if (method === "POST") {
-      if (["toggle", "reorder"].includes(segments[1])) return "var:update";
+      if (["toggle", "reorder", "batch-save"].includes(segments[1])) return "var:update";
       return "var:create";
     }
     if (method === "DELETE") return "var:delete";
@@ -248,10 +265,13 @@ const createContext = (app: NiuPanelPluginApp): NiuPanelPluginContext => ({
       return (response as { data?: T })?.data ?? (response as T);
     },
     async invoke<T = unknown>(action: string, input?: unknown): Promise<T> {
-      if (!app.capabilities.includes("agents.invoke")) {
-        throw new Error("当前插件没有声明 agents.invoke 能力，无法使用 invoke");
+      if (
+        !pluginHasCapability(app.capabilities, "ui.invoke") &&
+        !pluginHasCapability(app.capabilities, "agents.invoke")
+      ) {
+        throw new Error("当前插件没有声明 ui.invoke 能力，无法使用 invoke");
       }
-      const response = await request.post(`/plugins/${app.plugin_id}/invoke`, {
+      const response = await request.post(`/plugins/${encodeURIComponent(app.plugin_id)}/invoke`, {
         action,
         input,
       });

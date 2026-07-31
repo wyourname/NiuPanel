@@ -1,4 +1,4 @@
-use niupanel_common::escape_tg_markdown;
+use niupanel_common::{escape_tg_markdown, logger::warn};
 use niupanel_core::event_bus::{EventBus, SystemEvent, TaskEvent};
 use niupanel_core::task_manager::service::TaskManagerService;
 use niupanel_entity::task_status::TaskStatus;
@@ -637,7 +637,10 @@ pub async fn handle_logs(
         None => return,
     };
     if let Ok(Some(t)) = tasks::Entity::find_by_id(tid).one(db).await {
-        let log = read_latest_log(&format!("data/logs/{}", tid), 3000)
+        let log_dir = niupanel_common::config::Config::global()
+            .logs_dir
+            .join(tid.to_string());
+        let log = read_latest_log(&log_dir.to_string_lossy(), 3000)
             .await
             .unwrap_or_else(|| "📄 暂无日志".to_string());
 
@@ -918,6 +921,7 @@ pub async fn handle_add_confirm(
     chat_id: ChatId,
     db: &DatabaseConnection,
     eb: &EventBus,
+    tm: &TaskManagerService,
     convs: &ConversationStore,
 ) {
     let state = convs.write().await.remove(&chat_id.to_string());
@@ -925,7 +929,19 @@ pub async fn handle_add_confirm(
         data, last_msg_id, ..
     }) = state
     {
-        let name = data.name.unwrap_or_default();
+        let name = data.name.unwrap_or_default().trim().to_string();
+        if name.is_empty() {
+            reply_or_edit(bot, chat_id, last_msg_id, "❌ 任务名称不能为空").await;
+            return;
+        }
+
+        let script_content = match data.script_content {
+            Some(content) if !content.is_empty() => content,
+            _ => {
+                reply_or_edit(bot, chat_id, last_msg_id, "❌ 脚本内容为空，任务未创建").await;
+                return;
+            }
+        };
         let env_type = data.env_type.clone().unwrap_or_else(|| "shell".to_string());
 
         let ext = match env_type.as_str() {
@@ -933,11 +949,31 @@ pub async fn handle_add_confirm(
             "node" => "js",
             _ => "sh",
         };
-
-        let path = if let Some(orig_file) = data.file_name {
-            format!("telegram/{}", orig_file)
-        } else {
-            format!("telegram/{}.{}", name, ext)
+        let user_id = match task_owner_id(db).await {
+            Ok(id) => id,
+            Err(err) => {
+                reply_or_edit(
+                    bot,
+                    chat_id,
+                    last_msg_id,
+                    &format!("❌ 无法确定任务所有者: {err}"),
+                )
+                .await;
+                return;
+            }
+        };
+        let (path, full_path) = match save_telegram_script(ext, script_content).await {
+            Ok(saved) => saved,
+            Err(err) => {
+                reply_or_edit(
+                    bot,
+                    chat_id,
+                    last_msg_id,
+                    &format!("❌ 脚本写入失败: {err}"),
+                )
+                .await;
+                return;
+            }
         };
 
         let am = tasks::ActiveModel {
@@ -947,23 +983,60 @@ pub async fn handle_add_confirm(
             cron_schedule: Set(data.cron_schedule),
             status: Set(TaskStatus::Idle),
             enabled: Set(true),
-            user_id: Set(1),
+            user_id: Set(user_id),
             ..Default::default()
         };
-        if let Ok(t) = am.insert(db).await {
-            if let Some(c) = data.script_content {
-                let dir = std::path::Path::new("data/scripts/telegram");
-                if !dir.exists() {
-                    let _ = tokio::fs::create_dir_all(dir).await;
+        match am.insert(db).await {
+            Ok(t) => {
+                if let Err(schedule_error) = tm.update_task_schedule(&t).await {
+                    let schedule_cleanup = tm.remove_task_schedule(t.id).await;
+                    let database_cleanup =
+                        niupanel_core::task::delete_task_records(db, vec![t.id], true, false).await;
+                    reply_or_edit(
+                        bot,
+                        chat_id,
+                        last_msg_id,
+                        &format!(
+                            "❌ 创建任务调度失败: {}（调度清理: {}，任务回滚: {}）",
+                            schedule_error,
+                            if schedule_cleanup.is_ok() {
+                                "成功"
+                            } else {
+                                "失败"
+                            },
+                            if database_cleanup.is_ok() {
+                                "成功"
+                            } else {
+                                "失败"
+                            }
+                        ),
+                    )
+                    .await;
+                    return;
                 }
-                let _ = tokio::fs::write(format!("data/scripts/{}", t.path), c).await;
+                let success_text = format!(
+                    "✅ *任务创建成功！*\n\n使用以下指令立即运行：\n`/task run {}`",
+                    t.id
+                );
+                reply_or_edit(bot, chat_id, last_msg_id, &success_text).await;
+                publish_audit(eb, chat_id.to_string(), format!("✅ 创建任务: {}", t.name));
             }
-            let success_text = format!(
-                "✅ *任务创建成功！*\n\n使用以下指令立即运行：\n`/task run {}`",
-                t.id
-            );
-            reply_or_edit(bot, chat_id, last_msg_id, &success_text).await;
-            publish_audit(eb, chat_id.to_string(), format!("✅ 创建任务: {}", t.name));
+            Err(err) => {
+                if let Err(cleanup_err) = tokio::fs::remove_file(&full_path).await {
+                    warn!(
+                        "failed to clean Telegram script {} after database error: {}",
+                        full_path.display(),
+                        cleanup_err
+                    );
+                }
+                reply_or_edit(
+                    bot,
+                    chat_id,
+                    last_msg_id,
+                    &format!("❌ 数据库写入失败: {err}"),
+                )
+                .await;
+            }
         }
     }
 }

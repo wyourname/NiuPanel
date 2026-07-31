@@ -6,7 +6,7 @@ use utoipa::ToSchema;
 
 pub const API_CONTRACT_VERSION: u32 = 1;
 pub const SCHEMA_EPOCH: u32 = 1;
-pub const SCHEMA_REVISION: u32 = 29;
+pub const SCHEMA_REVISION: u32 = 30;
 pub const WEB_RELEASE_MANIFEST_FILE: &str = "release-manifest.json";
 pub const CORE_RELEASE_MANIFEST_FILE: &str = "core-release.json";
 pub const CORE_STATE_FILE: &str = "core/state.json";

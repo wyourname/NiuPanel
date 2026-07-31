@@ -151,12 +151,6 @@ pub enum Permission {
     #[strum(serialize = "terminal:*")]
     TerminalAll,
 
-    // MCP 面板接入
-    #[strum(serialize = "mcp:connect")]
-    McpConnect,
-    #[strum(serialize = "mcp:*")]
-    McpAll,
-
     // 全局通配符
     #[strum(serialize = "*:*")]
     All,
@@ -233,8 +227,6 @@ impl Permission {
 
             Permission::TerminalAccess | Permission::TerminalAll => "terminal",
 
-            Permission::McpConnect | Permission::McpAll => "mcp",
-
             Permission::All => "*",
         }
     }
@@ -254,7 +246,6 @@ impl Permission {
             "webhook" => Some(Permission::WebhookAll),
             "git" => Some(Permission::GitAll),
             "terminal" => Some(Permission::TerminalAll),
-            "mcp" => Some(Permission::McpAll),
             _ => None,
         }
     }

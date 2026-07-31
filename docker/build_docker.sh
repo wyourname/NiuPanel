@@ -2,7 +2,9 @@
 set -e
 
 # --- Configuration ---
-VERSION="${DOCKER_IMAGE_VERSION:-v3.0.2}"
+VERSION="${DOCKER_IMAGE_VERSION:-$(tr -d '[:space:]' < VERSION)}"
+VERSION="${VERSION#v}"
+CORE_VERSION=$(sed -n '/^\[package\]/,/^\[/{s/^version = "\([^"]*\)"/\1/p}' ../niupanel/Cargo.toml | head -n 1)
 IMAGE_NAME="niupanel"
 DOCKER_USERNAME="${DOCKER_HUB_USERNAME:-wyourname}"
 BASE_IMAGE="${DOCKER_USERNAME}/${IMAGE_NAME}"
@@ -36,10 +38,8 @@ cleanup() {
         local tag_arch="${docker_arch}"
         [[ -n "$variant" ]] && tag_arch="${docker_arch}${variant}"
 
-        docker rmi "${IMAGE_NAME}:${tag_arch}-latest" \
-                   "${IMAGE_NAME}:${tag_arch}-${VERSION}" \
-                   "${BASE_IMAGE}:${tag_arch}-latest" \
-                   "${BASE_IMAGE}:${tag_arch}-${VERSION}" 2>/dev/null || true
+        docker rmi "${IMAGE_NAME}:${VERSION}-${tag_arch}" \
+                   "${BASE_IMAGE}:${VERSION}-${tag_arch}" 2>/dev/null || true
     done
 
     log "🗑️  清理悬空镜像..."
@@ -54,6 +54,7 @@ build_and_push() {
     # Normalize tag architecture: amd64, arm64, armv7
     local tag_arch=$(echo "$platform" | awk -F/ '{if ($3) print $2$3; else print $2}')
     local tar_file="niupanel_linux_${pkg_suffix}.tar.gz"
+    local context_arch=$(echo "$platform" | awk -F/ '{print $2}')
 
     if [ ! -f "$tar_file" ]; then
         log "⚠️ 跳过 ${pkg_suffix}: 未找到文件 ${tar_file}"
@@ -61,40 +62,23 @@ build_and_push() {
     fi
 
     log "📦 构建: ${pkg_suffix} -> ${platform}"
+    mkdir -p "packages/${context_arch}"
+    cp "$tar_file" "packages/${context_arch}/niupanel.tar.gz"
 
     # Build
     docker build --platform "${platform}" \
         --provenance=false \
         --pull \
-        --build-arg TARGETARCH="${pkg_suffix}" \
-        -t "${IMAGE_NAME}:${tag_arch}-latest" \
-        -t "${IMAGE_NAME}:${tag_arch}-${VERSION}" .
+        --build-arg NIUPANEL_ENVIRONMENT_VERSION="${VERSION}" \
+        --build-arg NIUPANEL_CORE_VERSION="${CORE_VERSION}" \
+        -t "${IMAGE_NAME}:${VERSION}-${tag_arch}" .
 
     # Tag & Push
-    local remote_latest="${BASE_IMAGE}:${tag_arch}-latest"
-    local remote_version="${BASE_IMAGE}:${tag_arch}-${VERSION}"
+    local remote_version="${BASE_IMAGE}:${VERSION}-${tag_arch}"
 
-    log "🚀 推送: ${remote_latest}"
-    docker tag "${IMAGE_NAME}:${tag_arch}-latest" "${remote_latest}"
-    docker tag "${IMAGE_NAME}:${tag_arch}-${VERSION}" "${remote_version}"
-
-    # Retry logic for push (latest)
+    log "🚀 推送: ${remote_version}"
     local retries=0
     local max_retries=10
-    until [ $retries -ge $max_retries ]
-    do
-        if docker push "${remote_latest}"; then
-            break
-        fi
-        retries=$((retries+1))
-        log "⚠️ Push failed. Retrying ($retries/$max_retries) in 5s..."
-        sleep 5
-    done
-
-    if [ $retries -eq $max_retries ]; then
-        err "❌ Failed to push ${remote_latest} after $max_retries attempts."
-        return 1
-    fi
 
     # Retry logic for push (version)
     retries=0
@@ -119,14 +103,12 @@ build_and_push() {
 
 create_manifest() {
     local target_tag=$1
-    local tag_suffix=$2 # e.g., "latest" or "v1.6"
-
     log "📝 创建 Manifest: ${target_tag}"
 
     # Prepare source tags list
     local src_tags=()
     for arch in "${BUILT_TAGS[@]}"; do
-        src_tags+=("${BASE_IMAGE}:${arch}-${tag_suffix}")
+        src_tags+=("${BASE_IMAGE}:${VERSION}-${arch}")
     done
 
     docker manifest rm "${target_tag}" 2>/dev/null || true
@@ -151,7 +133,7 @@ create_manifest() {
 
     # Annotate
     for arch in "${BUILT_TAGS[@]}"; do
-        local full_image="${BASE_IMAGE}:${arch}-${tag_suffix}"
+        local full_image="${BASE_IMAGE}:${VERSION}-${arch}"
         if [[ "$arch" == "armv7" ]]; then
             docker manifest annotate "${target_tag}" "${full_image}" --os linux --arch arm --variant v7
         elif [[ "$arch" == "arm64" ]]; then
@@ -205,8 +187,8 @@ done
 
 # Create Manifests if any images were built
 if [ ${#BUILT_TAGS[@]} -gt 0 ]; then
-    create_manifest "${BASE_IMAGE}:latest" "latest"
-    create_manifest "${BASE_IMAGE}:${VERSION}" "${VERSION}"
+    create_manifest "${BASE_IMAGE}:latest"
+    create_manifest "${BASE_IMAGE}:${VERSION}"
     log "✅ 所有任务完成！"
     cleanup
 else

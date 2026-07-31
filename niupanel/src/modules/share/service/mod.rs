@@ -5,6 +5,7 @@ mod package;
 mod station;
 
 pub use common::save_station_config;
+pub(crate) use import::build_safe_download_client;
 pub use import::{
     delete_imported_by_share_code, delete_imported_by_source, delete_imported_tasks,
     finalize_import, get_import_status, get_imported_sources_grouped, get_staged_package,

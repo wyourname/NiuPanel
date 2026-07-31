@@ -157,11 +157,14 @@ pub struct ApiDocAuth;
         tasks::handlers::stream_status,
         tasks::handlers::quick_create_task_from_url,
         variable::handlers::list_variables,
+        variable::handlers::list_variables_with_values,
+        variable::handlers::get_variable_value,
         variable::handlers::create_variable,
         variable::handlers::update_variable,
         variable::handlers::batch_delete_variables,
         variable::handlers::list_tasks_simple,
         variable::handlers::batch_toggle_variables,
+        variable::handlers::batch_save_variables,
         variable::handlers::import_variables,
         variable::handlers::get_variable_by_key,
         variable::handlers::update_variable_by_key,
@@ -187,9 +190,14 @@ pub struct ApiDocAuth;
         tasks::models::QuickCreateUrlRequest,
         variable::handlers::VariableRequest,
         variable::handlers::VariableDto,
+        variable::handlers::VariableSummaryDto,
+        variable::handlers::VariableValueDto,
         variable::handlers::VariableQueryParams,
         variable::handlers::BatchIdRequest,
         variable::handlers::BatchToggleRequest,
+        variable::handlers::BatchSaveVariablesRequest,
+        variable::handlers::VariableUpsertRequest,
+        variable::handlers::ReorderVariablesRequest,
         variable::handlers::KeyQuery,
         audit::handlers::AuditQueryParams
     ))
@@ -269,7 +277,7 @@ pub struct ApiDocTasks;
         plugins::handlers::check_plugin_market_updates,
         plugins::handlers::preview_plugin_from_market,
         plugins::handlers::install_plugin_from_market,
-        plugins::handlers::invoke_agent_plugin
+        plugins::handlers::invoke_plugin_action
     ),
     components(schemas(
         niupanel_entity::environments::Model,

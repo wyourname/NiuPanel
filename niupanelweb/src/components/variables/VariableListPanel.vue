@@ -56,6 +56,7 @@
         :selected="selectedIds.includes(row.id)"
         :task-names="getTaskNames(row.task_ids)"
         :touch-dragging="touchDragIndex === index"
+        :value-loading="isValueLoading(row.id)"
         :value-visible="isValueVisible(row.id)"
         @card-click="emit('card-click', $event)"
         @copy-value="emit('copy-value', $event)"
@@ -99,6 +100,7 @@ defineProps<{
   getTaskNames: (taskIds?: number[]) => string;
   hasMore: boolean;
   isMobile: boolean;
+  isValueLoading: (id: number) => boolean;
   isValueVisible: (id: number) => boolean;
   loading: boolean;
   searchQuery: string;
@@ -109,7 +111,7 @@ defineProps<{
 
 const emit = defineEmits<{
   (event: "card-click", row: VariablePageRow): void;
-  (event: "copy-value", value: string): void;
+  (event: "copy-value", id: number): void;
   (event: "delete", row: VariablePageRow): void;
   (event: "drag-end"): void;
   (event: "drag-over", index: number): void;

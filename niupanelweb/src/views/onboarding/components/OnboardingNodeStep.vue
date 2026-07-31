@@ -7,7 +7,7 @@
       <div>
         <h2 class="text-lg font-bold text-default">创建 Node.js 环境</h2>
         <p class="text-xs text-muted mt-0.5">
-          通过 fnm 管理多版本运行时，每个版本使用独立共享依赖目录
+          通过 pnpm runtime 管理多版本运行时，每个版本使用独立共享依赖目录
         </p>
       </div>
     </div>
@@ -17,11 +17,13 @@
     >
       <div class="flex items-center gap-2 mb-3">
         <div class="text-xs font-bold text-default">Node.js 版本</div>
-        <div class="ml-auto text-[11px] text-muted">推荐 20 (LTS)</div>
+        <div class="ml-auto text-[11px] text-muted">
+          推荐 {{ recommendedVersion }} (LTS)
+        </div>
       </div>
       <el-input
         v-model="version"
-        placeholder="例如: 20.11.0"
+        :placeholder="`例如: ${recommendedVersion}`"
         size="large"
         :disabled="loading || done"
       >
@@ -96,6 +98,7 @@ defineProps<{
   done: boolean;
   jobId: string | null;
   loading: boolean;
+  recommendedVersion: string;
   status: string;
 }>();
 

@@ -86,7 +86,7 @@ pub(super) async fn read_plugin_package_upload(
 
     let bytes = bytes
         .ok_or_else(|| AppError::ValidationError("Missing plugin package file".to_string()))?;
-    validate_package_integrity(
+    validate_admin_upload_integrity(
         &bytes,
         checksum_sha256.as_deref(),
         signature_ed25519.as_deref(),
@@ -107,6 +107,28 @@ pub(super) fn validate_package_integrity(
     signature_ed25519: Option<&str>,
     public_key_ed25519: Option<&str>,
 ) -> Result<()> {
+    validate_package_bytes(bytes, checksum_sha256)?;
+    verify_configured_package_signature(bytes, signature_ed25519, public_key_ed25519)
+}
+
+/// A package selected by an authenticated administrator is already an explicit
+/// local trust decision. Keep checksum validation and verify a signature when
+/// an API client supplies one, but do not require operators to paste signing
+/// metadata into the upload form.
+pub(super) fn validate_admin_upload_integrity(
+    bytes: &[u8],
+    checksum_sha256: Option<&str>,
+    signature_ed25519: Option<&str>,
+    public_key_ed25519: Option<&str>,
+) -> Result<()> {
+    validate_package_bytes(bytes, checksum_sha256)?;
+    if signature_ed25519.is_none() && public_key_ed25519.is_none() {
+        return Ok(());
+    }
+    verify_configured_package_signature(bytes, signature_ed25519, public_key_ed25519)
+}
+
+fn validate_package_bytes(bytes: &[u8], checksum_sha256: Option<&str>) -> Result<()> {
     if bytes.len() > MAX_PLUGIN_PACKAGE_BYTES {
         return Err(AppError::FileSizeLimitExceeded(
             "Plugin package exceeds 100MB".to_string(),
@@ -122,10 +144,10 @@ pub(super) fn validate_package_integrity(
             ));
         }
     }
-    verify_uploaded_package_signature(bytes, signature_ed25519, public_key_ed25519)
+    Ok(())
 }
 
-pub(super) fn verify_uploaded_package_signature(
+pub(super) fn verify_configured_package_signature(
     bytes: &[u8],
     signature_ed25519: Option<&str>,
     public_key_ed25519: Option<&str>,

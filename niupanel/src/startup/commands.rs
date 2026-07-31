@@ -354,7 +354,10 @@ async fn handle_maintenance_cleanup(days: i64) -> Result<()> {
 
     // Cleanup logs
     match crate::modules::settings::service::cleanup_logs(&db, days).await {
-        Ok(count) => println!("Cleaned up {} log files and database records.", count),
+        Ok(report) => println!(
+            "Cleaned up {} files, {} task runs, {} system jobs, and {} audit records ({} bytes reclaimed).",
+            report.files, report.task_runs, report.system_jobs, report.audit_logs, report.bytes
+        ),
         Err(e) => println!("Warning: Failed to cleanup logs: {}", e),
     }
 

@@ -23,7 +23,11 @@ export type PersistedTaskVariableRow = TaskVariableRow & {
   id: number;
 };
 
-type RawTaskVariable = Omit<Partial<TaskVariableRow>, "scope_id" | "task_ids"> & {
+type RawTaskVariable = Omit<
+  Partial<TaskVariableRow>,
+  "remarks" | "scope_id" | "task_ids"
+> & {
+  remarks?: string | null;
   scope_id?: number | null;
   task_ids?: unknown;
 };
@@ -144,16 +148,23 @@ export const applyTaskVariablesSource = (
   source: string,
   taskId: number,
 ) => {
+  const availableByKey = new Map<string, TaskVariableRow[]>();
+  for (const variable of currentVariables) {
+    const rows = availableByKey.get(variable.key) ?? [];
+    rows.push(variable);
+    availableByKey.set(variable.key, rows);
+  }
+
   return parseVariableText(source).map((item) => {
-    const existing = currentVariables.find((variable) => variable.key === item.key);
+    const existing = availableByKey.get(item.key)?.shift();
 
     if (existing) {
-      return { ...existing, value: item.value || "" };
+      return { ...existing, value: item.value };
     }
 
     return createTaskVariableRow(taskId, {
       key: item.key,
-      value: item.value || "",
+      value: item.value,
     });
   });
 };

@@ -31,18 +31,10 @@ where
     P: FnOnce(&Path) -> Result<()>,
 {
     let package = read_plugin_package_upload(multipart).await?;
-    Ok(ApiResponse::success(install_package_bytes_with_preflight(
-        &package.file_name,
-        &package.bytes,
-        package.enable,
-        None,
-        None,
-        None,
-        compatibility,
-        package_label,
-        preflight,
-        install,
-    )?))
+    let extracted = extract_plugin_package(&package.file_name, &package.bytes)?;
+    let package_root = resolve_plugin_package_root(extracted.path(), compatibility, package_label)?;
+    preflight(&package_root)?;
+    Ok(ApiResponse::success(install(package_root, package.enable)?))
 }
 
 #[allow(dead_code)]
@@ -82,21 +74,10 @@ where
     P: FnOnce(&Path) -> Result<()>,
 {
     let package = read_plugin_package_upload(multipart).await?;
-    Ok(ApiResponse::success(
-        update_package_bytes_with_preflight(
-            id,
-            &package.file_name,
-            &package.bytes,
-            None,
-            None,
-            None,
-            compatibility,
-            package_label,
-            preflight,
-            update,
-        )
-        .await?,
-    ))
+    let extracted = extract_plugin_package(&package.file_name, &package.bytes)?;
+    let package_root = resolve_plugin_package_root(extracted.path(), compatibility, package_label)?;
+    preflight(&package_root)?;
+    Ok(ApiResponse::success(update(id, package_root).await?))
 }
 
 pub async fn preview_upload<R, P>(

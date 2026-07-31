@@ -1,6 +1,9 @@
-use sea_orm::{ActiveModelTrait, DatabaseConnection, EntityTrait, Set};
+use futures::StreamExt;
+use sea_orm::{ActiveModelTrait, DatabaseConnection, EntityTrait, Set, TransactionTrait};
+use tokio::io::AsyncWriteExt;
 
 use super::{TaskService, infer_env_type};
+use crate::modules::share::service::build_safe_download_client;
 use crate::modules::tasks::models::{CreateTaskRequest, UpdateTaskRequest};
 use niupanel_common::error::{AppError, Result};
 use niupanel_common::filesystem::resolve_path;
@@ -56,8 +59,9 @@ impl TaskService {
         id: i32,
         payload: UpdateTaskRequest,
     ) -> Result<tasks::Model> {
+        let txn = db.begin().await?;
         let task = tasks::Entity::find_by_id(id)
-            .one(db)
+            .one(&txn)
             .await?
             .ok_or_else(|| AppError::NotFound("Task not found".to_string()))?;
 
@@ -139,7 +143,7 @@ impl TaskService {
             });
         }
 
-        let updated_task = task_active_model.update(db).await?;
+        let updated_task = task_active_model.update(&txn).await?;
 
         if let Some(vars) = payload.variables {
             let variables = vars
@@ -149,24 +153,52 @@ impl TaskService {
                     value: variable.value,
                 })
                 .collect();
-            replace_task_variables(db, id, variables).await?;
+            replace_task_variables(&txn, id, variables).await?;
         }
 
+        txn.commit().await?;
         Ok(updated_task)
     }
 
     pub async fn quick_create_task_from_url(
         db: &DatabaseConnection,
-        http_client: &reqwest::Client,
+        _http_client: &reqwest::Client,
         user_id: i32,
         url: String,
     ) -> Result<tasks::Model> {
-        let path_part = url.split('?').next().unwrap_or("");
-        let filename = path_part
-            .split('/')
-            .next_back()
+        const MAX_QUICK_SCRIPT_SIZE: usize = 10 * 1024 * 1024;
+        let (safe_client, safe_url) = build_safe_download_client(&url).await?;
+        let mut parsed_url = reqwest::Url::parse(&safe_url)
+            .map_err(|_| AppError::ValidationError("脚本地址格式无效".to_string()))?;
+        let raw_filename = parsed_url
+            .path_segments()
+            .and_then(|mut segments| segments.next_back())
+            .filter(|name| !name.is_empty())
+            .ok_or_else(|| AppError::ValidationError("脚本地址缺少文件名".to_string()))?;
+        let raw_path = std::path::Path::new(raw_filename);
+        let extension = raw_path
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .map(str::to_ascii_lowercase)
+            .filter(|extension| matches!(extension.as_str(), "py" | "js" | "ts" | "sh"))
+            .ok_or_else(|| {
+                AppError::ValidationError("快速创建仅支持 .py、.js、.ts 和 .sh 脚本".to_string())
+            })?;
+        let stem = raw_path
+            .file_stem()
+            .and_then(|stem| stem.to_str())
             .unwrap_or("downloaded_task_script")
-            .to_string();
+            .chars()
+            .filter(|character| character.is_ascii_alphanumeric() || matches!(character, '_' | '-'))
+            .take(64)
+            .collect::<String>();
+        let stem = if stem.is_empty() {
+            "downloaded_task_script"
+        } else {
+            &stem
+        };
+        let task_name = format!("{}.{}", stem, extension);
+        let filename = format!("{}_{}.{}", stem, nanoid::nanoid!(10), extension);
         let target_path = resolve_path(&filename)?;
 
         if let Some(parent) = target_path.parent() {
@@ -177,8 +209,8 @@ impl TaskService {
             }
         }
 
-        let response = http_client
-            .get(&url)
+        let response = safe_client
+            .get(&safe_url)
             .send()
             .await
             .map_err(|error| AppError::Generic(error.to_string()))?;
@@ -189,21 +221,56 @@ impl TaskService {
             )));
         }
 
-        let content = response
-            .bytes()
-            .await
-            .map_err(|error| AppError::Generic(error.to_string()))?;
-        tokio::fs::write(&target_path, &content)
+        if response
+            .content_length()
+            .is_some_and(|length| length > MAX_QUICK_SCRIPT_SIZE as u64)
+        {
+            return Err(AppError::FileSizeLimitExceeded(
+                "快速创建脚本不能超过 10 MB".to_string(),
+            ));
+        }
+        let mut content = Vec::new();
+        let mut stream = response.bytes_stream();
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk.map_err(AppError::Reqwest)?;
+            if content.len().saturating_add(chunk.len()) > MAX_QUICK_SCRIPT_SIZE {
+                return Err(AppError::FileSizeLimitExceeded(
+                    "快速创建脚本不能超过 10 MB".to_string(),
+                ));
+            }
+            content.extend_from_slice(&chunk);
+        }
+        if content.is_empty() {
+            return Err(AppError::ValidationError("下载的脚本为空".to_string()));
+        }
+
+        let mut output = tokio::fs::OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(&target_path)
             .await
             .map_err(AppError::Io)?;
+        if let Err(error) = output.write_all(&content).await {
+            drop(output);
+            let _ = tokio::fs::remove_file(&target_path).await;
+            return Err(AppError::Io(error));
+        }
+        if let Err(error) = output.sync_all().await {
+            drop(output);
+            let _ = tokio::fs::remove_file(&target_path).await;
+            return Err(AppError::Io(error));
+        }
+        drop(output);
 
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            if let Ok(metadata) = tokio::fs::metadata(&target_path).await {
-                let mut perms = metadata.permissions();
-                perms.set_mode(0o755);
-                let _ = tokio::fs::set_permissions(&target_path, perms).await;
+            if let Err(error) =
+                tokio::fs::set_permissions(&target_path, std::fs::Permissions::from_mode(0o700))
+                    .await
+            {
+                let _ = tokio::fs::remove_file(&target_path).await;
+                return Err(AppError::Io(error));
             }
         }
 
@@ -216,12 +283,14 @@ impl TaskService {
         let min = (chrono::Utc::now().timestamp() % 60) as u8;
         let hour = (chrono::Utc::now().timestamp() / 60 % 24) as u8;
         let random_cron = format!("0 {} {} * * *", min, hour);
+        parsed_url.set_query(None);
+        parsed_url.set_fragment(None);
 
         let create_req = CreateTaskRequest {
-            name: filename.clone(),
+            name: task_name,
             path: Some(filename.clone()),
             command: None,
-            description: Some(format!("Created from URL: {}", url)),
+            description: Some(format!("Created from URL: {}", parsed_url)),
             env_type: env_type.to_string(),
             env_version,
             tags: None,
@@ -236,7 +305,13 @@ impl TaskService {
             random_config: None,
         };
 
-        Self::create_task(db, user_id, create_req).await
+        match Self::create_task(db, user_id, create_req).await {
+            Ok(task) => Ok(task),
+            Err(error) => {
+                let _ = tokio::fs::remove_file(&target_path).await;
+                Err(error)
+            }
+        }
     }
 
     pub async fn batch_delete_tasks(

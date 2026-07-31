@@ -1,6 +1,8 @@
 use niupanel_common::config::Config;
+use niupanel_common::error::AppError;
 use niupanel_common::escape_tg_markdown;
 use niupanel_core::event_bus::EventBus;
+use niupanel_core::script::interpreter::node::NodeEnvironment;
 use niupanel_core::task_manager::service::TaskManagerService;
 use teloxide::prelude::*;
 use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup, ParseMode};
@@ -50,48 +52,33 @@ pub async fn handle_envs(bot: &Bot, chat_id: ChatId) {
 
     text.push_str("\n");
 
-    // Node 环境 - 从 fnm list 获取已安装版本
-    let fnm_bin = niupanel_core::script::interpreter::node::NodeEnvironment::get_fnm_bin();
-    let fnm_output = tokio::process::Command::new(&fnm_bin)
-        .arg("list")
-        .output()
-        .await;
-    match fnm_output {
-        Ok(out) => {
-            let stdout = String::from_utf8_lossy(&out.stdout);
+    // Node 环境 - 从 NiuPanel 的 pnpm runtime 目录读取
+    match NodeEnvironment::list_local_node_versions().await {
+        Ok(versions) => {
             let mut found_node = false;
-            for line in stdout.lines() {
-                let line = line.trim();
-                if line.is_empty() || line.contains("system") {
-                    continue;
+            for (version, is_default) in versions {
+                if !found_node {
+                    text.push_str("📦 *Node\\.js* \\(pnpm runtime\\)\n");
+                    found_node = true;
                 }
-                let is_active = line.contains("default");
-                let parts: Vec<&str> = line.split_whitespace().collect();
-                if let Some(ver) = parts.iter().find(|&&p| p.starts_with('v')) {
-                    let ver_clean = ver.strip_prefix('v').unwrap_or(ver);
-                    if !found_node {
-                        text.push_str("📦 *Node\\.js* \\(fnm 全局版本\\)\n");
-                        found_node = true;
-                    }
-                    let active_mark = if is_active { " ✅" } else { "" };
-                    text.push_str(&format!(
-                        "  • `{}`{}\n",
-                        escape_tg_markdown(ver_clean),
-                        active_mark
-                    ));
-                }
+                let active_mark = if is_default { " ✅" } else { "" };
+                text.push_str(&format!(
+                    "  • `{}`{}\n",
+                    escape_tg_markdown(&version),
+                    active_mark
+                ));
             }
             if !found_node {
                 text.push_str("📦 *Node\\.js*: 未安装任何版本\n");
             }
         }
         Err(_) => {
-            text.push_str("📦 *Node\\.js*: fnm 未安装或不在 PATH\n");
+            text.push_str("📦 *Node\\.js*: 无法读取 pnpm runtime 环境\n");
         }
     }
 
     text.push_str("🐚 *Shell*: 系统默认 \\(Debian 12\\)\n");
-    text.push_str("\n📌 使用 `/env <pip|npm|apt>` 管理环境依赖");
+    text.push_str("\n📌 使用 `/env <pip|pnpm|apt>` 管理环境依赖");
 
     let _ = bot
         .send_message(chat_id, text)
@@ -262,9 +249,8 @@ pub async fn handle_dep_callback(
     if sub == "select" && parts.len() == 5 {
         let venv = parts[3];
         let pkg = parts[4].replace(',', " ");
-        if action == "npm" {
-            // 全局单例模式下 npm 不再需要 venv 参数
-            process_npm_action(bot, chat_id, parts[2], &pkg).await;
+        if action == "pnpm" {
+            process_pnpm_action(bot, chat_id, parts[2], &pkg).await;
         } else {
             process_pip_action(bot, chat_id, parts[2], &pkg, venv, tm, eb).await;
         }
@@ -308,29 +294,59 @@ pub async fn handle_dep_callback(
                 None::<String>, // no special cwd
             )
         }
-        "npm" if parts.len() >= 3 => {
-            // parts: ["npm", sub, pkg_str]  (全局单例，无需 venv 选择)
+        "pnpm" if parts.len() >= 3 => {
             let pkg_str = parts[2..].join(":").replace(',', " ");
-            let scripts_dir = Config::global().scripts_dir.clone();
-            let fnm_bin = niupanel_core::script::interpreter::node::NodeEnvironment::get_fnm_bin();
+            let version = match NodeEnvironment::resolve_default_version().await {
+                Ok(version) => version,
+                Err(error) => {
+                    let _ = bot
+                        .edit_message_text(
+                            chat_id,
+                            mid,
+                            format!("❌ 无法解析默认 Node.js 版本: {error}"),
+                        )
+                        .await;
+                    return true;
+                }
+            };
+            let pnpm = match NodeEnvironment::ensure_pnpm_installed(None).await {
+                Ok(pnpm) => pnpm,
+                Err(error) => {
+                    let _ = bot
+                        .edit_message_text(chat_id, mid, format!("❌ pnpm 不可用: {error}"))
+                        .await;
+                    return true;
+                }
+            };
+            let env = match NodeEnvironment::open(std::path::PathBuf::new(), version.clone(), None)
+            {
+                Ok(env) => env,
+                Err(error) => {
+                    let _ = bot
+                        .edit_message_text(chat_id, mid, format!("❌ Node.js 环境不可用: {error}"))
+                        .await;
+                    return true;
+                }
+            };
             let is_uninstall = sub == "uninstall" || sub == "remove";
-
             let mut args = vec![
-                "exec".to_string(),
-                "--using=default".to_string(),
-                "npm".to_string(),
-                if is_uninstall { "uninstall" } else { "install" }.to_string(),
+                if is_uninstall { "remove" } else { "add" }.to_string(),
+                "--".to_string(),
             ];
             for p in pkg_str.split_whitespace() {
                 args.push(p.to_string());
             }
 
             (
-                fnm_bin.to_string_lossy().to_string(), // convert PathBuf -> String
+                pnpm.to_string_lossy().to_string(),
                 args,
-                format!("npm {} {} (data/scripts)", sub, pkg_str),
-                None::<std::collections::HashMap<String, String>>,
-                Some(scripts_dir.display().to_string()), // CWD = data/scripts for local node_modules
+                format!("pnpm {} {} (Node.js {})", sub, pkg_str, version),
+                env.runtime_envs().ok(),
+                Some(
+                    NodeEnvironment::shared_root_for_version(&version)
+                        .display()
+                        .to_string(),
+                ),
             )
         }
         "apt" if parts.len() == 3 => {
@@ -379,7 +395,7 @@ pub async fn handle_dep_callback(
             .submit_system_task(j_name.clone(), move |tx| async move {
                 niupanel_common::logger::info!("系统任务已启动: {}", inner_j_name);
                 // Check if command exists
-                if let Err(e) = tokio::process::Command::new(&cmd_bin)
+                if let Err(err) = tokio::process::Command::new(&cmd_bin)
                     .arg("--version")
                     .output()
                     .await
@@ -387,13 +403,13 @@ pub async fn handle_dep_callback(
                     niupanel_common::logger::error!(
                         "系统任务失败，命令未找到: {} Error: {}",
                         cmd_bin,
-                        e
+                        err
                     );
                     let _ = tx.send(format!(
                         "❌ 错误: 找不到命令 '{}'。请确认该环境已正确安装系统依赖。\n详细错误: {}",
-                        cmd_bin, e
+                        cmd_bin, err
                     ));
-                    return;
+                    return Err(AppError::Io(err));
                 }
 
                 niupanel_common::logger::info!("命令存在，准备运行: {}", cmd_bin);
@@ -413,34 +429,30 @@ pub async fn handle_dep_callback(
                     cmd_bin,
                     cmd_args_copy
                 );
-                match cmd.output().await {
-                    Ok(out) => {
-                        niupanel_common::logger::info!(
-                            "命令执行完成: {} 状态: {:?}",
-                            cmd_bin,
-                            out.status
-                        );
-                        let mut res = String::new();
-                        if !out.stdout.is_empty() {
-                            res.push_str(&String::from_utf8_lossy(&out.stdout));
-                        }
-                        if !out.stderr.is_empty() {
-                            if !res.is_empty() {
-                                res.push_str("\n");
-                            }
-                            res.push_str("--- Error Output ---\n");
-                            res.push_str(&String::from_utf8_lossy(&out.stderr));
-                        }
-                        if res.is_empty() {
-                            res = "命令执行完成，但无任何输出。".to_string();
-                        }
-                        let _ = tx.send(res);
-                    }
-                    Err(e) => {
-                        niupanel_common::logger::error!("系统任务指令执行失败: {}", e);
-                        let _ = tx.send(format!("Error: {}", e));
-                    }
+                let out = cmd.output().await.map_err(AppError::Io)?;
+                niupanel_common::logger::info!("命令执行完成: {} 状态: {:?}", cmd_bin, out.status);
+                let mut res = String::new();
+                if !out.stdout.is_empty() {
+                    res.push_str(&String::from_utf8_lossy(&out.stdout));
                 }
+                if !out.stderr.is_empty() {
+                    if !res.is_empty() {
+                        res.push('\n');
+                    }
+                    res.push_str("--- Error Output ---\n");
+                    res.push_str(&String::from_utf8_lossy(&out.stderr));
+                }
+                if res.is_empty() {
+                    res = "命令执行完成，但无任何输出。".to_string();
+                }
+                let _ = tx.send(res);
+                if !out.status.success() {
+                    return Err(AppError::Generic(format!(
+                        "command '{}' exited with status {}",
+                        cmd_bin, out.status
+                    )));
+                }
+                Ok(())
             })
             .await
         {
@@ -491,31 +503,7 @@ pub(crate) fn list_python_venvs() -> Vec<String> {
     venvs
 }
 
-/// 通过 fnm list 获取已安装的 Node.js 版本列表（版本号, is_default）
-pub(crate) fn list_node_versions_fnm() -> Vec<(String, bool)> {
-    let fnm_bin = niupanel_core::script::interpreter::node::NodeEnvironment::get_fnm_bin();
-    let output = std::process::Command::new(&fnm_bin).arg("list").output();
-    let Ok(out) = output else {
-        return vec![];
-    };
-    let stdout = String::from_utf8_lossy(&out.stdout);
-    let mut versions = vec![];
-    for line in stdout.lines() {
-        let line = line.trim();
-        if line.is_empty() || line.contains("system") {
-            continue;
-        }
-        let is_default = line.contains("default");
-        let parts: Vec<&str> = line.split_whitespace().collect();
-        if let Some(ver) = parts.iter().find(|&&p| p.starts_with('v')) {
-            let v = ver.strip_prefix('v').unwrap_or(ver).to_string();
-            versions.push((v, is_default));
-        }
-    }
-    versions
-}
-
-pub async fn handle_npm(
+pub async fn handle_pnpm(
     bot: &Bot,
     chat_id: ChatId,
     _tm: &TaskManagerService,
@@ -526,13 +514,14 @@ pub async fn handle_npm(
     let sub = parts.first().cloned().unwrap_or("");
     let pkg = parts.get(1..).unwrap_or_default().join(" ");
     if !["install", "uninstall", "remove", "list"].contains(&sub) {
-        let _ = bot.send_message(chat_id, "📦 *npm 用法*\n\n`/env npm install <包名>`\n`/env npm uninstall <包名>`\n`/env npm list`")
+        let _ = bot.send_message(chat_id, "📦 *pnpm 用法*\n\n`/env pnpm install <包名>`\n`/env pnpm uninstall <包名>`\n`/env pnpm list`")
             .parse_mode(ParseMode::MarkdownV2).await;
         return;
     }
 
-    // 全局单例模式：直接验证 fnm 可用，无需选择环境
-    let versions = list_node_versions_fnm();
+    let versions = NodeEnvironment::list_local_node_versions()
+        .await
+        .unwrap_or_default();
     if versions.is_empty() {
         let _ = bot
             .send_message(
@@ -543,7 +532,7 @@ pub async fn handle_npm(
         return;
     }
 
-    process_npm_action(bot, chat_id, sub, &pkg).await;
+    process_pnpm_action(bot, chat_id, sub, &pkg).await;
 }
 
 pub async fn handle_apt(
@@ -569,14 +558,35 @@ pub async fn handle_apt(
     process_apt_action(bot, chat_id, sub, &pkg).await;
 }
 
-async fn process_npm_action(bot: &Bot, chat_id: ChatId, sub: &str, pkg: &str) {
-    let scripts_dir = Config::global().scripts_dir.clone();
-    let fnm_bin = niupanel_core::script::interpreter::node::NodeEnvironment::get_fnm_bin();
+async fn process_pnpm_action(bot: &Bot, chat_id: ChatId, sub: &str, pkg: &str) {
+    let version = match NodeEnvironment::resolve_default_version().await {
+        Ok(version) => version,
+        Err(error) => {
+            let _ = bot
+                .send_message(chat_id, format!("❌ 无法解析默认 Node.js 版本: {error}"))
+                .await;
+            return;
+        }
+    };
+    let shared_root = NodeEnvironment::shared_root_for_version(&version);
+    let pnpm = match NodeEnvironment::ensure_pnpm_installed(None).await {
+        Ok(pnpm) => pnpm,
+        Err(error) => {
+            let _ = bot
+                .send_message(chat_id, format!("❌ pnpm 不可用: {error}"))
+                .await;
+            return;
+        }
+    };
+    let envs = NodeEnvironment::open(std::path::PathBuf::new(), version.clone(), None)
+        .and_then(|env| env.runtime_envs())
+        .unwrap_or_default();
 
     if sub == "list" {
-        match tokio::process::Command::new(&fnm_bin)
-            .args(&["exec", "--using=default", "npm", "list", "--depth=0"])
-            .current_dir(&scripts_dir)
+        match tokio::process::Command::new(&pnpm)
+            .args(["list", "--depth=0"])
+            .envs(&envs)
+            .current_dir(&shared_root)
             .output()
             .await
         {
@@ -591,7 +601,8 @@ async fn process_npm_action(bot: &Bot, chat_id: ChatId, sub: &str, pkg: &str) {
                     .send_message(
                         chat_id,
                         format!(
-                            "📦 *Node 全局包列表* \\(data/scripts/node\\_modules\\)\n```\n{}\n```",
+                            "📦 *Node {} 共享包列表* \\(pnpm\\)\n```\n{}\n```",
+                            escape_tg_markdown(&version),
                             escape_tg_markdown(truncated)
                         ),
                     )
@@ -600,7 +611,7 @@ async fn process_npm_action(bot: &Bot, chat_id: ChatId, sub: &str, pkg: &str) {
             }
             Err(e) => {
                 let _ = bot
-                    .send_message(chat_id, format!("❌ npm list 执行失败: {}", e))
+                    .send_message(chat_id, format!("❌ pnpm list 执行失败: {}", e))
                     .await;
             }
         }
@@ -616,13 +627,17 @@ async fn process_npm_action(bot: &Bot, chat_id: ChatId, sub: &str, pkg: &str) {
         "安装"
     };
     let kb = InlineKeyboardMarkup::new(vec![vec![
-        InlineKeyboardButton::callback("✅ 确认", format!("npm:{}:{}", sub, pkg.replace(' ', ","))),
+        InlineKeyboardButton::callback(
+            "✅ 确认",
+            format!("pnpm:{}:{}", sub, pkg.replace(' ', ",")),
+        ),
         InlineKeyboardButton::callback("❌ 取消", "cancel_action"),
     ]]);
     let text = format!(
-        "📦 *确认 {} Node 包*\n\n*包:* `{}`\n*位置:* data/scripts/node\\_modules",
+        "📦 *确认 {} Node 包*\n\n*包:* `{}`\n*版本:* `{}`\n*管理器:* pnpm",
         action_label,
-        escape_tg_markdown(pkg)
+        escape_tg_markdown(pkg),
+        escape_tg_markdown(&version)
     );
     match bot
         .send_message(chat_id, text)
@@ -630,8 +645,8 @@ async fn process_npm_action(bot: &Bot, chat_id: ChatId, sub: &str, pkg: &str) {
         .reply_markup(kb)
         .await
     {
-        Ok(_) => niupanel_common::logger::info!("已发送 npm 确认消息至 {}", chat_id),
-        Err(e) => niupanel_common::logger::error!("发送 npm 确认消息失败: {}", e),
+        Ok(_) => niupanel_common::logger::info!("已发送 pnpm 确认消息至 {}", chat_id),
+        Err(e) => niupanel_common::logger::error!("发送 pnpm 确认消息失败: {}", e),
     }
 }
 

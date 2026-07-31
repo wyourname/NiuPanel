@@ -58,6 +58,10 @@ pub struct Config {
 
     #[serde(default = "default_cors_origins")]
     pub cors_allowed_origins: Vec<String>,
+    #[serde(default = "default_trusted_proxies")]
+    pub trusted_proxies: Vec<String>,
+    #[serde(default)]
+    pub session_cookie_secure: bool,
 
     // Runtime SDK paths computed at startup
     #[serde(skip)]
@@ -72,6 +76,10 @@ fn default_log_level() -> String {
 
 fn default_cors_origins() -> Vec<String> {
     vec![]
+}
+
+fn default_trusted_proxies() -> Vec<String> {
+    vec!["127.0.0.1".into(), "::1".into()]
 }
 
 fn default_server_addr() -> String {
@@ -157,6 +165,12 @@ impl Config {
     }
 
     pub fn validate(&self) -> Result<()> {
+        if !self.session_key.is_empty() && self.session_key.as_bytes().len() < 64 {
+            return Err(anyhow::anyhow!(
+                "SESSION_KEY must contain at least 64 bytes, or be left empty for automatic generation"
+            ));
+        }
+
         let dirs = vec![
             ("scripts_dir", &self.scripts_dir),
             ("jobs_dir", &self.jobs_dir),
@@ -182,6 +196,29 @@ impl Config {
                     anyhow::anyhow!("Failed to create {} at {}: {}", name, path.display(), e)
                 })?;
             }
+        }
+
+        for origin in &self.cors_allowed_origins {
+            let parsed = reqwest::Url::parse(origin)
+                .map_err(|error| anyhow::anyhow!("Invalid CORS origin '{}': {}", origin, error))?;
+            if parsed.host_str().is_none()
+                || !parsed.username().is_empty()
+                || parsed.password().is_some()
+                || parsed.path() != "/"
+                || parsed.query().is_some()
+                || parsed.fragment().is_some()
+            {
+                return Err(anyhow::anyhow!(
+                    "CORS origin must contain only scheme, host, and optional port: {}",
+                    origin
+                ));
+            }
+        }
+
+        for proxy in &self.trusted_proxies {
+            proxy.trim().parse::<std::net::IpAddr>().map_err(|error| {
+                anyhow::anyhow!("Invalid trusted proxy IP '{}': {}", proxy, error)
+            })?;
         }
 
         // Ensure database directory exists if it's sqlite

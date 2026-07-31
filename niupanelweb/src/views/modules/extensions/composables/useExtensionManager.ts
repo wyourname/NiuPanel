@@ -1,4 +1,4 @@
-import { computed, onMounted, reactive, ref } from "vue";
+import { computed, h, onMounted, reactive, ref } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { useRouter } from "vue-router";
 import {
@@ -28,6 +28,7 @@ import { useAppStore } from "@/stores/app";
 import { primaryPluginRoute, usePluginAppsStore } from "@/stores/pluginApps";
 import { usePluginThemesStore } from "@/stores/pluginThemes";
 import { useWorkspaceStore } from "@/stores/workspace";
+import ExtensionImpactPreview from "../components/ExtensionImpactPreview.vue";
 import type {
   PluginHealthReport,
   PluginImpactPreview,
@@ -91,8 +92,6 @@ export function useExtensionManager() {
     file: null as File | null,
     enable: true,
     checksumSha256: "",
-    signatureEd25519: "",
-    publicKeyEd25519: "",
   });
 
   const historyDialog = reactive({
@@ -270,28 +269,23 @@ export function useExtensionManager() {
     )?.record.manifest.version ?? "";
   };
 
-  const impactSummary = (preview: PluginImpactPreview) => [
-    `${preview.name} (${preview.plugin_id})`,
-    preview.current_version
-      ? `版本: v${preview.current_version} → v${preview.target_version}`
-      : `版本: v${preview.target_version}`,
-    `应用页面: ${preview.ui_enabled ? "有" : "无"}`,
-    `面板主题: ${preview.theme_enabled ? "有" : "无"}`,
-    `路由: ${preview.routes.map((route) => route.path).join(", ") || "无"}`,
-    `新增权限: ${preview.permissions_added.join(", ") || "无"}`,
-    `警告: ${preview.warnings.join(", ") || "无"}`,
-    `阻断: ${preview.blockers.join(", ") || "无"}`,
-  ].join("\n");
+  const impactSummary = (preview: PluginImpactPreview) =>
+    h(ExtensionImpactPreview, { preview });
   const confirmPreview = async (preview: PluginImpactPreview) => {
     const message = impactSummary(preview);
     if (!preview.install_allowed) {
-      await ElMessageBox.alert(message, "扩展影响预览", { type: "error", confirmButtonText: "关闭" });
+      await ElMessageBox.alert(message, "扩展影响预览", {
+        type: "error",
+        confirmButtonText: "关闭",
+        customClass: "extension-impact-preview-dialog",
+      });
       return false;
     }
     await ElMessageBox.confirm(message, "扩展影响预览", {
       type: preview.warnings.length ? "warning" : "info",
       confirmButtonText: preview.operation === "update" ? "继续更新" : "继续安装",
       cancelButtonText: "取消",
+      customClass: "extension-impact-preview-dialog",
     });
     return true;
   };
@@ -308,8 +302,6 @@ export function useExtensionManager() {
       file: null,
       enable: true,
       checksumSha256: "",
-      signatureEd25519: "",
-      publicKeyEd25519: "",
     });
   };
   const openUpdate = (item: ManagedPlugin, method: "upload" | "path") => {
@@ -324,8 +316,6 @@ export function useExtensionManager() {
       file: null,
       enable: item.record.enabled,
       checksumSha256: "",
-      signatureEd25519: "",
-      publicKeyEd25519: "",
     });
   };
   const handleInstallFile = (event: Event) => {
@@ -336,8 +326,6 @@ export function useExtensionManager() {
     if (installDialog.file) form.append("file", installDialog.file);
     form.append("enable", installDialog.enable ? "true" : "false");
     if (installDialog.checksumSha256.trim()) form.append("checksum_sha256", installDialog.checksumSha256.trim());
-    if (installDialog.signatureEd25519.trim()) form.append("signature_ed25519", installDialog.signatureEd25519.trim());
-    if (installDialog.publicKeyEd25519.trim()) form.append("public_key_ed25519", installDialog.publicKeyEd25519.trim());
     return form;
   };
   const submitInstallDialog = async () => {
@@ -347,13 +335,6 @@ export function useExtensionManager() {
     }
     if (installDialog.method === "upload" && !installDialog.file) {
       ElMessage.warning("请选择扩展安装包");
-      return;
-    }
-    if (
-      installDialog.method === "upload" &&
-      (!installDialog.signatureEd25519.trim() || !installDialog.publicKeyEd25519.trim())
-    ) {
-      ElMessage.warning("上传安装包必须提供可信签名和公钥");
       return;
     }
     installDialog.submitting = true;

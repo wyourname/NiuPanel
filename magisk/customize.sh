@@ -22,7 +22,7 @@ esac
 ui_print "- 检测到架构: $ARCH"
 
 if [ -d "$MODPATH/tools/$ARCH" ]; then
-    ui_print "- 复制离线工具 (uv, fnm) 到 app/tools..."
+    ui_print "- 复制离线工具 (uv) 到 app/tools..."
     cp -f "$MODPATH/tools/$ARCH/"* "$MODPATH/app/tools/" 2>/dev/null
     chmod +x "$MODPATH/app/tools/"* 2>/dev/null
     ui_print "- 离线工具就绪: $(ls "$MODPATH/app/tools/" 2>/dev/null | tr '\n' ' ')"

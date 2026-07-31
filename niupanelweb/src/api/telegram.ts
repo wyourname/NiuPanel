@@ -42,17 +42,13 @@ export type TelegramWorkflowEventType =
   | 'alert'
   | 'cron'
   | 'failed'
-  | 'login'
   | 'success'
-  | 'timeout'
   | string
 
 export type TelegramWorkflowActionType =
   | 'approval'
   | 'notify'
-  | 'retry'
   | 'shell'
-  | 'webhook'
   | string
 
 export interface TelegramWorkflow {

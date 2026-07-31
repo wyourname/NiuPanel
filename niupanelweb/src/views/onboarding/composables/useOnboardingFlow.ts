@@ -12,6 +12,7 @@ export type OnboardingFeature = {
 };
 
 export const ONBOARDING_STEPS = [0, 1, 2, 3] as const;
+const FALLBACK_NODE_LTS_VERSION = "22.23.1";
 
 export const ONBOARDING_FEATURES: OnboardingFeature[] = [
   {
@@ -24,7 +25,7 @@ export const ONBOARDING_FEATURES: OnboardingFeature[] = [
     icon: "i-ep-monitor",
     color: "text-green-500",
     title: "Node.js 沙盒",
-    desc: "fnm 驱动，多版本并存",
+    desc: "pnpm runtime 驱动，多版本并存",
   },
   {
     icon: "i-ep-lock",
@@ -65,7 +66,8 @@ export function useOnboardingFlow() {
   const hasNode = ref(false);
 
   const pythonVersion = ref("3.11");
-  const nodeVersion = ref("20.11.0");
+  const nodeVersion = ref(FALLBACK_NODE_LTS_VERSION);
+  const recommendedNodeVersion = ref(FALLBACK_NODE_LTS_VERSION);
 
   const pythonJobId = ref<string | null>(null);
   const pythonLoading = ref(false);
@@ -88,6 +90,26 @@ export function useOnboardingFlow() {
       if (hasNode.value) nodeDone.value = true;
     } finally {
       checkingEnv.value = false;
+    }
+  };
+
+  const loadRecommendedNodeVersion = async () => {
+    try {
+      const res = await envApi.getAvailableVersions();
+      const payload = JSON.parse(res.data || "{}") as {
+        node_recommended_lts?: unknown;
+      };
+      if (typeof payload.node_recommended_lts !== "string") return;
+
+      const recommended = payload.node_recommended_lts.trim().replace(/^v/, "");
+      if (!/^\d+\.\d+\.\d+$/.test(recommended)) return;
+
+      recommendedNodeVersion.value = recommended;
+      if (nodeVersion.value === FALLBACK_NODE_LTS_VERSION) {
+        nodeVersion.value = recommended;
+      }
+    } catch {
+      // 镜像索引不可用时保留兼容 ARMv7 的 Node 22 LTS 兜底版本。
     }
   };
 
@@ -177,6 +199,7 @@ export function useOnboardingFlow() {
 
   onMounted(() => {
     void checkExistingEnvironments();
+    void loadRecommendedNodeVersion();
   });
 
   return {
@@ -195,6 +218,7 @@ export function useOnboardingFlow() {
     nodeLoading,
     nodeStatus,
     nodeVersion,
+    recommendedNodeVersion,
     pythonDone,
     pythonJobId,
     pythonLoading,

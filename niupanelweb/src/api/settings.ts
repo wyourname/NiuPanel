@@ -4,6 +4,7 @@ import type {
   ApiResponse,
   BackupOptions,
   GeneralSettings,
+  LogCleanupReport,
   MaintenanceStatus,
   NotificationSettings,
   NotificationTestRequest,
@@ -87,8 +88,11 @@ export const restoreSystem = (formData: FormData): Promise<ApiResponse<void>> =>
   })
 }
 
-export const cleanupLogs = (days = 30): Promise<ApiResponse<number>> => {
-  return request.post('/settings/cleanup_logs', { days })
+export const cleanupLogs = (
+  days = 15,
+  dryRun = false,
+): Promise<ApiResponse<LogCleanupReport>> => {
+  return request.post('/settings/cleanup_logs', { days, dry_run: dryRun }, { timeout: 0 })
 }
 
 /**

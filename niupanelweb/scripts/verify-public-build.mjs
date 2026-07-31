@@ -22,7 +22,7 @@ const fail = (message) => {
 };
 
 if (!existsSync(dist) || !existsSync(assets)) {
-  fail("dist/assets does not exist; run npm run build first.");
+  fail("dist/assets does not exist; run pnpm run build first.");
 }
 
 const files = readdirSync(assets);

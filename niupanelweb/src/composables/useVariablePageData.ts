@@ -3,10 +3,11 @@ import { useRoute } from "vue-router";
 import { ElMessage } from "element-plus";
 import { debounce } from "lodash-es";
 import * as variableApi from "../api/variable";
-import type { Variable } from "@/types";
+import type { VariableSummary } from "@/types";
 import type { useHaptics } from "./useHaptics";
 
-export type VariablePageRow = Variable & {
+export type VariablePageRow = VariableSummary & {
+  value?: string;
   task_ids?: number[];
 };
 
@@ -18,12 +19,14 @@ type VariablePageTask = {
 type UseVariablePageDataOptions = {
   clearSelection: () => void;
   haptics: ReturnType<typeof useHaptics>;
+  onReset?: () => void;
   variables: Ref<VariablePageRow[]>;
 };
 
 export function useVariablePageData({
   clearSelection,
   haptics,
+  onReset,
   variables,
 }: UseVariablePageDataOptions) {
   const route = useRoute();
@@ -39,9 +42,9 @@ export function useVariablePageData({
   const getScopedTaskId = () => {
     if (activeTab.value !== "Script") return null;
     const raw = route.query.scope_id;
-    if (typeof raw !== "string" || !raw) return null;
-    const parsed = parseInt(raw, 10);
-    return Number.isNaN(parsed) ? null : parsed;
+    if (typeof raw !== "string" || !/^[1-9]\d*$/.test(raw)) return null;
+    const parsed = Number(raw);
+    return Number.isSafeInteger(parsed) ? parsed : null;
   };
 
   const fetchTasks = async () => {
@@ -59,6 +62,7 @@ export function useVariablePageData({
     const scopedTaskId = getScopedTaskId();
 
     if (!isLoadMore) {
+      onReset?.();
       currentPage.value = 1;
       variables.value = [];
       hasMore.value = true;
@@ -76,15 +80,11 @@ export function useVariablePageData({
       });
 
       const newItems = (res.data.items || []) as VariablePageRow[];
-      variables.value = scopedTaskId
-        ? newItems
-        : isLoadMore
-          ? [...variables.value, ...newItems]
-          : newItems;
+      variables.value = isLoadMore
+        ? [...variables.value, ...newItems]
+        : newItems;
 
-      hasMore.value = scopedTaskId
-        ? false
-        : variables.value.length < res.data.total;
+      hasMore.value = variables.value.length < res.data.total;
       if (hasMore.value) currentPage.value++;
     } catch {
       ElMessage.error("Load failed");

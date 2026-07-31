@@ -144,21 +144,27 @@
             <code
               class="min-w-0 flex-1 truncate rounded bg-subtle px-2 py-1 font-mono text-[12px] text-secondary"
               :class="isValueVisible(row.id) ? '' : 'select-none tracking-[0.2em]'"
-              :title="isValueVisible(row.id) ? row.value : ''"
-            >{{ isValueVisible(row.id) ? row.value : maskValue(row.value) }}</code>
+              :title="isValueVisible(row.id) ? row.value ?? '' : ''"
+            >{{ isValueVisible(row.id) ? row.value ?? "" : maskValue(row.value) }}</code>
             <button
               type="button"
               class="h-7 w-7 shrink-0 rounded text-muted flex-center transition-colors hover:bg-active hover:text-default"
               :title="isValueVisible(row.id) ? '隐藏' : '显示'"
+              :disabled="isValueLoading(row.id)"
               @click="emit('toggle-value', row.id)"
             >
-              <span :class="isValueVisible(row.id) ? 'i-ep-hide' : 'i-ep-view'" class="text-[13px]"></span>
+              <span
+                :class="isValueLoading(row.id) ? 'i-ep-loading animate-spin' : isValueVisible(row.id) ? 'i-ep-hide' : 'i-ep-view'"
+                class="text-[13px]"
+              ></span>
             </button>
             <button
               type="button"
               class="h-7 w-7 shrink-0 rounded text-muted flex-center opacity-0 transition-colors hover:bg-active hover:text-primary group-hover:opacity-100"
               title="复制值"
-              @click="emit('copy-value', row.value)"
+              aria-label="复制变量值"
+              :disabled="isValueLoading(row.id)"
+              @click="emit('copy-value', row.id)"
             >
               <span class="i-ep-copy-document text-[13px]"></span>
             </button>
@@ -217,6 +223,7 @@ defineProps<{
   selectedIds: number[];
   loading: boolean;
   hasMore: boolean;
+  isValueLoading: (id: number) => boolean;
   isValueVisible: (id: number) => boolean;
 }>();
 
@@ -229,7 +236,7 @@ const emit = defineEmits<{
   (e: "load-more"): void;
   (e: "selection-change", row: VariablePageRow, selected: unknown): void;
   (e: "toggle-value", id: number): void;
-  (e: "copy-value", value: string): void;
+  (e: "copy-value", id: number): void;
   (e: "status-change", row: VariablePageRow, value: unknown): void;
   (e: "edit", row: VariablePageRow): void;
   (e: "delete", row: VariablePageRow): void;
@@ -238,7 +245,8 @@ const emit = defineEmits<{
 const gridStyle =
   "grid-template-columns: 28px minmax(140px, 1.4fr) minmax(160px, 2fr) 60px minmax(100px, 1.2fr) 56px 72px;";
 
-const maskValue = (value: string) => "•".repeat(Math.min(Math.max(value.length, 6), 24));
+const maskValue = (value?: string) =>
+  "•".repeat(Math.min(Math.max(value?.length ?? 12, 6), 24));
 </script>
 
 <style scoped>

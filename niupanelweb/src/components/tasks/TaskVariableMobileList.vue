@@ -34,6 +34,12 @@
         />
 
         <span class="id-badge">#{{ item.id ?? "NEW" }}</span>
+        <span
+          v-if="(item.task_ids?.length ?? 0) > 1"
+          class="rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400"
+        >
+          共享 {{ item.task_ids?.length }}
+        </span>
 
         <div class="ml-auto flex items-center gap-2">
           <el-switch

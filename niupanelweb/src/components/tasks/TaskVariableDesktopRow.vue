@@ -28,7 +28,16 @@
     </div>
 
     <div class="desktop-table__cell desktop-table__cell--id">
-      <span class="id-badge">#{{ row.id ?? "NEW" }}</span>
+      <div class="flex flex-col items-start gap-1">
+        <span class="id-badge">#{{ row.id ?? "NEW" }}</span>
+        <span
+          v-if="(row.task_ids?.length ?? 0) > 1"
+          class="rounded bg-amber-500/10 px-1 text-[9px] font-semibold text-amber-600 dark:text-amber-400"
+          :title="`该变量被 ${row.task_ids?.length} 个任务共享`"
+        >
+          共享 {{ row.task_ids?.length }}
+        </span>
+      </div>
     </div>
 
     <div class="desktop-table__cell desktop-table__cell--key">

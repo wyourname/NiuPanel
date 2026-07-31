@@ -27,13 +27,14 @@ impl EnvironmentService {
         let python_versions = PythonEnvironmentService::list_available_versions(settings)
             .await
             .unwrap_or_default();
-        let node_versions = NodeEnvironmentService::list_available_versions()
+        let node_catalog = NodeEnvironmentService::available_version_catalog(settings)
             .await
             .unwrap_or_default();
 
         let combined = serde_json::json!({
             RuntimeKind::Python.env_type(): python_versions,
-            RuntimeKind::Node.env_type(): node_versions
+            RuntimeKind::Node.env_type(): node_catalog.versions,
+            "node_recommended_lts": node_catalog.recommended_lts.unwrap_or_default()
         });
         Ok(serde_json::to_string(&combined).unwrap_or_default())
     }

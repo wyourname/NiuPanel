@@ -10,7 +10,12 @@ use tower_sessions_sqlx_store::sqlx::SqlitePool;
 pub async fn build_session_layer(
     db: &DatabaseConnection,
     session_key: &str,
+    secure_cookie: bool,
 ) -> Result<DynamicSessionLayer<SqliteStore>> {
+    anyhow::ensure!(
+        session_key.as_bytes().len() >= 64,
+        "Session key must contain at least 64 bytes"
+    );
     let sqlx_pool: SqlitePool = db.get_sqlite_connection_pool().clone();
     let session_store = SqliteStore::new(sqlx_pool);
     session_store
@@ -26,6 +31,6 @@ pub async fn build_session_layer(
             .with_expiry(default_session_expiry())
             .with_http_only(true)
             .with_same_site(SameSite::Lax)
-            .with_secure(false),
+            .with_secure(secure_cookie),
     )
 }

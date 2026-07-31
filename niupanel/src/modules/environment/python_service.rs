@@ -104,55 +104,46 @@ impl PythonEnvironmentService {
 
         let version_clone = payload.version.clone();
         let job_id = task_manager
-            .submit_system_task(format!("Create Python Env {}", payload.version), move |tx| async move {
-                let python = RuntimeKind::Python;
-                let venv_path = python.env_path(&python.env_name(&version_clone));
-                let mirrors_install = mirrors.clone();
-                match RuntimeManager::create_python_environment(
-                    venv_path.clone(),
-                    Some(&version_clone),
-                    tx.clone(),
-                    Some(mirrors),
-                )
-                .await
-                {
-                    Ok(_) => {
-                        let mut requirements_to_install = default_packages;
-                        if let Some(restored) = restored_requirements {
-                            if !restored.trim().is_empty() {
-                                let _ = tx.send(format!("[System] Found recorded dependencies, restoring: \n{}", restored));
-                                requirements_to_install = format!("{}\n{}", requirements_to_install, restored);
-                            }
-                        }
+            .submit_system_task(
+                format!("Create Python Env {}", payload.version),
+                move |tx| async move {
+                    let python = RuntimeKind::Python;
+                    let venv_path = python.env_path(&python.env_name(&version_clone));
+                    let mirrors_install = mirrors.clone();
+                    RuntimeManager::create_python_environment(
+                        venv_path.clone(),
+                        Some(&version_clone),
+                        tx.clone(),
+                        Some(mirrors),
+                    )
+                    .await?;
 
-                        match RuntimeManager::open_python_environment(
-                            venv_path,
-                            None,
-                            Some(mirrors_install),
-                        )
-                        .await
-                        {
-                            Ok(env) => match env
-                                .install_requirements(&requirements_to_install, false, tx.clone())
-                                .await
-                            {
-                                Ok(_) => {
-                                    let _ = tx.send("Installation and packages setup completed successfully.".to_string());
-                                }
-                                Err(e) => {
-                                    let _ = tx.send(format!("Environment created but failed to install packages: {}", e));
-                                }
-                            },
-                            Err(e) => {
-                                let _ = tx.send(format!("Failed to load environment context: {}", e));
-                            }
+                    let mut requirements_to_install = default_packages;
+                    if let Some(restored) = restored_requirements {
+                        if !restored.trim().is_empty() {
+                            let _ = tx.send(format!(
+                                "[System] Found recorded dependencies, restoring: \n{}",
+                                restored
+                            ));
+                            requirements_to_install =
+                                format!("{}\n{}", requirements_to_install, restored);
                         }
                     }
-                    Err(e) => {
-                        let _ = tx.send(format!("Error creating environment: {}", e));
-                    }
-                }
-            })
+
+                    let env = RuntimeManager::open_python_environment(
+                        venv_path,
+                        None,
+                        Some(mirrors_install),
+                    )
+                    .await?;
+                    env.install_requirements(&requirements_to_install, false, tx.clone())
+                        .await?;
+                    let _ = tx.send(
+                        "Installation and packages setup completed successfully.".to_string(),
+                    );
+                    Ok(())
+                },
+            )
             .await?;
 
         Ok((job_id, venv_name))
@@ -210,14 +201,9 @@ impl PythonEnvironmentService {
             .submit_system_task(
                 format!("Uninstall {} from {}", package_clone, name_clone),
                 move |tx| async move {
-                    match env.uninstall_package(&package_clone, tx.clone()).await {
-                        Ok(_) => {
-                            let _ = tx.send("Uninstallation completed successfully.".to_string());
-                        }
-                        Err(e) => {
-                            let _ = tx.send(format!("Error uninstalling package: {}", e));
-                        }
-                    }
+                    env.uninstall_package(&package_clone, tx.clone()).await?;
+                    let _ = tx.send("Uninstallation completed successfully.".to_string());
+                    Ok(())
                 },
             )
             .await

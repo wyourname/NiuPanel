@@ -16,9 +16,9 @@
             v-if="!isMobile || isSearchExpanded"
             ref="searchInputRef"
             :model-value="searchQuery"
-            placeholder="搜索键名..."
+            placeholder="搜索变量名或备注..."
             size="small"
-          class="modern-input flex-1 !w-full sm:!w-44 lg:!w-60"
+            class="modern-input flex-1 !w-full sm:!w-44 lg:!w-60"
             clearable
             @update:model-value="handleSearchInput"
             @blur="isSearchExpanded = !!searchQuery"

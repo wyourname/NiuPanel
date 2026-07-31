@@ -39,16 +39,16 @@ fn data_tools_dir() -> Option<PathBuf> {
         .filter(|p| p.is_dir())
 }
 
-fn fnm_fallback_path() -> Option<PathBuf> {
-    if let Ok(fnm_dir) = std::env::var("FNM_DIR") {
-        let path = PathBuf::from(fnm_dir).join("fnm");
+fn pnpm_fallback_path() -> Option<PathBuf> {
+    if let Ok(pnpm_home) = std::env::var("PNPM_HOME") {
+        let path = PathBuf::from(pnpm_home).join("pnpm");
         if is_usable_file(&path) {
             return Some(path);
         }
     }
 
     home::home_dir()
-        .map(|home| home.join(".local").join("share").join("fnm").join("fnm"))
+        .map(|home| home.join(".local").join("share").join("pnpm").join("pnpm"))
         .filter(|p| is_usable_file(p))
 }
 
@@ -72,8 +72,8 @@ pub fn resolve_tool_path(tool_name: &str) -> Option<PathBuf> {
         }
     }
 
-    if tool_name == "fnm" {
-        if let Some(path) = fnm_fallback_path() {
+    if tool_name == "pnpm" {
+        if let Some(path) = pnpm_fallback_path() {
             return Some(path);
         }
     }

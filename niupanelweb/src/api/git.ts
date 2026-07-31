@@ -6,7 +6,7 @@ export interface GitRepo {
   name: string;
   repo_url: string;
   branch: string;
-  auth_token?: string;
+  has_auth_token: boolean;
   proxy_url?: string;
   auto_sync: boolean;
   last_sync_at: string | null;
@@ -22,6 +22,7 @@ export interface GitRepoRequest {
   repo_url: string;
   branch?: string;
   auth_token?: string;
+  clear_auth_token?: boolean;
   proxy_url?: string;
   auto_sync?: boolean;
 }

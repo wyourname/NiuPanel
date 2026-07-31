@@ -5,85 +5,14 @@ set -e
 APP_NAME="niupanel"
 FRONTEND_DIR="niupanelweb"
 TOOLS_CACHE_DIR="release_tools"
-UV_VERSION="${UV_VERSION:-0.8.15}"
-FNM_VERSION="${FNM_VERSION:-1.38.1}"
-FNM_RELEASE_TAG="v${FNM_VERSION#v}"
-GITHUB_RELEASE_MIRROR="${GITHUB_RELEASE_MIRROR:-https://git.365676.xyz/https://github.com}"
+CORE_VERSION=$(sed -n '/^\[package\]/,/^\[/{s/^version = "\([^"]*\)"/\1/p}' niupanel/Cargo.toml | head -n 1)
 
-tool_versions_for_arch() {
-    local arch_name=$1
-    case "$arch_name" in
-        x86_64)
-            echo "x86_64-unknown-linux-gnu fnm-linux.zip"
-            ;;
-        aarch64)
-            echo "aarch64-unknown-linux-gnu fnm-arm64.zip"
-            ;;
-        armv7)
-            echo "armv7-unknown-linux-gnueabihf fnm-arm32.zip"
-            ;;
-        *)
-            echo "❌ 不支持的工具架构: $arch_name" >&2
-            return 1
-            ;;
-    esac
-}
+node scripts/verify-version-contract.mjs
 
 prepare_runtime_tools() {
     local arch_name=$1
     local target_dir="$TOOLS_CACHE_DIR/$arch_name"
-    local uv_triple
-    local fnm_pkg
-
-    read -r uv_triple fnm_pkg < <(tool_versions_for_arch "$arch_name")
-    mkdir -p "$target_dir"
-
-    if [ ! -f "$target_dir/uv" ]; then
-        echo "📦 下载 uv ($arch_name)..."
-        download_with_fallback "$target_dir/uv.tar.gz" \
-            "https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/uv-${uv_triple}.tar.gz" \
-            "${GITHUB_RELEASE_MIRROR}/astral-sh/uv/releases/download/${UV_VERSION}/uv-${uv_triple}.tar.gz"
-        mkdir -p "$target_dir/uv_extract"
-        tar -xzf "$target_dir/uv.tar.gz" -C "$target_dir/uv_extract"
-        cp "$target_dir/uv_extract/uv-${uv_triple}/uv" "$target_dir/uv"
-        chmod +x "$target_dir/uv"
-        rm -rf "$target_dir/uv.tar.gz" "$target_dir/uv_extract"
-    fi
-
-    if [ ! -f "$target_dir/fnm" ]; then
-        echo "📦 下载 fnm ($arch_name)..."
-        download_with_fallback "$target_dir/fnm.zip" \
-            "https://github.com/Schniz/fnm/releases/download/${FNM_RELEASE_TAG}/${fnm_pkg}" \
-            "${GITHUB_RELEASE_MIRROR}/Schniz/fnm/releases/download/${FNM_RELEASE_TAG}/${fnm_pkg}"
-        mkdir -p "$target_dir/fnm_extract"
-        unzip -o "$target_dir/fnm.zip" -d "$target_dir/fnm_extract" > /dev/null
-        cp "$target_dir/fnm_extract/fnm" "$target_dir/fnm"
-        chmod +x "$target_dir/fnm"
-        rm -rf "$target_dir/fnm.zip" "$target_dir/fnm_extract"
-    fi
-}
-
-download_with_fallback() {
-    local output_path=$1
-    shift
-    local urls=("$@")
-    local url
-
-    rm -f "$output_path"
-
-    for url in "${urls[@]}"; do
-        [ -z "$url" ] && continue
-        echo "   ↳ 尝试下载: $url"
-        if curl -fL --http1.1 --retry 5 --retry-delay 2 --retry-all-errors \
-            --connect-timeout 20 --max-time 0 "$url" -o "$output_path"; then
-            return 0
-        fi
-        echo "   ↳ 下载失败，尝试下一个源"
-        rm -f "$output_path"
-    done
-
-    echo "❌ 所有下载源均失败: ${urls[*]}" >&2
-    return 1
+    scripts/prepare-runtime-tools.sh "$arch_name" "$target_dir"
 }
 
 # 帮助信息
@@ -100,12 +29,14 @@ usage() {
 build_frontend() {
     echo "⚡ 正在构建前端..."
     if [ -d "$FRONTEND_DIR" ]; then
-        cd "$FRONTEND_DIR"
-        if [ ! -d "node_modules" ]; then
-            echo "📦 正在安装前端依赖..."
-            npm install
+        if ! command -v pnpm > /dev/null 2>&1; then
+            echo "❌ 前端构建需要 pnpm 11.18+，请先安装 pnpm"
+            exit 1
         fi
-        npm run build
+        cd "$FRONTEND_DIR"
+        echo "📦 正在同步前端依赖..."
+        pnpm install --frozen-lockfile
+        NIUPANEL_WEB_CORE_MIN="$CORE_VERSION" pnpm run build
         cd ..
 
         if [ ! -d "$FRONTEND_DIR/dist" ]; then
@@ -138,8 +69,9 @@ build_backend_and_package() {
     if [ "$TARGET_ALIAS" == "host" ]; then
         echo "🏗️  正在构建本机架构..."
         export CARGO_TARGET_DIR="target"
-        BUILD_CMD="cargo build --release"
+        BUILD_CMD="cargo build --release -p niupanel -p niupanel-launcher"
         ARCH_NAME=$(uname -m)
+        TARGET_TRIPLE=$(rustc -vV | sed -n 's/^host: //p')
         BIN_SOURCE_PATH="target/release"
 
     elif [ "$TARGET_ALIAS" == "amd64" ]; then
@@ -150,7 +82,7 @@ build_backend_and_package() {
         BIN_SOURCE_PATH="$CARGO_TARGET_DIR/$TARGET_TRIPLE/release"
 
         if ! command -v cross &> /dev/null; then echo "❌ 需要安装 cross 工具 (cargo install cross)"; exit 1; fi
-        BUILD_CMD="cross build --release --target $TARGET_TRIPLE"
+        BUILD_CMD="cross build --release --target $TARGET_TRIPLE -p niupanel -p niupanel-launcher"
 
     elif [ "$TARGET_ALIAS" == "arm64" ]; then
         echo "🏗️  正在构建 ARM64 (aarch64)..."
@@ -160,7 +92,7 @@ build_backend_and_package() {
         BIN_SOURCE_PATH="$CARGO_TARGET_DIR/$TARGET_TRIPLE/release"
 
         if ! command -v cross &> /dev/null; then echo "❌ 需要安装 cross 工具 (cargo install cross)"; exit 1; fi
-        BUILD_CMD="cross build --release --target $TARGET_TRIPLE"
+        BUILD_CMD="cross build --release --target $TARGET_TRIPLE -p niupanel -p niupanel-launcher"
 
     elif [ "$TARGET_ALIAS" == "armv7" ]; then
         echo "🏗️  正在构建 ARMv7..."
@@ -170,7 +102,7 @@ build_backend_and_package() {
         BIN_SOURCE_PATH="$CARGO_TARGET_DIR/$TARGET_TRIPLE/release"
 
         if ! command -v cross &> /dev/null; then echo "❌ 需要安装 cross 工具 (cargo install cross)"; exit 1; fi
-        BUILD_CMD="cross build --release --target $TARGET_TRIPLE"
+        BUILD_CMD="cross build --release --target $TARGET_TRIPLE -p niupanel -p niupanel-launcher"
     else
         echo "❌ 未知架构: $TARGET_ALIAS"
         exit 1
@@ -197,6 +129,18 @@ build_backend_and_package() {
         echo "❌ 错误: 找不到编译产物 $BIN_SOURCE_PATH/$APP_NAME"
         exit 1
     fi
+    if [ -f "$BIN_SOURCE_PATH/niupanel-launcher" ]; then
+        cp "$BIN_SOURCE_PATH/niupanel-launcher" "$TEMP_DIR/"
+        echo "✅ Launcher 已复制"
+    else
+        echo "❌ 错误: 找不到编译产物 $BIN_SOURCE_PATH/niupanel-launcher"
+        exit 1
+    fi
+    node scripts/generate-core-release-manifest.mjs \
+        "$TEMP_DIR/$APP_NAME" \
+        "$CORE_VERSION" \
+        "$TARGET_TRIPLE" \
+        "$TEMP_DIR/core-release.json"
 
     # 复制前端 (假设已构建)
     if [ -d "$FRONTEND_DIR/dist" ]; then
@@ -204,8 +148,10 @@ build_backend_and_package() {
     fi
 
     prepare_runtime_tools "$ARCH_NAME"
-    cp "$TOOLS_CACHE_DIR/$ARCH_NAME/uv" "$TEMP_DIR/tools/uv"
-    cp "$TOOLS_CACHE_DIR/$ARCH_NAME/fnm" "$TEMP_DIR/tools/fnm"
+    cp -a "$TOOLS_CACHE_DIR/$ARCH_NAME/." "$TEMP_DIR/tools/"
+    rm -f "$TEMP_DIR/tools/.uv-version" "$TEMP_DIR/tools/.pnpm-version" "$TEMP_DIR/tools/fnm"
+    test -x "$TEMP_DIR/tools/uv"
+    test -x "$TEMP_DIR/tools/pnpm"
 
     echo "📦 打包为 $TAR_NAME ..."
     tar -czvf "$TAR_NAME" -C "$TEMP_DIR" .
