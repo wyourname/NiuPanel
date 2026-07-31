@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: '要创建的应用 Release Tag；main 使用 v0.8.0，dev 使用 v0.8.1-dev.1'
+        description: '要创建的应用 Release Tag；main 使用 v0.8.0，dev 使用 v0.8.1-beta.1'
         required: true
         type: string
 
@@ -63,7 +63,7 @@ jobs:
           esac
           RELEASE_VERSION="${RELEASE_TAG#v}"
           if [[ "$IS_PRERELEASE" == true && "$RELEASE_VERSION" != *-* ]]; then
-            echo "Pre-release tags must include a prerelease suffix, for example v0.8.1-dev.1" >&2
+            echo "Pre-release tags must include a prerelease suffix, for example v0.8.1-beta.1" >&2
             exit 1
           fi
           if [[ "$IS_PRERELEASE" == false && "$RELEASE_VERSION" == *-* ]]; then
