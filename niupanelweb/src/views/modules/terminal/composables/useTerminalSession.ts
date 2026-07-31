@@ -1,9 +1,9 @@
 import { onMounted, onUnmounted, ref, type Ref } from "vue";
 import { ElMessage } from "element-plus";
-import { Terminal } from "xterm";
-import { FitAddon } from "xterm-addon-fit";
-import { WebLinksAddon } from "xterm-addon-web-links";
-import { WebglAddon } from "xterm-addon-webgl";
+import { Terminal } from "@xterm/xterm";
+import { FitAddon } from "@xterm/addon-fit";
+import { WebLinksAddon } from "@xterm/addon-web-links";
+import { WebglAddon } from "@xterm/addon-webgl";
 import { useAppStore } from "@/stores/app";
 
 type TerminalErrorMessage = {

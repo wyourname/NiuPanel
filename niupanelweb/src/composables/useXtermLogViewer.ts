@@ -13,8 +13,8 @@ import {
   Terminal,
   type ITerminalInitOnlyOptions,
   type ITerminalOptions,
-} from "xterm";
-import { FitAddon } from "xterm-addon-fit";
+} from "@xterm/xterm";
+import { FitAddon } from "@xterm/addon-fit";
 import type { LogFetcher, LogViewerWriteInput } from "@/types/logViewer";
 import { stringifyLogWriteInput } from "@/utils/logViewer";
 

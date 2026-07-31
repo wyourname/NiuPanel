@@ -118,7 +118,7 @@ impl Migration {
         let db = manager.get_connection();
         let sql = format!("PRAGMA table_info({})", table);
         let rows = db
-            .query_all(Statement::from_string(manager.get_database_backend(), sql))
+            .query_all_raw(Statement::from_string(manager.get_database_backend(), sql))
             .await?;
 
         for row in rows {
@@ -142,7 +142,7 @@ impl Migration {
             index_name.replace('\'', "''")
         );
         let row = db
-            .query_one(Statement::from_string(manager.get_database_backend(), sql))
+            .query_one_raw(Statement::from_string(manager.get_database_backend(), sql))
             .await?;
         Ok(row.is_some())
     }
@@ -151,7 +151,7 @@ impl Migration {
         let db = manager.get_connection();
         let sql = "SELECT email FROM users WHERE email IS NOT NULL AND email != '' GROUP BY email HAVING COUNT(*) > 1 LIMIT 1".to_string();
         let row = db
-            .query_one(Statement::from_string(manager.get_database_backend(), sql))
+            .query_one_raw(Statement::from_string(manager.get_database_backend(), sql))
             .await?;
         Ok(row.is_some())
     }

@@ -40,10 +40,11 @@ RUN set -ex; \
     # 清理缓存
     apt-get clean;
 
-# 2. 只复制当前目标架构的应用包。
+# 2. 只复制当前目标架构的 Core 包，以及所有架构共用的 Web 包。
 # `packages/{amd64,arm64,arm}/niupanel.tar.gz` 由本地构建脚本或 CI 准备，
-# 避免把另外两个架构的归档写入镜像层。
+# 避免把另外两个架构的归档写入镜像层；Web 保持独立，以匹配在线更新协议。
 COPY packages/${TARGETARCH}/niupanel.tar.gz /tmp/niupanel.tar.gz
+COPY packages/web/niupanel_web.tar.gz /tmp/niupanel_web.tar.gz
 
 RUN set -ex; \
     FILE_ARCH=""; \
@@ -57,6 +58,9 @@ RUN set -ex; \
      \
     echo "Extracting application for: ${FILE_ARCH} ..."; \
     tar -xzf /tmp/niupanel.tar.gz -C /app/; \
+    mkdir -p /app/web; \
+    tar -xzf /tmp/niupanel_web.tar.gz -C /app/web/; \
+    test -f /app/web/release-manifest.json; \
     chmod +x /app/niupanel /app/niupanel-launcher /app/tools/uv /app/tools/pnpm; \
     test ! -e /app/tools/fnm; \
     BUNDLED_PNPM_VERSION=$(/app/tools/pnpm --version); \
@@ -65,14 +69,16 @@ RUN set -ex; \
         exit 1; \
     fi; \
     /app/tools/uv --version; \
-    rm -f /tmp/niupanel.tar.gz
+    rm -f /tmp/niupanel.tar.gz /tmp/niupanel_web.tar.gz
 
 ARG NIUPANEL_ENVIRONMENT_VERSION=unknown
 ARG NIUPANEL_CORE_VERSION=unknown
+ARG NIUPANEL_WEB_VERSION=unknown
 
 LABEL org.opencontainers.image.title="NiuPanel" \
       org.opencontainers.image.version="${NIUPANEL_ENVIRONMENT_VERSION}" \
-      io.niupanel.core.version="${NIUPANEL_CORE_VERSION}"
+      io.niupanel.core.version="${NIUPANEL_CORE_VERSION}" \
+      io.niupanel.web.version="${NIUPANEL_WEB_VERSION}"
 
 # 3. 暴露端口与启动
 EXPOSE 7788

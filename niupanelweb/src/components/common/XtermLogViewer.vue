@@ -34,7 +34,7 @@
 
 <script setup lang="ts">
 import { ref } from "vue";
-import "xterm/css/xterm.css";
+import "@xterm/xterm/css/xterm.css";
 import { useXtermLogViewer } from "@/composables/useXtermLogViewer";
 
 type XtermLogViewerProps = {

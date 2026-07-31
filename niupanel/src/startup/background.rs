@@ -142,7 +142,7 @@ async fn duplicate_user_emails(db: &DatabaseConnection) -> Result<Vec<(String, i
     "#;
 
     let rows = db
-        .query_all(Statement::from_string(
+        .query_all_raw(Statement::from_string(
             db.get_database_backend(),
             sql.to_string(),
         ))
@@ -163,7 +163,7 @@ async fn has_index(db: &DatabaseConnection, index_name: &str) -> Result<bool> {
         index_name.replace('\'', "''")
     );
     let row = db
-        .query_one(Statement::from_string(db.get_database_backend(), sql))
+        .query_one_raw(Statement::from_string(db.get_database_backend(), sql))
         .await?;
     Ok(row.is_some())
 }

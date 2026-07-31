@@ -17,7 +17,7 @@ nanoid = { workspace = true }
 nix = { workspace = true }
 semver = { workspace = true }
 serde_json = { workspace = true }
-sha2 = "0.10.9"
+sha2 = "0.11.0"
 tokio = { workspace = true }
 
 niupanel-common = { path = "../niupanel-common" }

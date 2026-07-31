@@ -19,7 +19,7 @@ landlock = { workspace = true }
 openssl = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-sha2 = "0.10.9"
+sha2 = "0.11.0"
 tar = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true }

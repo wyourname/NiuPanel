@@ -14,7 +14,7 @@ impl MigrationTrait for Migration {
             .and_where(Expr::col(Environments::Name).is_in(["System Node", "System Python"]))
             .to_owned();
 
-        db.execute(manager.get_database_backend().build(&stmt))
+        db.execute_raw(manager.get_database_backend().build(&stmt))
             .await?;
 
         Ok(())

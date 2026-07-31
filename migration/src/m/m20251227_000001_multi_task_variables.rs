@@ -53,7 +53,7 @@ impl MigrationTrait for Migration {
         "#;
         manager
             .get_connection()
-            .execute(sea_orm::Statement::from_string(
+            .execute_raw(sea_orm::Statement::from_string(
                 manager.get_database_backend(),
                 insert_query.to_owned(),
             ))

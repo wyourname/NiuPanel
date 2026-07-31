@@ -11,7 +11,7 @@ description = "Proxy transport support for NiuPanel"
 
 [dependencies]
 tokio = { workspace = true }
-tokio-tungstenite = "0.26"
+tokio-tungstenite = "0.30"
 tokio-rustls = "0.26"
 webpki-roots = "1.0"
 serde = { workspace = true }

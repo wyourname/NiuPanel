@@ -10,7 +10,7 @@ use niupanel_common::variable::{
 };
 use niupanel_entity::{tasks, variables, variables_tasks};
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait,
+    ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait, ExprTrait,
     PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Select, Set, TransactionTrait,
     sea_query::{Condition, Expr},
 };
@@ -139,7 +139,7 @@ pub async fn list_variables(
     db: &DatabaseConnection,
     params: &VariableQueryParams,
 ) -> Result<PaginatedData<VariableDto>> {
-    let page = params.page.unwrap_or(1).max(1);
+    let page = std::cmp::max(params.page.unwrap_or(1), 1);
     let page_size = params
         .page_size
         .unwrap_or(DEFAULT_PAGE_SIZE)

@@ -8,6 +8,7 @@ CORE_VERSION=$(sed -n '/^\[package\]/,/^\[/{s/^version = "\([^"]*\)"/\1/p}' ../n
 IMAGE_NAME="niupanel"
 DOCKER_USERNAME="${DOCKER_HUB_USERNAME:-wyourname}"
 BASE_IMAGE="${DOCKER_USERNAME}/${IMAGE_NAME}"
+WEB_TAR_FILE=""
 
 # Architectures: Key=PackageSuffix, Value=DockerPlatform
 declare -A ARCH_MAP=(
@@ -101,6 +102,17 @@ build_and_push() {
     BUILT_TAGS+=("${tag_arch}")
 }
 
+prepare_web_package() {
+    local matches=(niupanel_web_*.tar.gz)
+    if [ ! -f "${matches[0]}" ] || [ "${#matches[@]}" -ne 1 ]; then
+        err "需要且只能提供一个独立 Web 包：niupanel_web_<version>.tar.gz"
+        exit 1
+    fi
+    WEB_TAR_FILE="${matches[0]}"
+    mkdir -p packages/web
+    cp "$WEB_TAR_FILE" packages/web/niupanel_web.tar.gz
+}
+
 create_manifest() {
     local target_tag=$1
     log "📝 创建 Manifest: ${target_tag}"
@@ -179,6 +191,7 @@ log "🔧 正在配置 multi-arch 构建环境..."
 docker run --privileged --rm tonistiigi/binfmt --install all
 
 BUILT_TAGS=()
+prepare_web_package
 
 # Iterate and Build
 for suffix in "${!ARCH_MAP[@]}"; do

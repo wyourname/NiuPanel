@@ -12,7 +12,6 @@ description = "Task scheduling and execution core for NiuPanel"
 [dependencies]
 tokio = { workspace = true }
 sea-orm = { workspace = true }
-sqlx = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }
@@ -38,10 +37,10 @@ rand = { workspace = true }
 chrono-tz = { workspace = true }
 shell-words = { workspace = true }
 lettre = { workspace = true }
-ractor = "0.15.10"
+ractor = "0.16.2"
 
 niupanel-common = { path = "../niupanel-common" }
 niupanel-entity = { path = "../niupanel-entity" }
 home = "0.5.12"
-sha2 = "0.10.9"
+sha2 = "0.11.0"
 hex = "0.4.3"

@@ -139,7 +139,7 @@ pub async fn list_workflows(
     State(state): State<AppState>,
     axum::extract::Query(params): axum::extract::Query<QueryParams>,
 ) -> Result<ApiResponse<PaginatedData<WorkflowDto>>> {
-    let page = params.page.unwrap_or(1).max(1);
+    let page = std::cmp::max(params.page.unwrap_or(1), 1);
     let limit = params.limit.unwrap_or(20).clamp(1, 200);
 
     let paginator = tg_workflows::Entity::find()

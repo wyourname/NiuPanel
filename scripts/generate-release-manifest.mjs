@@ -36,13 +36,16 @@ const releaseVersion = releaseVersionInput.replace(/^v/, '')
 const sha256 = (path) =>
   createHash('sha256').update(readFileSync(path)).digest('hex')
 
-const archiveManifest = (archivePath, filename) => {
-  const entries = execFileSync('tar', ['-tzf', archivePath], {
+const archiveEntries = (archivePath) =>
+  execFileSync('tar', ['-tzf', archivePath], {
     encoding: 'utf8'
   })
     .split('\n')
     .map((entry) => entry.trim())
     .filter(Boolean)
+
+const archiveManifest = (archivePath, filename) => {
+  const entries = archiveEntries(archivePath)
   const entry = entries.find((candidate) => {
     const normalized = candidate.replace(/^\.\//, '')
     return normalized === filename || normalized.endsWith(`/${filename}`)
@@ -54,6 +57,36 @@ const archiveManifest = (archivePath, filename) => {
     encoding: 'utf8'
   })
   return JSON.parse(content)
+}
+
+const normalizedArchiveEntries = (archivePath) =>
+  archiveEntries(archivePath).map((entry) => entry.replace(/^\.\//, ''))
+
+const assertCoreArchiveBoundary = (archivePath) => {
+  const entries = normalizedArchiveEntries(archivePath)
+  if (entries.some((entry) => entry === 'web' || entry.startsWith('web/'))) {
+    throw new Error(
+      `${archivePath} embeds a Web release; Core and Web must be published as separate update packages`
+    )
+  }
+  if (entries.some((entry) => entry === 'release-manifest.json')) {
+    throw new Error(`${archivePath} contains a Web release manifest`)
+  }
+}
+
+const assertWebArchiveBoundary = (archivePath) => {
+  const entries = normalizedArchiveEntries(archivePath)
+  const forbidden = new Set(['niupanel', 'niupanel-launcher', 'core-release.json'])
+  if (
+    entries.some(
+      (entry) =>
+        forbidden.has(entry) || entry === 'tools' || entry.startsWith('tools/')
+    )
+  ) {
+    throw new Error(
+      `${archivePath} embeds Core files; Core and Web must be published as separate update packages`
+    )
+  }
 }
 
 const versionParts = (version) => {
@@ -96,6 +129,7 @@ let canonicalCore
 for (const target of coreTargets) {
   const name = `${target.artifact}.tar.gz`
   const path = join(artifactsRoot, target.artifact, name)
+  assertCoreArchiveBoundary(path)
   const manifest = archiveManifest(path, 'core-release.json')
   if (manifest.component !== 'core') {
     throw new Error(`${name} has an invalid Core component`)
@@ -130,13 +164,17 @@ for (const target of coreTargets) {
 }
 
 const webDirectory = join(artifactsRoot, 'niupanel_web')
-const webArchiveName = readdirSync(webDirectory).find((name) =>
+const webArchives = readdirSync(webDirectory).filter((name) =>
   /^niupanel_web_.+\.tar\.gz$/.test(name)
 )
-if (!webArchiveName) {
-  throw new Error(`No Web release archive found in ${webDirectory}`)
+if (webArchives.length !== 1) {
+  throw new Error(
+    `Expected exactly one Web release archive in ${webDirectory}, found ${webArchives.length}`
+  )
 }
+const [webArchiveName] = webArchives
 const webArchivePath = join(webDirectory, webArchiveName)
+assertWebArchiveBoundary(webArchivePath)
 const webManifest = archiveManifest(webArchivePath, 'release-manifest.json')
 if (webManifest.component !== 'web') {
   throw new Error(`${webArchiveName} has an invalid Web component`)

@@ -47,7 +47,7 @@ const rootCargo = read("Cargo.toml");
 for (const metadata of [
   'license = "Apache-2.0"',
   'repository = "https://github.com/wyourname/NiuPanel.git"',
-  'rust-version = "1.88"',
+  'rust-version = "1.95"',
 ]) {
   if (!rootCargo.includes(metadata)) fail(`workspace package metadata is missing: ${metadata}`);
 }

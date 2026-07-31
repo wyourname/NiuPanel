@@ -43,7 +43,7 @@
 
 <script setup lang="ts">
 import { ref } from "vue";
-import "xterm/css/xterm.css";
+import "@xterm/xterm/css/xterm.css";
 import { useTerminalSession } from "./composables/useTerminalSession";
 
 const terminalRef = ref<HTMLElement | null>(null);

@@ -20,7 +20,7 @@ impl MigrationTrait for Migration {
 
         for (col_name, col_type) in columns {
             if !self.has_column(manager, "users", col_name).await? {
-                db.execute(Statement::from_string(
+                db.execute_raw(Statement::from_string(
                     manager.get_database_backend(),
                     format!("ALTER TABLE users ADD COLUMN {} {}", col_name, col_type),
                 ))
@@ -30,7 +30,7 @@ impl MigrationTrait for Migration {
 
         // 2. 检查并补全 audit_logs 表
         if !self.has_column(manager, "audit_logs", "actor_type").await? {
-            db.execute(Statement::from_string(
+            db.execute_raw(Statement::from_string(
                 manager.get_database_backend(),
                 "ALTER TABLE audit_logs ADD COLUMN actor_type TEXT NOT NULL DEFAULT 'User'"
                     .to_string(),
@@ -40,7 +40,7 @@ impl MigrationTrait for Migration {
 
         // 3. 检查并补全 api_keys 表
         if !self.has_column(manager, "api_keys", "last_used_ip").await? {
-            db.execute(Statement::from_string(
+            db.execute_raw(Statement::from_string(
                 manager.get_database_backend(),
                 "ALTER TABLE api_keys ADD COLUMN last_used_ip TEXT".to_string(),
             ))
@@ -65,7 +65,7 @@ impl Migration {
         let db = manager.get_connection();
         let sql = format!("PRAGMA table_info({})", table);
         let rows = db
-            .query_all(Statement::from_string(manager.get_database_backend(), sql))
+            .query_all_raw(Statement::from_string(manager.get_database_backend(), sql))
             .await?;
 
         for row in rows {

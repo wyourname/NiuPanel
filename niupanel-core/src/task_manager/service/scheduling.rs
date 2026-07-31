@@ -6,7 +6,7 @@ use chrono_tz::Tz;
 use niupanel_common::constants::settings::{SYSTEM_MAX_CONCURRENCY, SYSTEM_TIMEZONE};
 use niupanel_common::error::AppError;
 use niupanel_common::{error as error_msg, info, warn};
-use rand::Rng;
+use rand::RngExt;
 use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
 use std::str::FromStr;
 use tokio::sync::broadcast;
