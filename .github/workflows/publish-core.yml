@@ -229,8 +229,10 @@ jobs:
           test -n "$RELEASE_TOKEN" || { echo 'RELEASE_TOKEN is required' >&2; exit 1; }
           node scripts/update-channel-index.mjs update-index/preview.json preview core component/core-component.json
           node scripts/verify-update-channel-index.mjs update-index/preview.json preview
+          mkdir -p update-index/.github/workflows
+          cp .github/workflows/docker.yml update-index/.github/workflows/docker.yml
           git -C update-index config user.name 'niupanel-release-bot'
           git -C update-index config user.email 'release-bot@users.noreply.github.com'
-          git -C update-index add preview.json
+          git -C update-index add preview.json .github/workflows/docker.yml
           git -C update-index diff --cached --quiet || git -C update-index commit -m 'release: update preview Core'
           git -C update-index push origin HEAD:release-index

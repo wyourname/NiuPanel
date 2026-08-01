@@ -71,6 +71,8 @@ jobs:
             git -C update-index checkout --orphan release-index
           fi
           cp index.json "update-index/${CHANNEL}.json"
-          git -C update-index add "${CHANNEL}.json"
+          mkdir -p update-index/.github/workflows
+          cp .github/workflows/docker.yml update-index/.github/workflows/docker.yml
+          git -C update-index add "${CHANNEL}.json" .github/workflows/docker.yml
           git -C update-index diff --cached --quiet || git -C update-index commit -m "release: bootstrap ${CHANNEL} update index"
           git -C update-index push origin HEAD:release-index
