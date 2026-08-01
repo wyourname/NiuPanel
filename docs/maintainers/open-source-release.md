@@ -36,11 +36,11 @@ Release and Magisk packages bundle `uv` plus pnpm; they must never bundle fnm. `
 - Core Release 使用 `core-vX.Y.Z`，Web Release 使用 `web-vX.Y.Z`；版本号均为纯数字，不使用 `-beta.1`、`-rc.1` 等后缀。Launcher 保持独立版本，通过 `RELEASE_PROTOCOL_VERSION` 与 Core 协商。
 - Web 在 `release-manifest.json` 中声明兼容的 Core 范围；Core 与 Web 均从 0.8.0 起采用新更新协议，不兼容 0.7.x 的旧 Release 格式。
 - Docker keeps an independent environment version in `docker/VERSION`; bump it only when the base image, system dependencies, bundled runtime tools, or container contract changes.
-- `Publish Core Pre-release` 与 `Publish Web Pre-release` 分别只构建自己的组件、创建 GitHub Pre-release，并更新 `release-index` 分支中的 `preview.json`。测试通过后，`Promote Component Release` 原地提升同一 Release 并更新 `stable.json`。
-- `release-index` 是面板更新与 Docker 的唯一来源：每个通道文件绑定 Core 三架构包、Web 包、Tag、兼容契约、下载地址、大小和 SHA-256。写入前会拒绝 API contract 或 Core 兼容范围不匹配的组合。
-- 首次使用前运行 `Bootstrap Update Channel Index` 为 `preview` 和 `stable` 各创建一次索引。索引只接受 `core-v0.8.0` 及以后完整的组件 Release；历史 `v0.8.0` 资产不完整时，应发布新的 `core-v0.8.1` / `web-v2.0.0` 基线。
+- `Publish Core Pre-release` 与 `Publish Web Pre-release` 分别只构建自己的组件、创建 GitHub Pre-release，并更新 `main/release/channels/preview.json`。测试通过后，`Promote Component Release` 原地提升同一 Release 并更新 `stable.json`。
+- `main/release/channels` 是面板更新与 Docker 的唯一来源：每个通道文件绑定 Core 三架构包、Web 包、Tag、兼容契约、下载地址、大小和 SHA-256。写入前会拒绝 API contract 或 Core 兼容范围不匹配的组合。
+- 首次使用前运行 `Bootstrap Update Channel Index` 为 `main/release/channels/preview.json` 和 `stable.json` 各创建一次索引。索引只接受 `core-v0.8.0` 及以后完整的组件 Release；历史 `v0.8.0` 资产不完整时，应发布新的 `core-v0.8.1` / `web-v2.0.0` 基线。
 - 本地 `./build.sh [amd64|arm64|armv7|all]` 仍可生成组合测试包；它不是线上通道索引或正式组件发布的来源。
-- `Publish Docker Image` 由 `release-index` 分支的 `preview.json` 或 `stable.json` 变更自动触发，也可手动选择通道。它验证索引引用的组件后构建多架构镜像，始终使用 Docker 环境版本与 `latest` 标签，并记录实际 Core/Web 版本。
-- 发布和索引写入必须使用 `RELEASE_TOKEN`（fine-grained PAT，目标仓库 `Contents: Read and write`、`Workflows: Read and write`），以便写入 `release-index` 后可靠触发 Docker 工作流。
+- `Publish Docker Image` 由 `main/release/channels/preview.json` 或 `stable.json` 变更自动触发，也可手动选择通道。它验证索引引用的组件后构建多架构镜像，始终使用 Docker 环境版本与 `latest` 标签，并记录实际 Core/Web 版本。
+- 发布和索引写入必须使用 `RELEASE_TOKEN`（fine-grained PAT，目标仓库 `Contents: Read and write`、`Workflows: Read and write`），以便写入 `main` 后可靠触发 Docker 工作流。
 - Plugins: independently versioned packages; their manifests must declare their own license.
 - User data and imported scripts: never part of the source distribution.

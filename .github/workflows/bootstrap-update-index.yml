@@ -26,10 +26,13 @@ jobs:
     name: Create or replace component index
     runs-on: ubuntu-latest
     concurrency:
-      group: niupanel-release-index-${{ inputs.channel }}
+      group: niupanel-release-channel-${{ inputs.channel }}
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: main
+          token: ${{ secrets.RELEASE_TOKEN }}
 
       - name: Download and verify component assets
         env:
@@ -54,25 +57,17 @@ jobs:
           node scripts/verify-update-channel-index.mjs index.json '${{ inputs.channel }}'
           node scripts/verify-update-channel-assets.mjs index.json release-assets
 
-      - name: Create or update the release-index branch
+      - name: Create or update the main channel index
         env:
           RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
           CHANNEL: ${{ inputs.channel }}
         run: |
           set -euo pipefail
           test -n "$RELEASE_TOKEN" || { echo 'RELEASE_TOKEN is required' >&2; exit 1; }
-          git init update-index
-          git -C update-index config user.name 'niupanel-release-bot'
-          git -C update-index config user.email 'release-bot@users.noreply.github.com'
-          git -C update-index remote add origin "https://x-access-token:${RELEASE_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-          if git -C update-index fetch origin release-index; then
-            git -C update-index checkout -B release-index origin/release-index
-          else
-            git -C update-index checkout --orphan release-index
-          fi
-          cp index.json "update-index/${CHANNEL}.json"
-          mkdir -p update-index/.github/workflows
-          cp .github/workflows/docker.yml update-index/.github/workflows/docker.yml
-          git -C update-index add "${CHANNEL}.json" .github/workflows/docker.yml
-          git -C update-index diff --cached --quiet || git -C update-index commit -m "release: bootstrap ${CHANNEL} update index"
-          git -C update-index push origin HEAD:release-index
+          mkdir -p release/channels
+          cp index.json "release/channels/${CHANNEL}.json"
+          git config user.name 'niupanel-release-bot'
+          git config user.email 'release-bot@users.noreply.github.com'
+          git add "release/channels/${CHANNEL}.json"
+          git diff --cached --quiet || git commit -m "release: bootstrap ${CHANNEL} update index"
+          git push origin HEAD:main

@@ -164,7 +164,7 @@ jobs:
     needs: [metadata, release]
     runs-on: ubuntu-latest
     concurrency:
-      group: niupanel-release-index-preview
+      group: niupanel-release-channel-preview
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@v6
@@ -176,63 +176,24 @@ jobs:
           name: core-component
           path: component
 
-      - name: Check Preview index initialization
-        id: index
-        env:
-          RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
-        run: |
-          set -euo pipefail
-          test -n "$RELEASE_TOKEN" || { echo 'RELEASE_TOKEN is required' >&2; exit 1; }
-          set +e
-          git ls-remote --exit-code --heads \
-            "https://x-access-token:${RELEASE_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
-            release-index >/dev/null 2>&1
-          status=$?
-          set -e
-          if [ "$status" -eq 0 ]; then
-            echo 'ready=true' >> "$GITHUB_OUTPUT"
-          elif [ "$status" -eq 2 ]; then
-            echo 'ready=false' >> "$GITHUB_OUTPUT"
-          else
-            echo "Unable to read release-index branch (git exit $status)" >&2
-            exit "$status"
-          fi
-
       - uses: actions/checkout@v6
-        if: steps.index.outputs.ready == 'true'
         with:
-          ref: release-index
+          ref: main
           path: update-index
           token: ${{ secrets.RELEASE_TOKEN }}
 
-      - name: Check Preview channel initialization
-        if: steps.index.outputs.ready == 'true'
-        id: channel
-        run: |
-          if [ -f update-index/preview.json ]; then
-            echo 'ready=true' >> "$GITHUB_OUTPUT"
-          else
-            echo 'ready=false' >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Explain initial index setup
-        if: steps.index.outputs.ready != 'true' || steps.channel.outputs.ready != 'true'
-        run: |
-          echo 'Core pre-release is published. Run Bootstrap Update Channel Index for preview after the first Core and Web pre-releases are available.'
-
       - name: Update and publish Preview index
-        if: steps.channel.outputs.ready == 'true'
         env:
           RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
         run: |
           set -euo pipefail
           test -n "$RELEASE_TOKEN" || { echo 'RELEASE_TOKEN is required' >&2; exit 1; }
-          node scripts/update-channel-index.mjs update-index/preview.json preview core component/core-component.json
-          node scripts/verify-update-channel-index.mjs update-index/preview.json preview
-          mkdir -p update-index/.github/workflows
-          cp .github/workflows/docker.yml update-index/.github/workflows/docker.yml
+          INDEX=update-index/release/channels/preview.json
+          test -f "$INDEX" || { echo 'Preview index is not initialized; run Bootstrap Update Channel Index first' >&2; exit 1; }
+          node scripts/update-channel-index.mjs "$INDEX" preview core component/core-component.json
+          node scripts/verify-update-channel-index.mjs "$INDEX" preview
           git -C update-index config user.name 'niupanel-release-bot'
           git -C update-index config user.email 'release-bot@users.noreply.github.com'
-          git -C update-index add preview.json .github/workflows/docker.yml
+          git -C update-index add release/channels/preview.json
           git -C update-index diff --cached --quiet || git -C update-index commit -m 'release: update preview Core'
-          git -C update-index push origin HEAD:release-index
+          git -C update-index push origin HEAD:main

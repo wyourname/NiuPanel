@@ -2,10 +2,10 @@ name: Publish Docker Image
 
 on:
   push:
-    branches: [release-index]
+    branches: [main]
     paths:
-      - preview.json
-      - stable.json
+      - release/channels/preview.json
+      - release/channels/stable.json
   workflow_dispatch:
     inputs:
       channel:
@@ -34,16 +34,7 @@ jobs:
       - name: Checkout Docker source
         uses: actions/checkout@v6
         with:
-          ref: main
-
-      - name: Checkout selected update index
-        uses: actions/checkout@v6
-        with:
-          # A push must build exactly the index revision that triggered it.
-          # Reading the branch head here could otherwise pair an older event
-          # with a newer preview/stable component set.
-          ref: ${{ github.event_name == 'push' && github.sha || 'release-index' }}
-          path: update-index
+          ref: ${{ github.event_name == 'push' && github.sha || 'main' }}
           fetch-depth: 1
 
       - name: Select changed update channel
@@ -55,12 +46,12 @@ jobs:
           if [ -n "$CHANNEL_INPUT" ]; then
             CHANNEL="$CHANNEL_INPUT"
           else
-            CHANGED=$(git -C update-index diff-tree --root --no-commit-id --name-only -r HEAD)
+            CHANGED=$(git diff-tree --root --no-commit-id --name-only -r HEAD)
           fi
           if [ -z "${CHANNEL:-}" ]; then
-            if grep -qx 'stable.json' <<<"$CHANGED"; then
+            if grep -qx 'release/channels/stable.json' <<<"$CHANGED"; then
               CHANNEL=stable
-            elif grep -qx 'preview.json' <<<"$CHANGED"; then
+            elif grep -qx 'release/channels/preview.json' <<<"$CHANGED"; then
               CHANNEL=preview
             else
               echo 'No update channel index changed' >&2
@@ -76,7 +67,7 @@ jobs:
           CHANNEL: ${{ steps.channel.outputs.channel }}
         run: |
           set -euo pipefail
-          INDEX="update-index/${CHANNEL}.json"
+          INDEX="release/channels/${CHANNEL}.json"
           export INDEX
           node scripts/verify-update-channel-index.mjs "$INDEX" "$CHANNEL"
           CORE_TAG=$(node -p "require('./' + process.env.INDEX).core.tag")

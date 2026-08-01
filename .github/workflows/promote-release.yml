@@ -92,7 +92,7 @@ jobs:
     needs: promote
     runs-on: ubuntu-latest
     concurrency:
-      group: niupanel-release-index-stable
+      group: niupanel-release-channel-stable
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@v6
@@ -104,47 +104,23 @@ jobs:
           name: promoted-component
           path: component
 
-      - name: Check Stable index initialization
-        id: index
-        env:
-          RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
-        run: |
-          set -euo pipefail
-          test -n "$RELEASE_TOKEN" || { echo 'RELEASE_TOKEN is required' >&2; exit 1; }
-          set +e
-          git ls-remote --exit-code --heads \
-            "https://x-access-token:${RELEASE_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
-            release-index >/dev/null 2>&1
-          status=$?
-          set -e
-          if [ "$status" -eq 0 ]; then
-            echo 'ready=true' >> "$GITHUB_OUTPUT"
-          elif [ "$status" -eq 2 ]; then
-            echo 'ready=false' >> "$GITHUB_OUTPUT"
-          else
-            echo "Unable to read release-index branch (git exit $status)" >&2
-            exit "$status"
-          fi
-
       - uses: actions/checkout@v6
-        if: steps.index.outputs.ready == 'true'
         with:
-          ref: release-index
+          ref: main
           path: update-index
           token: ${{ secrets.RELEASE_TOKEN }}
 
       - name: Check Stable channel initialization
-        if: steps.index.outputs.ready == 'true'
         id: channel
         run: |
-          if [ -f update-index/stable.json ]; then
+          if [ -f update-index/release/channels/stable.json ]; then
             echo 'ready=true' >> "$GITHUB_OUTPUT"
           else
             echo 'ready=false' >> "$GITHUB_OUTPUT"
           fi
 
       - name: Explain initial index setup
-        if: steps.index.outputs.ready != 'true' || steps.channel.outputs.ready != 'true'
+        if: steps.channel.outputs.ready != 'true'
         run: |
           echo 'Release is stable. Run Bootstrap Update Channel Index for stable after the initial Core and Web releases are both promoted.'
 
@@ -156,12 +132,11 @@ jobs:
         run: |
           set -euo pipefail
           test -n "$RELEASE_TOKEN" || { echo 'RELEASE_TOKEN is required' >&2; exit 1; }
-          node scripts/update-channel-index.mjs update-index/stable.json stable "$COMPONENT" component/component.json
-          node scripts/verify-update-channel-index.mjs update-index/stable.json stable
-          mkdir -p update-index/.github/workflows
-          cp .github/workflows/docker.yml update-index/.github/workflows/docker.yml
+          INDEX=update-index/release/channels/stable.json
+          node scripts/update-channel-index.mjs "$INDEX" stable "$COMPONENT" component/component.json
+          node scripts/verify-update-channel-index.mjs "$INDEX" stable
           git -C update-index config user.name 'niupanel-release-bot'
           git -C update-index config user.email 'release-bot@users.noreply.github.com'
-          git -C update-index add stable.json .github/workflows/docker.yml
+          git -C update-index add release/channels/stable.json
           git -C update-index diff --cached --quiet || git -C update-index commit -m "release: update stable $COMPONENT"
-          git -C update-index push origin HEAD:release-index
+          git -C update-index push origin HEAD:main

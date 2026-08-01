@@ -25,7 +25,7 @@ Core 与 Web 分别发布版本，并共享以下兼容字段：
 
 同一 `schema_epoch` 内只允许 expand-first 迁移：新增表、可空字段、兼容索引和双读双写。删除字段、重命名字段、改变含义等破坏性变更必须延后到新的 epoch。生产回退不执行 `migration down`。
 
-Core 使用 `core-vX.Y.Z` Tag，Web 使用 `web-vX.Y.Z` Tag，均先发布为 GitHub Pre-release，验证后原地提升为正式版。`release-index` 分支的 `preview.json` 与 `stable.json` 是唯一通道契约：它们分别引用完整 Core 三架构包和独立 Web 包，并保存下载地址、SHA-256、大小与兼容信息。写入索引时必须验证 Core/Web 的 `api_contract`、Web `core.min/max` 和 Core `launcher_protocol`；0.8.0 是支持的最早更新基线，不再兼容旧协议。Docker 由索引变更触发，按索引组合构建，并继续使用环境版本与 `latest` 标签。Core/Launcher 通过 `launcher_protocol` 和 `RELEASE_PROTOCOL_VERSION` 验证兼容性，Web 通过 `api_contract` 和 `core.min/max` 验证兼容性。
+Core 使用 `core-vX.Y.Z` Tag，Web 使用 `web-vX.Y.Z` Tag，均先发布为 GitHub Pre-release，验证后原地提升为正式版。`main/release/channels/preview.json` 与 `stable.json` 是唯一通道契约：它们分别引用完整 Core 三架构包和独立 Web 包，并保存下载地址、SHA-256、大小与兼容信息。写入索引时必须验证 Core/Web 的 `api_contract`、Web `core.min/max` 和 Core `launcher_protocol`；0.8.0 是支持的最早更新基线，不再兼容旧协议。Docker 由索引变更触发，按索引组合构建，并继续使用环境版本与 `latest` 标签。Core/Launcher 通过 `launcher_protocol` 和 `RELEASE_PROTOCOL_VERSION` 验证兼容性，Web 通过 `api_contract` 和 `core.min/max` 验证兼容性。
 
 ## Core 更新与回退
 
@@ -77,7 +77,7 @@ NiuPanel 在 `/mcp` 提供 Streamable HTTP MCP Server，统一使用 `X-API-Key`
 ## 发布验证
 
 - Core、launcher、Web 分别通过构建和契约测试。
-- Core 与 Web 各自发布不可变归档；`release-index` 只允许引用全部三架构 Core 包、唯一 Web 包和兼容的组件组合。
+- Core 与 Web 各自发布不可变归档；`main/release/channels` 只允许引用全部三架构 Core 包、唯一 Web 包和兼容的组件组合。
 - 内置 Core/Web 更新只读取当前通道索引，精确校验版本、架构、文件名、大小和 SHA-256 后才下载或安装组件。
 - Docker 环境版本独立维护。索引的 Core 或 Web 指针变更都会触发 Docker 工作流；工作流校验同一索引组合后推送环境版本标签和 `latest`。
 - Docker 由 launcher 作为 PID 1 启动，并持久化整个 `/app/data`。

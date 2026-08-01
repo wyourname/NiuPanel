@@ -20,7 +20,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use tokio_util::sync::CancellationToken;
 
 const UPDATE_CHANNEL_INDEX_BASE_URL: &str =
-    "https://raw.githubusercontent.com/wyourname/NiuPanel/release-index";
+    "https://raw.githubusercontent.com/wyourname/NiuPanel/main/release/channels";
 const UPDATE_USER_AGENT: &str = "NiuPanel-Updater/1.0";
 const RELEASE_META_TIMEOUT_SECS: u64 = 30;
 const RELEASE_DOWNLOAD_TIMEOUT_SECS: u64 = 60 * 30;

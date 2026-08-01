@@ -49,7 +49,7 @@ case "$ARCH" in
     armv7) ARCH_SUFFIX="armv7" ;;
 esac
 
-UPDATE_INDEX_URL="https://raw.githubusercontent.com/${REPO}/release-index/stable.json"
+UPDATE_INDEX_URL="https://raw.githubusercontent.com/${REPO}/main/release/channels/stable.json"
 UPDATE_INDEX="$MODPATH/update-index.json"
 ui_print "- 正在读取稳定更新索引..."
 curl -L -f --connect-timeout 20 --retry 3 "$UPDATE_INDEX_URL" -o "$UPDATE_INDEX" \

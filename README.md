@@ -188,7 +188,7 @@ cd NiuPanel
 - Core 更新前保存 SQLite 主文件、WAL 和 SHM 快照。
 - Core 与 Web UI 分别安装、激活、检查更新和回滚。
 - Core 使用 `core-vX.Y.Z` Tag，Web UI 使用 `web-vX.Y.Z` Tag；两者独立发布，均先创建 GitHub Pre-release，再原地提升为正式版。
-- `release-index` 分支中的 `preview.json` 与 `stable.json` 是内置更新和 Docker 的唯一更新来源；它们绑定已验证的 Core/Web 组合、兼容契约、文件名、下载地址、大小与 SHA-256。从 0.8.0 起不再兼容 0.7.x 的旧发布协议。
+- `main` 分支的 `release/channels/preview.json` 与 `release/channels/stable.json` 是内置更新和 Docker 的唯一更新来源；它们绑定已验证的 Core/Web 组合、兼容契约、文件名、下载地址、大小与 SHA-256。从 0.8.0 起不再兼容 0.7.x 的旧发布协议。
 - Docker 环境镜像独立使用 `3.0.0` 与 `latest` 标签；任一通道的 Core 或 Web 组件更新都会重建镜像，并以 OCI label 记录实际组件版本。
 - Web 发布包使用逐文件 SHA-256 manifest 校验并原子切换。
 - 内置 `/recovery` 恢复入口不依赖当前 Web UI 包。
@@ -208,7 +208,7 @@ docker run -d \
   wyourname/niupanel:latest
 ```
 
-镜像使用多架构 Manifest，Docker 会自动选择 AMD64、ARM64 或 ARMv7 产物。Docker 从 `release-index` 的指定通道读取并校验 Core/Web 组件，镜像保持 Docker 环境版本标签，例如 `wyourname/niupanel:3.0.0`，并同步更新 `latest`。Docker 镜像通过单独的 Actions 工作流从 `main` 的 Dockerfile 构建，并在 OCI label 中记录所含 Core 与 Web 版本。
+镜像使用多架构 Manifest，Docker 会自动选择 AMD64、ARM64 或 ARMv7 产物。Docker 从 `main/release/channels` 的指定通道读取并校验 Core/Web 组件，镜像保持 Docker 环境版本标签，例如 `wyourname/niupanel:3.0.0`，并同步更新 `latest`。Docker 镜像通过单独的 Actions 工作流从 `main` 的 Dockerfile 构建，并在 OCI label 中记录所含 Core 与 Web 版本。
 
 启动后访问：
 
