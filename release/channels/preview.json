@@ -1,11 +1,11 @@
 {
   "schema_version": 1,
   "channel": "preview",
-  "updated_at": "2026-08-01T11:01:05.792Z",
+  "updated_at": "2026-08-01T11:26:02.461Z",
   "core": {
-    "version": "0.8.0",
-    "tag": "core-v0.8.0",
-    "release_url": "https://github.com/wyourname/NiuPanel/releases/tag/core-v0.8.0",
+    "version": "0.8.1",
+    "tag": "core-v0.8.1",
+    "release_url": "https://github.com/wyourname/NiuPanel/releases/tag/core-v0.8.1",
     "notes": "",
     "launcher_protocol": 1,
     "api_contract": 1,
@@ -14,24 +14,24 @@
     "assets": {
       "x86_64": {
         "name": "niupanel_linux_x86_64.tar.gz",
-        "url": "https://github.com/wyourname/NiuPanel/releases/download/core-v0.8.0/niupanel_linux_x86_64.tar.gz",
+        "url": "https://github.com/wyourname/NiuPanel/releases/download/core-v0.8.1/niupanel_linux_x86_64.tar.gz",
         "target": "x86_64-unknown-linux-musl",
-        "sha256": "341bbfdd248bc3b26958a06a14abef092e795b63119ff9614e37f3eb565e62c8",
-        "size": 89117959
+        "sha256": "43f10888a96d3b6dac34d6c78ec8bf61009477fadfeec433f292d438bacbf302",
+        "size": 89134954
       },
       "aarch64": {
         "name": "niupanel_linux_aarch64.tar.gz",
-        "url": "https://github.com/wyourname/NiuPanel/releases/download/core-v0.8.0/niupanel_linux_aarch64.tar.gz",
+        "url": "https://github.com/wyourname/NiuPanel/releases/download/core-v0.8.1/niupanel_linux_aarch64.tar.gz",
         "target": "aarch64-unknown-linux-musl",
-        "sha256": "5129acc614e2fff83f0cb5d9dd881d9716ae1160151da26ecfa50de3d9e8bcaf",
-        "size": 87235984
+        "sha256": "eed7a1013fd28dff7ac1ed9c7d920397481117fe88c4bbd0b30c7fc15ce9e404",
+        "size": 87246998
       },
       "armv7": {
         "name": "niupanel_linux_armv7.tar.gz",
-        "url": "https://github.com/wyourname/NiuPanel/releases/download/core-v0.8.0/niupanel_linux_armv7.tar.gz",
+        "url": "https://github.com/wyourname/NiuPanel/releases/download/core-v0.8.1/niupanel_linux_armv7.tar.gz",
         "target": "armv7-unknown-linux-musleabihf",
-        "sha256": "876975eab0d660f28facfd91b7f6d9a5c4624c69722540cfba4d3aecb258f341",
-        "size": 92568814
+        "sha256": "e230d3015b186d7ef75d8e240f0d91f6b318696173dca2b2420fb99c3df32be4",
+        "size": 92564540
       }
     }
   },
