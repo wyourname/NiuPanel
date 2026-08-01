@@ -38,6 +38,7 @@ pub struct ReleaseInfo {
     pub prerelease: bool,
     pub update_available: bool,
     pub size: u64,
+    pub launcher_managed: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

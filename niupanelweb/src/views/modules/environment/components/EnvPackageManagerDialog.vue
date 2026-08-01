@@ -1,28 +1,29 @@
 <template>
-  <component
-    :is="appStore.isMobile ? 'el-drawer' : 'el-dialog'"
-    v-model="visible"
-    :title="appStore.isMobile ? '' : dialogTitle"
-    :size="appStore.isMobile ? '100%' : undefined"
-    :width="appStore.isMobile ? '100%' : '920px'"
-    :align-center="!appStore.isMobile"
-    direction="btt"
+  <ResponsiveDialog
+    v-model:visible="visible"
+    :title="dialogTitle"
+    width="920px"
+    size="100%"
     destroy-on-close
     append-to-body
-    class="log-modal"
   >
-    <div class="flex-1 flex flex-col overflow-hidden bg-[var(--editor-bg)]">
-      <div class="px-5 py-4 border-b border-[var(--editor-border)] flex items-center justify-between gap-4">
-        <div class="min-w-0">
-          <div class="text-sm font-semibold text-[var(--editor-text)] truncate">
-            {{ dialogTitle }}
-          </div>
-          <div class="text-xs text-[var(--editor-text)]/55 mt-1">
-            支持批量安装、单个卸载和任务日志回看。Node.js 为全局依赖管理，Python 走当前环境。
+    <div class="flex h-full min-h-[420px] flex-col overflow-hidden bg-[var(--editor-bg)] md:h-[min(680px,75vh)]">
+      <div class="flex flex-col gap-3 border-b border-[var(--editor-border)] px-5 py-3.5 sm:flex-row sm:items-center sm:justify-between">
+        <div class="flex min-w-0 items-center gap-3">
+          <span class="h-9 w-9 shrink-0 rounded-md accent-subtle flex-center">
+            <span class="i-ep-box text-[16px]"></span>
+          </span>
+          <div class="min-w-0">
+            <div class="text-[12px] font-semibold text-[var(--editor-text)]">
+              管理已安装依赖
+            </div>
+            <div class="mt-0.5 text-[10px] leading-4 text-[var(--editor-text)]/55">
+              Node.js 依赖按运行时版本隔离；Python 依赖归属当前虚拟环境。
+            </div>
           </div>
         </div>
 
-        <div class="flex items-center gap-2 shrink-0">
+        <div class="flex items-center gap-2 sm:shrink-0 sm:self-end">
           <ToolbarButton variant="soft" @click="showInstallDialog">
             <template #icon>
               <div class="i-ep-download"></div>
@@ -38,6 +39,8 @@
           <button
             type="button"
             class="btn-icon !w-9 !h-9"
+            title="刷新依赖列表"
+            aria-label="刷新依赖列表"
             @click="loadPackages()"
           >
             <div :class="['i-ep-refresh', loading ? 'animate-spin' : '']"></div>
@@ -45,7 +48,7 @@
         </div>
       </div>
 
-      <div class="px-5 py-4 border-b border-[var(--editor-border)]">
+      <div class="border-b border-[var(--editor-border)] px-5 py-4">
         <div class="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_220px] gap-3">
           <el-input
             v-model="searchQuery"
@@ -86,13 +89,13 @@
       v-model:visible="uninstallDialogVisible"
       @uninstall="handleManualUninstall"
     />
-  </component>
+  </ResponsiveDialog>
 </template>
 
 <script setup lang="ts">
 import { computed } from "vue";
-import { useAppStore } from "../../../../stores/app";
 import type { Env } from "@/types";
+import ResponsiveDialog from "../../../../components/common/ResponsiveDialog.vue";
 import ToolbarButton from "../../../../components/common/ToolbarButton.vue";
 import EnvPackageInstallDialog from "./EnvPackageInstallDialog.vue";
 import EnvPackageList from "./EnvPackageList.vue";
@@ -114,7 +117,6 @@ const emit = defineEmits<{
   (event: "update:modelValue", value: boolean): void;
   (event: "show-log", id: number | string, name: string): void;
 }>();
-const appStore = useAppStore();
 
 const visible = computed({
   get: () => props.modelValue,

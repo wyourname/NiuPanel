@@ -25,11 +25,11 @@ Core 与 Web 分别发布版本，并共享以下兼容字段：
 
 同一 `schema_epoch` 内只允许 expand-first 迁移：新增表、可空字段、兼容索引和双读双写。删除字段、重命名字段、改变含义等破坏性变更必须延后到新的 epoch。生产回退不执行 `migration down`。
 
-正式应用发布使用 Core 版本作为 Git Tag，且统一采用 `vX.Y.Z` 纯数字形式。新 Tag 只构建一次并先创建 GitHub Pre-release；测试通过后将同一个 Release 提升为正式版，不重建或替换资产。Web、Launcher 与 Docker 分别保留独立组件版本。应用 CI 生成 schema 2 的 `niupanel-release.json`，记录 Git SHA、Core 三架构包、Web 包、兼容契约、大小及全部 SHA-256；该文件不保存通道，preview/stable 以 GitHub Release 状态为准。Docker 由独立工作流从已发布且经该 manifest 校验的 Release 构建，包括 Pre-release；Docker 标签仍使用环境版本与 `latest`，并通过 OCI label 记录所含 Core/Web 版本。Core/Launcher 通过 `launcher_protocol` 和 `RELEASE_PROTOCOL_VERSION` 验证兼容性，Web 通过 `api_contract` 和 `core.min/max` 加入同一发布。
+Core 使用 `core-vX.Y.Z` Tag，Web 使用 `web-vX.Y.Z` Tag，均先发布为 GitHub Pre-release，验证后原地提升为正式版。`release-index` 分支的 `preview.json` 与 `stable.json` 是唯一通道契约：它们分别引用完整 Core 三架构包和独立 Web 包，并保存下载地址、SHA-256、大小与兼容信息。写入索引时必须验证 Core/Web 的 `api_contract`、Web `core.min/max` 和 Core `launcher_protocol`；0.8.0 是支持的最早更新基线，不再兼容旧协议。Docker 由索引变更触发，按索引组合构建，并继续使用环境版本与 `latest` 标签。Core/Launcher 通过 `launcher_protocol` 和 `RELEASE_PROTOCOL_VERSION` 验证兼容性，Web 通过 `api_contract` 和 `core.min/max` 验证兼容性。
 
 ## Core 更新与回退
 
-Core 发布包只包含 `niupanel`、`niupanel-launcher`、`core-release.json` 与按架构准备的运行时工具；它不包含 Web UI。首次手动部署必须从同一 `niupanel-release.json` 同时取得匹配的 Web 包，或直接使用已完成该组合的 Docker / Magisk 安装方式。运行目录：
+Core 发布包只包含 `niupanel`、`niupanel-launcher`、`core-release.json` 与按架构准备的运行时工具；它不包含 Web UI。首次手动部署从同一通道索引取得兼容的 Core 与 Web 组件，或直接使用已完成该组合的 Docker / Magisk 安装方式。运行目录：
 
 ```text
 data/system/
@@ -77,9 +77,9 @@ NiuPanel 在 `/mcp` 提供 Streamable HTTP MCP Server，统一使用 `X-API-Key`
 ## 发布验证
 
 - Core、launcher、Web 分别通过构建和契约测试。
-- Release 同时发布三个按架构区分的 Core 包、一个与架构无关的 Web 包和 schema 2 的 `niupanel-release.json`。CI 拒绝 Core/Web 混装归档，避免 Web 单独升级时被旧 Core 包覆盖；本地 `build.sh` 也生成并验证同一契约。
-- 内置 Core/Web 更新先选择 GitHub Release 状态对应的 stable/preview Release，再强制读取 `niupanel-release.json`，精确校验版本、架构、文件名、大小和 SHA-256 后才下载或安装组件。
-- Docker 环境版本独立维护。维护者从已提升为稳定版的应用 Tag 手动触发 Docker 工作流；该工作流先按同一份 `niupanel-release.json` 校验三架构 Core 包和唯一的 Web 包，再推送环境版本标签和 `latest`。
+- Core 与 Web 各自发布不可变归档；`release-index` 只允许引用全部三架构 Core 包、唯一 Web 包和兼容的组件组合。
+- 内置 Core/Web 更新只读取当前通道索引，精确校验版本、架构、文件名、大小和 SHA-256 后才下载或安装组件。
+- Docker 环境版本独立维护。索引的 Core 或 Web 指针变更都会触发 Docker 工作流；工作流校验同一索引组合后推送环境版本标签和 `latest`。
 - Docker 由 launcher 作为 PID 1 启动，并持久化整个 `/app/data`。
 - 发布检查应覆盖候选启动失败自动回退、Web 安装/切换/回退和 MCP 鉴权。
 - 最近至少保留 3 个 Web 版本；Core 版本和数据库快照按事务保留策略清理，不允许删除 active、previous 或回退链依赖的快照。

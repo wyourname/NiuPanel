@@ -7,7 +7,7 @@ This repository previously contained local runtime state and downloaded build to
 1. Confirm `LICENSE`, `SECURITY.md`, `CONTRIBUTING.md`, and `CODE_OF_CONDUCT.md` are present.
 2. Confirm the README describes the project as open source and documents the Apache-2.0 license.
 3. Run `bash scripts/verify-public-release-gate.sh`.
-4. Run `node scripts/verify-version-contract.mjs v<core-version>` and ensure the release tag matches `niupanel/Cargo.toml`.
+4. Run `node scripts/verify-version-contract.mjs core-v<core-version>` or `node scripts/verify-version-contract.mjs web-v<web-version>` and ensure the component Tag matches its manifest.
 5. Inspect `git status` and `git ls-files` for runtime state, archives, private keys, and downloaded executables.
 6. Run a secret scanner such as Gitleaks or TruffleHog against the complete history.
 7. Generate release archives in CI; do not commit them to the source branch.
@@ -33,14 +33,14 @@ Release and Magisk packages bundle `uv` plus pnpm; they must never bundle fnm. `
 ## Publishing model
 
 - Source code: Apache License 2.0.
-- The formal application version is the Core version, and the Git Tag must match it. Application versions and Tags always use the plain `X.Y.Z` / `vX.Y.Z` form; do not add `-beta.1`, `-rc.1`, or another prerelease suffix. Launcher has an independent component version; Core/Launcher compatibility is enforced through `RELEASE_PROTOCOL_VERSION` in `core-release.json`.
-- Web keeps its own component version and declares compatible Core versions in `release-manifest.json`.
+- Core Release 使用 `core-vX.Y.Z`，Web Release 使用 `web-vX.Y.Z`；版本号均为纯数字，不使用 `-beta.1`、`-rc.1` 等后缀。Launcher 保持独立版本，通过 `RELEASE_PROTOCOL_VERSION` 与 Core 协商。
+- Web 在 `release-manifest.json` 中声明兼容的 Core 范围；Core 与 Web 均从 0.8.0 起采用新更新协议，不兼容 0.7.x 的旧 Release 格式。
 - Docker keeps an independent environment version in `docker/VERSION`; bump it only when the base image, system dependencies, bundled runtime tools, or container contract changes.
-- 推送 `v<core-version>` Tag，或手动运行 `Publish NiuPanel Release` 并选择 `publish-prerelease`，只构建一次三架构 Core 包和 Web 包，然后创建 GitHub Pre-release。测试通过后，对同一 Tag 手动选择 `promote-stable`；工作流会重新下载并校验原资产，再只修改同一个 GitHub Release 的 Pre-release 状态，不重建、不重新打包，也不替换资产。
-- 每个应用 Release 都必须包含三个 Core 归档、唯一的 Web 归档和 schema 2 的 `niupanel-release.json`。该索引绑定 Git SHA、组件兼容契约、文件名、架构、大小和 SHA-256，不持久化 preview/stable 通道；通道只由 GitHub Release 的 `prerelease` 状态决定。内置更新器必须先读取并验证该索引，不能通过文件名猜测 Core 或 Web 资产。
-- 本地 `./build.sh [amd64|arm64|armv7|all]` 生成与 CI 相同结构的 Core/Web 归档和 `docker/niupanel-release.json`，并在构建结束时调用同一个 bundle verifier。它允许只包含本次构建的单架构 Core；CI 发布则强制包含全部三架构。
-- Docker images can package any published application Release, including a GitHub Pre-release, after verifying its `niupanel-release.json`. They always use the environment tag `<docker-environment-version>` and the rolling `latest` alias; the bundled Core and Web versions are recorded in OCI labels.
-- `Publish Docker Image` 会在应用 Release 发布为 Pre-release 或正式版时自动构建 Docker 镜像，也可手动输入一个已经发布的应用 Release Tag。工作流固定使用 `main` 的 Dockerfile 与 `docker/VERSION`，下载并根据该 Release 的同一份 `niupanel-release.json` 校验三架构 Core 包和唯一的 Web 包，再进行多架构构建，沿用环境版本标签和 `latest`。
-- 发布步骤优先使用 `RELEASE_TOKEN`（fine-grained PAT，目标仓库 `Contents: Read and write`），未配置时才使用 `GITHUB_TOKEN`；若使用后者，仓库 Settings → Actions → General → Workflow permissions 必须设为 `Read and write permissions`。
+- `Publish Core Pre-release` 与 `Publish Web Pre-release` 分别只构建自己的组件、创建 GitHub Pre-release，并更新 `release-index` 分支中的 `preview.json`。测试通过后，`Promote Component Release` 原地提升同一 Release 并更新 `stable.json`。
+- `release-index` 是面板更新与 Docker 的唯一来源：每个通道文件绑定 Core 三架构包、Web 包、Tag、兼容契约、下载地址、大小和 SHA-256。写入前会拒绝 API contract 或 Core 兼容范围不匹配的组合。
+- 首次使用前运行 `Bootstrap Update Channel Index` 为 `preview` 和 `stable` 各创建一次索引。索引只接受 `core-v0.8.0` 及以后完整的组件 Release；历史 `v0.8.0` 资产不完整时，应发布新的 `core-v0.8.1` / `web-v2.0.0` 基线。
+- 本地 `./build.sh [amd64|arm64|armv7|all]` 仍可生成组合测试包；它不是线上通道索引或正式组件发布的来源。
+- `Publish Docker Image` 由 `release-index` 分支的 `preview.json` 或 `stable.json` 变更自动触发，也可手动选择通道。它验证索引引用的组件后构建多架构镜像，始终使用 Docker 环境版本与 `latest` 标签，并记录实际 Core/Web 版本。
+- 发布和索引写入必须使用 `RELEASE_TOKEN`（fine-grained PAT，目标仓库 `Contents: Read and write`、`Workflows: Read and write`），以便写入 `release-index` 后可靠触发 Docker 工作流。
 - Plugins: independently versioned packages; their manifests must declare their own license.
 - User data and imported scripts: never part of the source distribution.

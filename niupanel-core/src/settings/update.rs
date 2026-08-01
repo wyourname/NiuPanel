@@ -3,10 +3,10 @@ use niupanel_common::download::{DownloadEvent, DownloadOptions, download_with_re
 use niupanel_common::error::{AppError, Result};
 use niupanel_common::models::update::{ReleaseInfo, UpdateState, UpdateStatus, WebReleaseInfo};
 use niupanel_common::version::{
-    CORE_RELEASE_MANIFEST_FILE, CoreActivationReason, CoreReleaseAssetManifest,
-    CoreReleaseDescriptor, CoreReleaseManifest, PendingCoreActivation,
-    RELEASE_BUNDLE_MANIFEST_FILE, RELEASE_BUNDLE_SCHEMA_VERSION, ReleaseAssetManifest,
-    ReleaseBundleManifest, read_core_runtime_state, write_core_runtime_state,
+    API_CONTRACT_VERSION, CORE_RELEASE_MANIFEST_FILE, CoreActivationReason, CoreReleaseDescriptor,
+    CoreReleaseManifest, MINIMUM_UPDATE_CORE_VERSION, PendingCoreActivation,
+    UPDATE_CHANNEL_INDEX_SCHEMA_VERSION, UpdateAsset, UpdateChannelIndex, UpdateCoreAsset,
+    read_core_runtime_state, write_core_runtime_state,
 };
 use reqwest::header::{HeaderMap, HeaderValue, USER_AGENT};
 use sea_orm::DatabaseConnection;
@@ -19,42 +19,13 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, RwLock};
 use tokio_util::sync::CancellationToken;
 
-const GITHUB_LATEST_RELEASE_API: &str =
-    "https://api.github.com/repos/wyourname/NiuPanel/releases/latest";
-const GITHUB_RELEASES_API: &str = "https://api.github.com/repos/wyourname/NiuPanel/releases";
+const UPDATE_CHANNEL_INDEX_BASE_URL: &str =
+    "https://raw.githubusercontent.com/wyourname/NiuPanel/release-index";
 const UPDATE_USER_AGENT: &str = "NiuPanel-Updater/1.0";
 const RELEASE_META_TIMEOUT_SECS: u64 = 30;
 const RELEASE_DOWNLOAD_TIMEOUT_SECS: u64 = 60 * 30;
 const UPDATE_DOWNLOAD_RETRIES: u8 = 5;
 const RELEASE_MANIFEST_MAX_SIZE: u64 = 1024 * 1024;
-
-#[derive(serde::Deserialize, Debug, Clone)]
-struct GithubReleaseAsset {
-    name: String,
-    browser_download_url: String,
-    size: u64,
-    #[serde(default)]
-    digest: Option<String>,
-}
-
-#[derive(serde::Deserialize, Debug, Clone)]
-struct GithubRelease {
-    tag_name: String,
-    html_url: String,
-    body: String,
-    #[serde(default)]
-    draft: bool,
-    #[serde(default)]
-    prerelease: bool,
-    #[serde(default)]
-    assets: Vec<GithubReleaseAsset>,
-}
-
-#[derive(Debug, Clone)]
-struct ResolvedRelease {
-    github: GithubRelease,
-    manifest: ReleaseBundleManifest,
-}
 
 #[derive(Clone)]
 pub struct UpdateService {
@@ -91,8 +62,8 @@ impl UpdateService {
     pub async fn check_update(&self) -> Result<ReleaseInfo> {
         let current_version = self.app_version.clone();
         let channel = self.update_channel().await;
-        let release = match self.fetch_release_contract(&channel).await {
-            Ok(release) => release,
+        let index = match self.fetch_update_index(&channel).await {
+            Ok(index) => index,
             Err(e) => {
                 tracing::error!("Failed to check update: {}", e);
                 return Ok(ReleaseInfo {
@@ -104,60 +75,58 @@ impl UpdateService {
                     prerelease: false,
                     update_available: false,
                     size: 0,
+                    launcher_managed: launcher_managed(),
                 });
             }
         };
 
-        let asset_size = release
-            .core_asset_for_current_target()
-            .map(|(asset, _)| asset.size)
+        let asset_size = core_asset_for_current_target(&index)
+            .map(|asset| asset.size)
             .unwrap_or(0);
 
         Ok(ReleaseInfo {
-            tag_name: release.github.tag_name.clone(),
-            html_url: release.github.html_url,
-            body: release.github.body,
+            tag_name: index.core.tag.clone(),
+            html_url: index.core.release_url,
+            body: index.core.notes,
             current_version: current_version.clone(),
             channel,
-            prerelease: release.github.prerelease,
-            update_available: compare_versions(&release.manifest.release_version, &current_version),
+            prerelease: index.channel == "preview",
+            update_available: compare_versions(&index.core.version, &current_version),
             size: asset_size,
+            launcher_managed: launcher_managed(),
         })
     }
 
     pub async fn check_web_update(&self, current_version: &str) -> Result<WebReleaseInfo> {
         let channel = self.update_channel().await;
-        let release = self.fetch_release_contract(&channel).await?;
-        let asset_size = release.web_asset()?.0.size;
-        let version = release.manifest.components.web.version.clone();
+        let index = self.fetch_update_index(&channel).await?;
+        let version = index.web.version.clone();
         Ok(WebReleaseInfo {
             version: version.clone(),
             current_version: current_version.to_string(),
-            release_tag: release.github.tag_name,
-            html_url: release.github.html_url,
-            body: release.github.body,
+            release_tag: index.web.tag,
+            html_url: index.web.release_url,
+            body: index.web.notes,
             channel,
-            prerelease: release.github.prerelease,
+            prerelease: index.channel == "preview",
             update_available: compare_versions(&version, current_version),
-            size: asset_size,
+            size: index.web.asset.size,
         })
     }
 
     pub async fn download_web_update(&self, current_version: &str) -> Result<DownloadedWebRelease> {
         let channel = self.update_channel().await;
-        let release = self.fetch_release_contract(&channel).await?;
-        let (asset, contract_asset) = release.web_asset()?;
-        let asset = asset.clone();
-        let contract_asset = contract_asset.clone();
-        let version = release.manifest.components.web.version.clone();
+        let index = self.fetch_update_index(&channel).await?;
+        let asset = index.web.asset.clone();
+        let version = index.web.version.clone();
         let info = WebReleaseInfo {
             version: version.clone(),
             current_version: current_version.to_string(),
-            release_tag: release.github.tag_name,
-            html_url: release.github.html_url,
-            body: release.github.body,
+            release_tag: index.web.tag,
+            html_url: index.web.release_url,
+            body: index.web.notes,
             channel,
-            prerelease: release.github.prerelease,
+            prerelease: index.channel == "preview",
             update_available: compare_versions(&version, current_version),
             size: asset.size,
         };
@@ -168,9 +137,10 @@ impl UpdateService {
         let package_path = temp_dir.path().join(&asset.name);
         download_component_asset(self, &asset, &package_path).await?;
         verify_downloaded_asset(
-            &asset,
-            &contract_asset.sha256,
-            contract_asset.size,
+            &asset.name,
+            asset.size,
+            &asset.sha256,
+            asset.size,
             &package_path,
         )?;
         Ok(DownloadedWebRelease {
@@ -181,6 +151,12 @@ impl UpdateService {
     }
 
     pub async fn execute_update(&self) -> Result<()> {
+        if !launcher_managed() {
+            return Err(AppError::ValidationError(
+                "当前为直接启动模式，Core 更新需要由 niupanel-launcher 启动服务；Docker 部署请更新镜像"
+                    .to_string(),
+            ));
+        }
         let mut status_guard = self
             .update_status
             .write()
@@ -240,6 +216,12 @@ impl UpdateService {
     }
 
     pub async fn execute_local_update(&self, package_path: tempfile::TempPath) -> Result<()> {
+        if !launcher_managed() {
+            return Err(AppError::ValidationError(
+                "当前为直接启动模式，Core 更新需要由 niupanel-launcher 启动服务；Docker 部署请更新镜像"
+                    .to_string(),
+            ));
+        }
         let mut status_guard = self
             .update_status
             .write()
@@ -344,46 +326,14 @@ impl UpdateService {
             .map_err(|_| AppError::Internal("Update status lock poisoned".to_string()))
     }
 
-    async fn fetch_target_release(&self, channel: &str) -> Result<GithubRelease> {
-        if channel == "preview" {
-            self.fetch_latest_preview_release().await
-        } else {
-            self.fetch_latest_stable_release().await
-        }
-    }
-
-    async fn fetch_release_contract(&self, channel: &str) -> Result<ResolvedRelease> {
-        let github = self.fetch_target_release(channel).await?;
-        let manifest = self.fetch_release_manifest(&github).await?;
-        validate_release_contract(&github, &manifest)?;
-        Ok(ResolvedRelease { github, manifest })
-    }
-
-    async fn fetch_release_manifest(
-        &self,
-        release: &GithubRelease,
-    ) -> Result<ReleaseBundleManifest> {
-        let asset = release
-            .assets
-            .iter()
-            .find(|asset| asset.name == RELEASE_BUNDLE_MANIFEST_FILE)
-            .ok_or_else(|| {
-                AppError::ValidationError(format!(
-                    "GitHub Release {} 缺少 {}",
-                    release.tag_name, RELEASE_BUNDLE_MANIFEST_FILE
-                ))
-            })?;
-        if asset.size == 0 || asset.size > RELEASE_MANIFEST_MAX_SIZE {
-            return Err(AppError::ValidationError(format!(
-                "{} 大小不合法",
-                RELEASE_BUNDLE_MANIFEST_FILE
-            )));
-        }
-
+    async fn fetch_update_index(&self, channel: &str) -> Result<UpdateChannelIndex> {
         let proxy_url: String = SettingsManager::get(&self.db, SYSTEM_GITHUB_PROXY)
             .await
             .unwrap_or_default();
-        let target_url = build_target_url(&proxy_url, &asset.browser_download_url);
+        let target_url = build_target_url(
+            &proxy_url,
+            &format!("{UPDATE_CHANNEL_INDEX_BASE_URL}/{channel}.json"),
+        );
         let response = self
             .http_client
             .get(target_url)
@@ -394,84 +344,19 @@ impl UpdateService {
             .map_err(AppError::Reqwest)?;
         if !response.status().is_success() {
             return Err(AppError::ExternalApi(format!(
-                "Failed to download {}: HTTP {}",
-                RELEASE_BUNDLE_MANIFEST_FILE,
+                "Failed to download {channel} update index: HTTP {}",
                 response.status()
             )));
         }
         let bytes = response.bytes().await.map_err(AppError::Reqwest)?;
-        if bytes.len() as u64 != asset.size {
+        if bytes.len() as u64 > RELEASE_MANIFEST_MAX_SIZE {
             return Err(AppError::ValidationError(format!(
-                "{} 大小与 GitHub Release 记录不一致",
-                RELEASE_BUNDLE_MANIFEST_FILE
+                "{channel} 更新索引大小不合法"
             )));
         }
-        verify_bytes_digest(asset, &bytes)?;
-        serde_json::from_slice(&bytes).map_err(AppError::Json)
-    }
-
-    async fn fetch_latest_stable_release(&self) -> Result<GithubRelease> {
-        let proxy_url: String = SettingsManager::get(&self.db, SYSTEM_GITHUB_PROXY)
-            .await
-            .unwrap_or_default();
-        let target_url = build_target_url(&proxy_url, GITHUB_LATEST_RELEASE_API);
-
-        let response = self
-            .http_client
-            .get(target_url)
-            .header("User-Agent", UPDATE_USER_AGENT)
-            .timeout(std::time::Duration::from_secs(RELEASE_META_TIMEOUT_SECS))
-            .send()
-            .await
-            .map_err(AppError::Reqwest)?;
-
-        if !response.status().is_success() {
-            return Err(AppError::ExternalApi(format!(
-                "Failed to get latest release info: HTTP {}",
-                response.status()
-            )));
-        }
-
-        response
-            .json::<GithubRelease>()
-            .await
-            .map_err(AppError::Reqwest)
-    }
-
-    async fn fetch_latest_preview_release(&self) -> Result<GithubRelease> {
-        let proxy_url: String = SettingsManager::get(&self.db, SYSTEM_GITHUB_PROXY)
-            .await
-            .unwrap_or_default();
-        let target_url = build_target_url(&proxy_url, GITHUB_RELEASES_API);
-
-        let response = self
-            .http_client
-            .get(target_url)
-            .header("User-Agent", UPDATE_USER_AGENT)
-            .timeout(std::time::Duration::from_secs(RELEASE_META_TIMEOUT_SECS))
-            .send()
-            .await
-            .map_err(AppError::Reqwest)?;
-
-        if !response.status().is_success() {
-            return Err(AppError::ExternalApi(format!(
-                "Failed to get preview release info: HTTP {}",
-                response.status()
-            )));
-        }
-
-        let releases = response
-            .json::<Vec<GithubRelease>>()
-            .await
-            .map_err(AppError::Reqwest)?;
-
-        releases
-            .into_iter()
-            .filter(|release| !release.draft && release.prerelease)
-            .max_by(|left, right| {
-                parse_version(&left.tag_name).cmp(&parse_version(&right.tag_name))
-            })
-            .ok_or_else(|| AppError::NotFound("未找到可用的预览版本".to_string()))
+        let index = serde_json::from_slice::<UpdateChannelIndex>(&bytes).map_err(AppError::Json)?;
+        validate_update_channel_index(&index, channel)?;
+        Ok(index)
     }
 
     async fn update_channel(&self) -> String {
@@ -490,52 +375,6 @@ impl UpdateService {
     }
 }
 
-impl ResolvedRelease {
-    fn github_asset(&self, name: &str) -> Result<&GithubReleaseAsset> {
-        let mut matches = self.github.assets.iter().filter(|asset| asset.name == name);
-        let asset = matches.next().ok_or_else(|| {
-            AppError::ValidationError(format!(
-                "GitHub Release {} 缺少 manifest 指定的资产 {}",
-                self.github.tag_name, name
-            ))
-        })?;
-        if matches.next().is_some() {
-            return Err(AppError::ValidationError(format!(
-                "GitHub Release {} 包含重复资产 {}",
-                self.github.tag_name, name
-            )));
-        }
-        Ok(asset)
-    }
-
-    fn core_asset_for_current_target(
-        &self,
-    ) -> Result<(&GithubReleaseAsset, &CoreReleaseAssetManifest)> {
-        let architecture = match std::env::consts::ARCH {
-            "arm" => "armv7",
-            value => value,
-        };
-        let contract = self
-            .manifest
-            .components
-            .core
-            .assets
-            .get(architecture)
-            .ok_or_else(|| {
-                AppError::ExternalApi(format!(
-                    "Release {} 不支持当前架构 {}",
-                    self.github.tag_name, architecture
-                ))
-            })?;
-        Ok((self.github_asset(&contract.name)?, contract))
-    }
-
-    fn web_asset(&self) -> Result<(&GithubReleaseAsset, &ReleaseAssetManifest)> {
-        let contract = &self.manifest.components.web.asset;
-        Ok((self.github_asset(&contract.name)?, contract))
-    }
-}
-
 fn parse_plain_version(value: &str, label: &str) -> Result<Version> {
     let version = Version::parse(value)
         .map_err(|error| AppError::ValidationError(format!("{label} 不是有效版本号: {error}")))?;
@@ -547,193 +386,158 @@ fn parse_plain_version(value: &str, label: &str) -> Result<Version> {
     Ok(version)
 }
 
-fn validate_asset_descriptor(name: &str, sha256: &str, size: u64) -> Result<()> {
+fn validate_asset_descriptor(name: &str, url: &str, sha256: &str, size: u64) -> Result<()> {
     if name.is_empty()
         || Path::new(name).file_name().and_then(|value| value.to_str()) != Some(name)
+        || !url.starts_with("https://")
         || size == 0
         || sha256.len() != 64
         || !sha256.chars().all(|value| value.is_ascii_hexdigit())
     {
         return Err(AppError::ValidationError(format!(
-            "Release manifest 中的资产 {} 描述不合法",
+            "更新索引中的资产 {} 描述不合法",
             name
         )));
     }
     Ok(())
 }
 
-fn validate_release_contract(
-    release: &GithubRelease,
-    manifest: &ReleaseBundleManifest,
-) -> Result<()> {
-    if manifest.schema_version != RELEASE_BUNDLE_SCHEMA_VERSION {
+fn validate_update_channel_index(index: &UpdateChannelIndex, expected_channel: &str) -> Result<()> {
+    if index.schema_version != UPDATE_CHANNEL_INDEX_SCHEMA_VERSION {
         return Err(AppError::ValidationError(format!(
-            "不支持的 Release manifest schema {}",
-            manifest.schema_version
+            "不支持的更新索引 schema {}",
+            index.schema_version
         )));
     }
-    let release_version = parse_plain_version(&manifest.release_version, "Release 版本")?;
-    if release.tag_name != format!("v{}", manifest.release_version) {
+    if index.channel != expected_channel || !matches!(index.channel.as_str(), "preview" | "stable")
+    {
         return Err(AppError::ValidationError(format!(
-            "GitHub Tag {} 与 Release manifest 版本 {} 不一致",
-            release.tag_name, manifest.release_version
+            "更新索引通道 {} 与请求通道 {} 不一致",
+            index.channel, expected_channel
         )));
     }
-    if manifest.git_sha.len() != 40
-        || !manifest
-            .git_sha
-            .chars()
-            .all(|value| value.is_ascii_hexdigit())
+    let minimum_supported = parse_plain_version(MINIMUM_UPDATE_CORE_VERSION, "最低支持 Core 版本")?;
+    let core_version = parse_plain_version(&index.core.version, "Core 版本")?;
+    if core_version < minimum_supported {
+        return Err(AppError::ValidationError(format!(
+            "Core {} 低于最低支持更新基线 {}",
+            index.core.version, MINIMUM_UPDATE_CORE_VERSION
+        )));
+    }
+    if index.core.tag != format!("core-v{}", index.core.version) {
+        return Err(AppError::ValidationError(
+            "Core Tag 与版本不一致".to_string(),
+        ));
+    }
+    if index.web.tag != format!("web-v{}", index.web.version) {
+        return Err(AppError::ValidationError(
+            "Web Tag 与版本不一致".to_string(),
+        ));
+    }
+    if !index.core.release_url.starts_with("https://")
+        || !index.web.release_url.starts_with("https://")
     {
         return Err(AppError::ValidationError(
-            "Release manifest 的 git_sha 不合法".to_string(),
+            "更新索引中的 Release 地址不合法".to_string(),
         ));
     }
-
-    let core = &manifest.components.core;
-    let web = &manifest.components.web;
-    if core.version != manifest.release_version {
+    if index.core.api_contract != API_CONTRACT_VERSION
+        || index.web.api_contract != API_CONTRACT_VERSION
+    {
         return Err(AppError::ValidationError(format!(
-            "Core {} 与 Release {} 版本不一致",
-            core.version, manifest.release_version
+            "更新索引 API contract 不兼容：Core={}, Web={}, 当前={}",
+            index.core.api_contract, index.web.api_contract, API_CONTRACT_VERSION
         )));
     }
-    if manifest.api_contract != core.api_contract || web.api_contract != core.api_contract {
+    if index.core.api_contract != index.web.api_contract {
         return Err(AppError::ValidationError(
-            "Release、Core 与 Web 的 API contract 不一致".to_string(),
+            "更新索引 Core 与 Web 的 API contract 不一致".to_string(),
         ));
     }
-    for architecture in ["x86_64", "aarch64", "armv7"] {
-        if !core.assets.contains_key(architecture) {
-            return Err(AppError::ValidationError(format!(
-                "Release manifest 缺少 {architecture} Core 资产"
-            )));
-        }
+    if index.core.launcher_protocol != niupanel_common::version::RELEASE_PROTOCOL_VERSION {
+        return Err(AppError::ValidationError(format!(
+            "更新索引 Core launcher 协议 {} 与当前协议不兼容",
+            index.core.launcher_protocol
+        )));
     }
 
-    let mut asset_names = Vec::new();
-    for (architecture, asset) in &core.assets {
-        validate_asset_descriptor(&asset.name, &asset.sha256, asset.size)?;
-        let expected_prefix = if architecture == "armv7" {
-            "armv7"
-        } else {
-            architecture.as_str()
-        };
-        if !asset.target.starts_with(&format!("{expected_prefix}-")) {
+    for (architecture, target) in [
+        ("x86_64", "x86_64-unknown-linux-musl"),
+        ("aarch64", "aarch64-unknown-linux-musl"),
+        ("armv7", "armv7-unknown-linux-musleabihf"),
+    ] {
+        let asset = index.core.assets.get(architecture).ok_or_else(|| {
+            AppError::ValidationError(format!("更新索引缺少 {architecture} Core 资产"))
+        })?;
+        validate_asset_descriptor(&asset.name, &asset.url, &asset.sha256, asset.size)?;
+        if asset.target != target {
             return Err(AppError::ValidationError(format!(
                 "Core 资产 {} 的 target {} 与架构 {} 不一致",
                 asset.name, asset.target, architecture
             )));
         }
-        let github_asset = release
-            .assets
-            .iter()
-            .find(|value| value.name == asset.name)
-            .ok_or_else(|| {
-                AppError::ValidationError(format!(
-                    "GitHub Release 缺少 manifest 指定的资产 {}",
-                    asset.name
-                ))
-            })?;
-        if github_asset.size != asset.size {
-            return Err(AppError::ValidationError(format!(
-                "资产 {} 的大小与 Release manifest 不一致",
-                asset.name
-            )));
-        }
-        asset_names.push(asset.name.as_str());
     }
-
-    validate_asset_descriptor(&web.asset.name, &web.asset.sha256, web.asset.size)?;
-    if asset_names.contains(&web.asset.name.as_str()) {
-        return Err(AppError::ValidationError(
-            "Core 与 Web 不能引用同一个 Release 资产".to_string(),
-        ));
-    }
-    let github_web_asset = release
-        .assets
-        .iter()
-        .find(|value| value.name == web.asset.name)
-        .ok_or_else(|| {
-            AppError::ValidationError(format!(
-                "GitHub Release 缺少 manifest 指定的资产 {}",
-                web.asset.name
-            ))
-        })?;
-    if github_web_asset.size != web.asset.size {
+    validate_asset_descriptor(
+        &index.web.asset.name,
+        &index.web.asset.url,
+        &index.web.asset.sha256,
+        index.web.asset.size,
+    )?;
+    let minimum = parse_plain_version(&index.web.core.min, "Web 最低 Core 版本")?;
+    if core_version < minimum {
         return Err(AppError::ValidationError(format!(
-            "资产 {} 的大小与 Release manifest 不一致",
-            web.asset.name
+            "Core {} 低于 Web 最低要求 {}",
+            index.core.version, index.web.core.min
         )));
     }
-
-    let minimum = parse_plain_version(&web.core.min, "Web 最低 Core 版本")?;
-    if release_version < minimum {
-        return Err(AppError::ValidationError(format!(
-            "Release Core {} 低于 Web 最低要求 {}",
-            core.version, web.core.min
-        )));
-    }
-    if let Some(maximum) = web.core.max.as_deref() {
+    if let Some(maximum) = index.web.core.max.as_deref() {
         let maximum = parse_plain_version(maximum, "Web 最高 Core 版本")?;
-        if release_version > maximum {
+        if core_version > maximum {
             return Err(AppError::ValidationError(format!(
-                "Release Core {} 高于 Web 最高支持版本 {}",
-                core.version, maximum
+                "Core {} 高于 Web 最高支持版本 {}",
+                index.core.version, maximum
             )));
         }
     }
     Ok(())
 }
 
-fn verify_bytes_digest(asset: &GithubReleaseAsset, bytes: &[u8]) -> Result<()> {
-    let Some(expected) = asset
-        .digest
-        .as_deref()
-        .and_then(|value| value.strip_prefix("sha256:"))
-    else {
-        return Ok(());
+fn core_asset_for_current_target(index: &UpdateChannelIndex) -> Result<&UpdateCoreAsset> {
+    let architecture = match std::env::consts::ARCH {
+        "arm" => "armv7",
+        value => value,
     };
-    let actual = hex::encode(Sha256::digest(bytes));
-    if actual.eq_ignore_ascii_case(expected) {
-        Ok(())
-    } else {
-        Err(AppError::ValidationError(format!(
-            "下载文件 {} 的 SHA-256 与发布信息不一致",
-            asset.name
-        )))
-    }
+    index.core.assets.get(architecture).ok_or_else(|| {
+        AppError::ExternalApi(format!(
+            "Core {} 不支持当前架构 {}",
+            index.core.version, architecture
+        ))
+    })
+}
+
+fn launcher_managed() -> bool {
+    std::env::var("NIUPANEL_LAUNCHED").as_deref() == Ok("1")
 }
 
 fn verify_downloaded_asset(
-    asset: &GithubReleaseAsset,
+    name: &str,
+    indexed_size: u64,
     expected_sha256: &str,
     expected_size: u64,
     package_path: &Path,
 ) -> Result<()> {
     let actual_size = fs::metadata(package_path).map_err(AppError::Io)?.len();
-    if actual_size != expected_size || actual_size != asset.size {
+    if actual_size != expected_size || actual_size != indexed_size {
         return Err(AppError::ValidationError(format!(
-            "下载文件 {} 大小与 Release manifest 不一致",
-            asset.name
+            "下载文件 {} 大小与更新索引不一致",
+            name
         )));
     }
     let actual = file_sha256(package_path)?;
     if !actual.eq_ignore_ascii_case(expected_sha256) {
         return Err(AppError::ValidationError(format!(
-            "下载文件 {} 的 SHA-256 与 Release manifest 不一致",
-            asset.name
-        )));
-    }
-    if let Some(expected) = asset
-        .digest
-        .as_deref()
-        .and_then(|value| value.strip_prefix("sha256:"))
-        && !actual.eq_ignore_ascii_case(expected)
-    {
-        return Err(AppError::ValidationError(format!(
-            "下载文件 {} 的 SHA-256 与 GitHub Release 记录不一致",
-            asset.name
+            "下载文件 {} 的 SHA-256 与更新索引不一致",
+            name
         )));
     }
     Ok(())
@@ -741,20 +545,42 @@ fn verify_downloaded_asset(
 
 async fn download_component_asset(
     service: &UpdateService,
-    asset: &GithubReleaseAsset,
+    asset: &UpdateAsset,
     package_path: &Path,
+) -> Result<()> {
+    let token = CancellationToken::new();
+    download_indexed_asset(
+        service,
+        &token,
+        &asset.name,
+        &asset.url,
+        asset.size,
+        package_path,
+        false,
+    )
+    .await
+}
+
+async fn download_indexed_asset(
+    service: &UpdateService,
+    token: &CancellationToken,
+    name: &str,
+    url: &str,
+    size: u64,
+    package_path: &Path,
+    report_progress: bool,
 ) -> Result<()> {
     let proxy_url: String = SettingsManager::get(&service.db, SYSTEM_GITHUB_PROXY)
         .await
         .unwrap_or_default();
-    let download_url = build_target_url(&proxy_url, &asset.browser_download_url);
+    let download_url = build_target_url(&proxy_url, url);
     let mut headers = HeaderMap::new();
     headers.insert(USER_AGENT, HeaderValue::from_static(UPDATE_USER_AGENT));
     download_with_resume(
         &service.http_client,
         &download_url,
         package_path,
-        Some(asset.size),
+        Some(size),
         DownloadOptions {
             headers,
             timeout: Some(std::time::Duration::from_secs(
@@ -764,8 +590,35 @@ async fn download_component_asset(
             retry_delay: std::time::Duration::from_secs(2),
             max_size: None,
         },
-        || false,
-        |_| async {},
+        || token.is_cancelled(),
+        |event| async move {
+            if !report_progress {
+                return;
+            }
+            if let Ok(mut guard) = service.update_status.write() {
+                match event {
+                    DownloadEvent::Attempt {
+                        attempt,
+                        resumed_from,
+                    } => {
+                        guard.message = if attempt == 1 {
+                            format!("正在下载更新包: {name}")
+                        } else if resumed_from > 0 {
+                            format!("下载中断，正在继续下载 {attempt}/{UPDATE_DOWNLOAD_RETRIES}...")
+                        } else {
+                            format!("下载中断，正在重试 {attempt}/{UPDATE_DOWNLOAD_RETRIES}...")
+                        };
+                    }
+                    DownloadEvent::Progress(progress) => {
+                        guard.progress = guard.progress.max(progress.percent.min(99));
+                    }
+                    DownloadEvent::Completed { .. } => {
+                        guard.progress = 100;
+                        guard.message = "更新包下载完成，准备安装...".to_string();
+                    }
+                }
+            }
+        },
     )
     .await
 }
@@ -878,7 +731,7 @@ async fn perform_update_task(service: UpdateService, token: CancellationToken) -
     }
 
     let channel = service.update_channel().await;
-    let release = service.fetch_release_contract(&channel).await?;
+    let index = service.fetch_update_index(&channel).await?;
     if token.is_cancelled() {
         return Err(AppError::Cancelled);
     }
@@ -889,20 +742,28 @@ async fn perform_update_task(service: UpdateService, token: CancellationToken) -
         guard.progress = 0;
     }
 
-    let (asset, contract_asset) = release.core_asset_for_current_target()?;
-    let asset = asset.clone();
-    let contract_asset = contract_asset.clone();
+    let asset = core_asset_for_current_target(&index)?.clone();
     let temp_dir = tempfile::Builder::new()
         .prefix("niupanel_update_download_")
         .tempdir()
         .map_err(AppError::Io)?;
     let package_path = temp_dir.path().join(&asset.name);
 
-    download_release_asset(&service, &token, &asset, &package_path).await?;
+    download_indexed_asset(
+        &service,
+        &token,
+        &asset.name,
+        &asset.url,
+        asset.size,
+        &package_path,
+        true,
+    )
+    .await?;
     verify_downloaded_asset(
-        &asset,
-        &contract_asset.sha256,
-        contract_asset.size,
+        &asset.name,
+        asset.size,
+        &asset.sha256,
+        asset.size,
         &package_path,
     )?;
     install_update_archive(service, temp_dir, package_path).await
@@ -1226,71 +1087,6 @@ fn build_target_url(proxy_url: &str, original_url: &str) -> String {
     format!("{}{}", proxy_url, original_url)
 }
 
-async fn download_release_asset(
-    service: &UpdateService,
-    token: &CancellationToken,
-    asset: &GithubReleaseAsset,
-    package_path: &Path,
-) -> Result<()> {
-    let proxy_url: String = SettingsManager::get(&service.db, SYSTEM_GITHUB_PROXY)
-        .await
-        .unwrap_or_default();
-    let download_url = build_target_url(&proxy_url, &asset.browser_download_url);
-    let mut headers = HeaderMap::new();
-    headers.insert(USER_AGENT, HeaderValue::from_static(UPDATE_USER_AGENT));
-
-    download_with_resume(
-        &service.http_client,
-        &download_url,
-        package_path,
-        Some(asset.size),
-        DownloadOptions {
-            headers,
-            timeout: Some(std::time::Duration::from_secs(
-                RELEASE_DOWNLOAD_TIMEOUT_SECS,
-            )),
-            retries: UPDATE_DOWNLOAD_RETRIES,
-            retry_delay: std::time::Duration::from_secs(2),
-            max_size: None,
-        },
-        || token.is_cancelled(),
-        |event| async move {
-            if let Ok(mut guard) = service.update_status.write() {
-                match event {
-                    DownloadEvent::Attempt {
-                        attempt,
-                        resumed_from,
-                    } => {
-                        guard.message = if attempt == 1 {
-                            format!("正在下载更新包: {}", asset.name)
-                        } else if resumed_from > 0 {
-                            format!(
-                                "下载中断，正在继续下载 {}/{}...",
-                                attempt, UPDATE_DOWNLOAD_RETRIES
-                            )
-                        } else {
-                            format!(
-                                "下载中断，正在重试 {}/{}...",
-                                attempt, UPDATE_DOWNLOAD_RETRIES
-                            )
-                        };
-                    }
-                    DownloadEvent::Progress(progress) => {
-                        if progress.percent > guard.progress {
-                            guard.progress = progress.percent.min(99);
-                        }
-                    }
-                    DownloadEvent::Completed { .. } => {
-                        guard.progress = 100;
-                        guard.message = "更新包下载完成，准备安装...".to_string();
-                    }
-                }
-            }
-        },
-    )
-    .await
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1310,7 +1106,7 @@ mod tests {
         assert!(!compare_versions("v1.2.3-beta.1", "v1.2.3"));
     }
 
-    fn release_fixture(prerelease: bool) -> ResolvedRelease {
+    fn update_index_fixture() -> UpdateChannelIndex {
         let mut core_assets = std::collections::BTreeMap::new();
         for (architecture, target) in [
             ("x86_64", "x86_64-unknown-linux-musl"),
@@ -1319,98 +1115,67 @@ mod tests {
         ] {
             core_assets.insert(
                 architecture.to_string(),
-                CoreReleaseAssetManifest {
+                UpdateCoreAsset {
                     name: format!("niupanel_linux_{architecture}.tar.gz"),
+                    url: format!("https://example.com/{architecture}.tar.gz"),
                     target: target.to_string(),
                     sha256: "a".repeat(64),
                     size: 1,
                 },
             );
         }
-        let github = GithubRelease {
-            tag_name: "v0.8.1".into(),
-            html_url: "https://example.com/release".into(),
-            body: String::new(),
-            draft: false,
-            prerelease,
-            assets: core_assets
-                .values()
-                .map(|asset| GithubReleaseAsset {
-                    name: asset.name.clone(),
-                    browser_download_url: format!("https://example.com/{}", asset.name),
-                    size: asset.size,
-                    digest: None,
-                })
-                .chain([
-                    GithubReleaseAsset {
-                        name: "niupanel_web_2.0.0.tar.gz".into(),
-                        browser_download_url: "https://example.com/web-2.0.0".into(),
-                        size: 2,
-                        digest: None,
-                    },
-                    GithubReleaseAsset {
-                        name: "niupanel_web_9.9.9.tar.gz".into(),
-                        browser_download_url: "https://example.com/unindexed-web".into(),
-                        size: 9,
-                        digest: None,
-                    },
-                ])
-                .collect(),
-        };
-        let manifest = ReleaseBundleManifest {
-            schema_version: RELEASE_BUNDLE_SCHEMA_VERSION,
-            release_version: "0.8.1".into(),
-            git_sha: "b".repeat(40),
-            generated_at: "2026-08-01T00:00:00Z".into(),
-            api_contract: 1,
-            components: niupanel_common::version::ReleaseBundleComponents {
-                core: niupanel_common::version::ReleaseCoreComponent {
-                    version: "0.8.1".into(),
-                    launcher_protocol: 1,
-                    api_contract: 1,
-                    schema_epoch: 1,
-                    schema_revision: 30,
-                    assets: core_assets,
+        UpdateChannelIndex {
+            schema_version: UPDATE_CHANNEL_INDEX_SCHEMA_VERSION,
+            channel: "preview".into(),
+            updated_at: "2026-08-01T00:00:00Z".into(),
+            core: niupanel_common::version::UpdateCoreComponent {
+                version: "0.8.1".into(),
+                tag: "core-v0.8.1".into(),
+                release_url: "https://example.com/core".into(),
+                notes: String::new(),
+                launcher_protocol: niupanel_common::version::RELEASE_PROTOCOL_VERSION,
+                api_contract: API_CONTRACT_VERSION,
+                schema_epoch: 1,
+                schema_revision: 30,
+                assets: core_assets,
+            },
+            web: niupanel_common::version::UpdateWebComponent {
+                version: "2.0.0".into(),
+                tag: "web-v2.0.0".into(),
+                release_url: "https://example.com/web".into(),
+                notes: String::new(),
+                api_contract: API_CONTRACT_VERSION,
+                core: niupanel_common::version::ComponentCompatibility {
+                    min: "0.8.1".into(),
+                    max: None,
                 },
-                web: niupanel_common::version::ReleaseWebComponent {
-                    version: "2.0.0".into(),
-                    api_contract: 1,
-                    core: niupanel_common::version::ComponentCompatibility {
-                        min: "0.8.1".into(),
-                        max: None,
-                    },
-                    asset: ReleaseAssetManifest {
-                        name: "niupanel_web_2.0.0.tar.gz".into(),
-                        sha256: "c".repeat(64),
-                        size: 2,
-                    },
+                asset: UpdateAsset {
+                    name: "niupanel_web_2.0.0.tar.gz".into(),
+                    url: "https://example.com/web.tar.gz".into(),
+                    sha256: "b".repeat(64),
+                    size: 2,
                 },
             },
-        };
-        ResolvedRelease { github, manifest }
+        }
     }
 
     #[test]
-    fn release_contract_uses_manifest_selected_web_asset() {
-        let release = release_fixture(true);
+    fn update_index_accepts_matching_components() {
+        let index = update_index_fixture();
 
-        validate_release_contract(&release.github, &release.manifest).unwrap();
-        let (asset, contract) = release.web_asset().unwrap();
-
-        assert_eq!(asset.name, "niupanel_web_2.0.0.tar.gz");
-        assert_eq!(contract.name, asset.name);
-        assert!(release.github.prerelease);
+        validate_update_channel_index(&index, "preview").unwrap();
+        assert_eq!(core_asset_for_current_target(&index).unwrap().size, 1);
     }
 
     #[test]
-    fn release_contract_rejects_version_suffixes() {
-        let mut release = release_fixture(true);
-        release.github.tag_name = "v0.8.1-beta.1".into();
-        release.manifest.release_version = "0.8.1-beta.1".into();
+    fn update_index_rejects_legacy_core_versions() {
+        let mut index = update_index_fixture();
+        index.core.version = "0.7.9".into();
+        index.core.tag = "core-v0.7.9".into();
 
-        let error = validate_release_contract(&release.github, &release.manifest).unwrap_err();
+        let error = validate_update_channel_index(&index, "preview").unwrap_err();
 
-        assert!(error.to_string().contains("纯数字版本号"));
+        assert!(error.to_string().contains("最低支持更新基线"));
     }
 
     #[test]

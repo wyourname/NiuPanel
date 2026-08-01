@@ -1,0 +1,236 @@
+name: Publish Core Pre-release
+
+on:
+  push:
+    tags:
+      - 'core-v*'
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Core Tag，例如 core-v0.8.1'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-core-${{ github.ref_name || inputs.release_tag }}
+  cancel-in-progress: false
+
+jobs:
+  metadata:
+    name: Verify Core release contract
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
+      version: ${{ steps.release.outputs.version }}
+      source_sha: ${{ steps.release.outputs.source_sha }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - id: release
+        env:
+          RELEASE_TAG_INPUT: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          TAG="${RELEASE_TAG_INPUT:-$GITHUB_REF_NAME}"
+          if ! [[ "$TAG" =~ ^core-v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo 'release_tag must use core-v<major>.<minor>.<patch>' >&2
+            exit 1
+          fi
+          SOURCE_SHA=$(git rev-parse --verify "refs/tags/$TAG^{commit}")
+          git checkout --detach "$SOURCE_SHA"
+          node scripts/verify-version-contract.mjs "$TAG"
+          VERSION="${TAG#core-v}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "source_sha=$SOURCE_SHA" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build Core (${{ matrix.arch }})
+    needs: metadata
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-musl
+            arch: x86_64
+          - target: aarch64-unknown-linux-musl
+            arch: aarch64
+          - target: armv7-unknown-linux-musleabihf
+            arch: armv7
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.metadata.outputs.source_sha }}
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libssl-dev
+
+      - uses: taiki-e/install-action@cross
+
+      - name: Build and package Core
+        env:
+          CORE_VERSION: ${{ needs.metadata.outputs.version }}
+        run: |
+          set -euo pipefail
+          export RUSTFLAGS='-C target-feature=+crt-static'
+          cross build --release --target ${{ matrix.target }} -p niupanel -p niupanel-launcher
+          DIST_DIR="niupanel_linux_${{ matrix.arch }}"
+          mkdir -p "$DIST_DIR/tools"
+          cp target/${{ matrix.target }}/release/niupanel "$DIST_DIR/"
+          cp target/${{ matrix.target }}/release/niupanel-launcher "$DIST_DIR/"
+          node scripts/generate-core-release-manifest.mjs \
+            "$DIST_DIR/niupanel" \
+            "$CORE_VERSION" \
+            '${{ matrix.target }}' \
+            "$DIST_DIR/core-release.json"
+          scripts/prepare-runtime-tools.sh '${{ matrix.arch }}' "$DIST_DIR/tools"
+          rm -f "$DIST_DIR/tools/.uv-version" "$DIST_DIR/tools/.pnpm-version" "$DIST_DIR/tools/fnm"
+          test -x "$DIST_DIR/tools/uv"
+          test -x "$DIST_DIR/tools/pnpm"
+          tar -czvf "niupanel_linux_${{ matrix.arch }}.tar.gz" -C "$DIST_DIR" .
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: niupanel_linux_${{ matrix.arch }}
+          path: niupanel_linux_${{ matrix.arch }}.tar.gz
+          retention-days: 1
+
+  release:
+    name: Publish Core GitHub Pre-release
+    needs: [metadata, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.metadata.outputs.source_sha }}
+
+      - uses: actions/download-artifact@v8
+        with:
+          path: release-assets
+
+      - name: Assemble and verify Core assets
+        env:
+          RELEASE_TAG: ${{ needs.metadata.outputs.tag }}
+        run: |
+          set -euo pipefail
+          mv release-assets/niupanel_linux_x86_64/niupanel_linux_x86_64.tar.gz release-assets/
+          mv release-assets/niupanel_linux_aarch64/niupanel_linux_aarch64.tar.gz release-assets/
+          mv release-assets/niupanel_linux_armv7/niupanel_linux_armv7.tar.gz release-assets/
+          node scripts/generate-update-component.mjs \
+            core release-assets "$GITHUB_REPOSITORY" "$RELEASE_TAG" core-component.json
+
+      - name: Publish immutable Core assets
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          RELEASE_TAG: ${{ needs.metadata.outputs.tag }}
+          SOURCE_SHA: ${{ needs.metadata.outputs.source_sha }}
+          RELEASE_VERSION: ${{ needs.metadata.outputs.version }}
+        run: |
+          set -euo pipefail
+          test -n "$GH_TOKEN" || { echo 'RELEASE_TOKEN is required' >&2; exit 1; }
+          assets=(release-assets/niupanel_linux_*.tar.gz)
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            test "$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isPrerelease --jq .isPrerelease)" = true
+            gh release upload "$RELEASE_TAG" "${assets[@]}" --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$RELEASE_TAG" "${assets[@]}" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$SOURCE_SHA" \
+              --title "NiuPanel Core $RELEASE_VERSION" \
+              --generate-notes \
+              --prerelease
+          fi
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: core-component
+          path: core-component.json
+          retention-days: 1
+
+  update-preview-index:
+    name: Update Preview channel index
+    needs: [metadata, release]
+    runs-on: ubuntu-latest
+    concurrency:
+      group: niupanel-release-index-preview
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.metadata.outputs.source_sha }}
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: core-component
+          path: component
+
+      - name: Check Preview index initialization
+        id: index
+        env:
+          RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$RELEASE_TOKEN" || { echo 'RELEASE_TOKEN is required' >&2; exit 1; }
+          set +e
+          git ls-remote --exit-code --heads \
+            "https://x-access-token:${RELEASE_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
+            release-index >/dev/null 2>&1
+          status=$?
+          set -e
+          if [ "$status" -eq 0 ]; then
+            echo 'ready=true' >> "$GITHUB_OUTPUT"
+          elif [ "$status" -eq 2 ]; then
+            echo 'ready=false' >> "$GITHUB_OUTPUT"
+          else
+            echo "Unable to read release-index branch (git exit $status)" >&2
+            exit "$status"
+          fi
+
+      - uses: actions/checkout@v6
+        if: steps.index.outputs.ready == 'true'
+        with:
+          ref: release-index
+          path: update-index
+          token: ${{ secrets.RELEASE_TOKEN }}
+
+      - name: Check Preview channel initialization
+        if: steps.index.outputs.ready == 'true'
+        id: channel
+        run: |
+          if [ -f update-index/preview.json ]; then
+            echo 'ready=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'ready=false' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Explain initial index setup
+        if: steps.index.outputs.ready != 'true' || steps.channel.outputs.ready != 'true'
+        run: |
+          echo 'Core pre-release is published. Run Bootstrap Update Channel Index for preview after the first Core and Web pre-releases are available.'
+
+      - name: Update and publish Preview index
+        if: steps.channel.outputs.ready == 'true'
+        env:
+          RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$RELEASE_TOKEN" || { echo 'RELEASE_TOKEN is required' >&2; exit 1; }
+          node scripts/update-channel-index.mjs update-index/preview.json preview core component/core-component.json
+          node scripts/verify-update-channel-index.mjs update-index/preview.json preview
+          git -C update-index config user.name 'niupanel-release-bot'
+          git -C update-index config user.email 'release-bot@users.noreply.github.com'
+          git -C update-index add preview.json
+          git -C update-index diff --cached --quiet || git -C update-index commit -m 'release: update preview Core'
+          git -C update-index push origin HEAD:release-index

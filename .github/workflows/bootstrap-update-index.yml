@@ -1,0 +1,76 @@
+name: Bootstrap Update Channel Index
+
+on:
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: '初始化的更新通道'
+        required: true
+        default: preview
+        type: choice
+        options: [preview, stable]
+      core_tag:
+        description: '完整 Core Release，例如 core-v0.8.0'
+        required: true
+        type: string
+      web_tag:
+        description: '完整 Web Release，例如 web-v2.0.0'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  bootstrap:
+    name: Create or replace component index
+    runs-on: ubuntu-latest
+    concurrency:
+      group: niupanel-release-index-${{ inputs.channel }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Download and verify component assets
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          CORE_TAG: ${{ inputs.core_tag }}
+          WEB_TAG: ${{ inputs.web_tag }}
+        run: |
+          set -euo pipefail
+          test -n "$GH_TOKEN" || { echo 'RELEASE_TOKEN is required' >&2; exit 1; }
+          [[ "$CORE_TAG" =~ ^core-v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ "$WEB_TAG" =~ ^web-v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          mkdir release-assets
+          gh release download "$CORE_TAG" --repo "$GITHUB_REPOSITORY" --dir release-assets \
+            --pattern niupanel_linux_x86_64.tar.gz \
+            --pattern niupanel_linux_aarch64.tar.gz \
+            --pattern niupanel_linux_armv7.tar.gz
+          gh release download "$WEB_TAG" --repo "$GITHUB_REPOSITORY" --dir release-assets \
+            --pattern 'niupanel_web_*.tar.gz'
+          node scripts/generate-update-component.mjs core release-assets "$GITHUB_REPOSITORY" "$CORE_TAG" core.json
+          node scripts/generate-update-component.mjs web release-assets "$GITHUB_REPOSITORY" "$WEB_TAG" web.json
+          node scripts/bootstrap-update-channel-index.mjs '${{ inputs.channel }}' core.json web.json index.json
+          node scripts/verify-update-channel-index.mjs index.json '${{ inputs.channel }}'
+          node scripts/verify-update-channel-assets.mjs index.json release-assets
+
+      - name: Create or update the release-index branch
+        env:
+          RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          CHANNEL: ${{ inputs.channel }}
+        run: |
+          set -euo pipefail
+          test -n "$RELEASE_TOKEN" || { echo 'RELEASE_TOKEN is required' >&2; exit 1; }
+          git init update-index
+          git -C update-index config user.name 'niupanel-release-bot'
+          git -C update-index config user.email 'release-bot@users.noreply.github.com'
+          git -C update-index remote add origin "https://x-access-token:${RELEASE_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          if git -C update-index fetch origin release-index; then
+            git -C update-index checkout -B release-index origin/release-index
+          else
+            git -C update-index checkout --orphan release-index
+          fi
+          cp index.json "update-index/${CHANNEL}.json"
+          git -C update-index add "${CHANNEL}.json"
+          git -C update-index diff --cached --quiet || git -C update-index commit -m "release: bootstrap ${CHANNEL} update index"
+          git -C update-index push origin HEAD:release-index

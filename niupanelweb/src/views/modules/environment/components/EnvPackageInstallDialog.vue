@@ -5,13 +5,18 @@
     width="560px"
     @update:visible="emit('update:visible', $event)"
   >
-    <div class="p-5 flex-1 overflow-y-auto space-y-4">
-      <div
-        class="rounded-md border border-light bg-base/60 px-4 py-3 text-xs leading-6 text-secondary"
-      >
-        每行输入一个包名，支持版本号，例如 `requests==2.32.3`、`pnpm`。
+    <div class="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-5">
+      <div class="flex items-start gap-3 rounded-lg border border-light bg-soft/50 p-3.5">
+        <span class="h-8 w-8 shrink-0 rounded-md accent-subtle flex-center">
+          <span class="i-ep-download text-[15px]"></span>
+        </span>
+        <p class="text-[10px] leading-4 text-secondary">
+          每行填写一个包名，可附带版本号，例如 <code class="font-mono text-default">requests==2.32.3</code>、<code class="font-mono text-default">pnpm</code>。
+        </p>
       </div>
+      <label class="text-[11px] font-semibold text-secondary" for="environment-package-list">包列表</label>
       <el-input
+        id="environment-package-list"
         :model-value="packageText"
         type="textarea"
         :rows="7"
@@ -23,13 +28,12 @@ pnpm"
       />
     </div>
     <template #footer>
-      <div
-        class="p-4 border-t border-light flex justify-end gap-3 shrink-0 bg-card"
-      >
-        <ToolbarButton @click="emit('update:visible', false)">取消</ToolbarButton>
+      <div class="flex w-full gap-3">
+        <ToolbarButton block :disabled="installing" @click="emit('update:visible', false)">取消</ToolbarButton>
         <ToolbarButton
+          block
           variant="primary"
-          :disabled="installing"
+          :disabled="installing || !hasPackages"
           @click="emit('install')"
         >
           {{ installing ? "提交中..." : "开始安装" }}
@@ -40,14 +44,17 @@ pnpm"
 </template>
 
 <script setup lang="ts">
+import { computed } from "vue";
 import ResponsiveDialog from "../../../../components/common/ResponsiveDialog.vue";
 import ToolbarButton from "../../../../components/common/ToolbarButton.vue";
 
-defineProps<{
+const props = defineProps<{
   installing: boolean;
   packageText: string;
   visible: boolean;
 }>();
+
+const hasPackages = computed(() => props.packageText.trim().length > 0);
 
 const emit = defineEmits<{
   (event: "install"): void;

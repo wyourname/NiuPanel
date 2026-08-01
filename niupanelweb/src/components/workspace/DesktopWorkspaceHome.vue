@@ -88,11 +88,67 @@
             </DesktopTaskPager>
           </DesktopWidget>
 
-          <!-- 插件小组件预留位 -->
-          <DesktopWidget title="小组件">
-            <div class="flex h-full min-h-[96px] flex-col items-center justify-center text-center">
-              <span class="i-ep-magic-stick text-[22px] text-muted opacity-50"></span>
-              <p class="mt-2 max-w-[160px] text-[11px] leading-4 text-muted">扩展可以在这里放置自己的桌面小组件</p>
+          <DesktopWidget title="快捷操作" content-class="overflow-y-auto no-scrollbar">
+            <div class="flex min-h-[96px] flex-col">
+              <div class="grid grid-cols-3 gap-2">
+                <button
+                  type="button"
+                  class="group flex min-w-0 cursor-pointer flex-col items-center gap-1.5 rounded-lg border border-light bg-card px-2 py-2.5 text-secondary transition-colors hover:border-primary/35 hover:bg-soft hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                  @click="workspace.openTaskCreateWindow()"
+                >
+                  <span class="h-7 w-7 rounded-md accent-subtle flex-center">
+                    <span class="i-ep-plus text-[14px]"></span>
+                  </span>
+                  <span class="truncate text-[10px] font-semibold">新建任务</span>
+                </button>
+                <button
+                  type="button"
+                  class="group flex min-w-0 cursor-pointer flex-col items-center gap-1.5 rounded-lg border border-light bg-card px-2 py-2.5 text-secondary transition-colors hover:border-primary/35 hover:bg-soft hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                  @click="openQuickCreate()"
+                >
+                  <span class="h-7 w-7 rounded-md accent-subtle flex-center">
+                    <span class="i-ep-link text-[14px]"></span>
+                  </span>
+                  <span class="truncate text-[10px] font-semibold">从 URL 导入</span>
+                </button>
+                <button
+                  type="button"
+                  class="group flex min-w-0 cursor-pointer flex-col items-center gap-1.5 rounded-lg border border-light bg-card px-2 py-2.5 text-secondary transition-colors hover:border-primary/35 hover:bg-soft hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                  @click="workspace.openAppWindow('tasks')"
+                >
+                  <span class="h-7 w-7 rounded-md accent-subtle flex-center">
+                    <span class="i-ep-list text-[14px]"></span>
+                  </span>
+                  <span class="truncate text-[10px] font-semibold">任务管理</span>
+                </button>
+              </div>
+
+              <section v-if="workspacePluginApps.length" class="border-t border-light/70 pt-2">
+                <div class="mb-1.5 flex items-center justify-between px-0.5">
+                  <h3 class="text-[10px] font-semibold text-muted">已安装扩展</h3>
+                  <span class="rounded-full bg-subtle px-1.5 py-0.5 text-[9px] font-bold text-muted">{{ workspacePluginApps.length }}</span>
+                </div>
+                <div class="grid gap-1.5">
+                  <button
+                    v-for="app in workspacePluginApps"
+                    :key="app.plugin_id"
+                    type="button"
+                    class="group flex min-w-0 cursor-pointer items-center gap-2 rounded-lg border border-light bg-card p-2 text-left text-secondary transition-colors hover:border-primary/35 hover:bg-soft hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                    :title="`打开扩展 ${primaryPluginRoute(app)?.title ?? app.name}`"
+                    @click="workspace.openPluginAppWindow(app)"
+                  >
+                    <span class="h-8 w-8 shrink-0 rounded-md accent-subtle flex-center">
+                      <span :class="primaryPluginRoute(app)?.icon ?? 'i-ep-box'" class="text-[15px]"></span>
+                    </span>
+                    <span class="min-w-0 flex-1">
+                      <span class="block truncate text-[11px] font-semibold">{{ primaryPluginRoute(app)?.title ?? app.name }}</span>
+                      <span class="block truncate text-[9px] leading-4 text-muted group-hover:text-secondary">{{ primaryPluginRoute(app)?.description ?? app.description ?? '打开扩展' }}</span>
+                    </span>
+                    <span class="i-ep-arrow-right shrink-0 text-[12px] text-muted transition-transform duration-200 group-hover:translate-x-0.5 motion-reduce:transition-none"></span>
+                  </button>
+                </div>
+              </section>
+              <p v-else class="text-center text-[10px] leading-4 text-muted">也可将 Python、Node 或 Shell 脚本直接拖到桌面</p>
             </div>
           </DesktopWidget>
         </div>
@@ -147,6 +203,7 @@ import { useTaskQuickCreate } from "@/composables/useTaskQuickCreate";
 import { getEnvIcon, getStatusDotClass, getStatusLabel } from "@/composables/useTaskPresentation";
 import { useTaskDeleteConfirmation } from "@/composables/useTaskDeleteConfirmation";
 import { useTodaySchedule } from "@/composables/useTodaySchedule";
+import { primaryPluginRoute, usePluginAppsStore } from "@/stores/pluginApps";
 import { useTaskStore } from "@/stores/tasks";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { formatFileSize } from "@/utils/format";
@@ -154,6 +211,7 @@ import { formatFileSize } from "@/utils/format";
 type Action = "new_task" | "quick_create_task" | "open_tasks" | "refresh_tasks" | "next_window" | "tile_windows" | "cascade_windows" | "minimize_all" | "close_all_windows" | "open_log" | "run" | "pause" | "resume" | "stop" | "edit" | "script" | "variables" | "cron" | "pin" | "unpin" | "enable" | "disable" | "delete";
 
 const taskStore = useTaskStore();
+const pluginApps = usePluginAppsStore();
 const workspace = useWorkspaceStore();
 const { quickCreateVisible, quickCreating, quickCreateForm, openQuickCreate, handleQuickCreate } = useTaskQuickCreate(taskStore.refreshTasks);
 const { clock, dayStart, stations } = useTodaySchedule(() => taskStore.tasks);
@@ -170,6 +228,7 @@ const timeValue = (task: Task) => new Date(task.updated_at || task.created_at ||
 const runningTasks = computed(() => taskStore.tasks.filter((task) => task.status === "Running").sort((a, b) => timeValue(b) - timeValue(a)));
 const attentionTasks = computed(() => taskStore.tasks.filter((task) => task.status === "Failed" || task.status === "Paused"));
 const pinnedTasks = computed(() => taskStore.tasks.filter((task) => task.is_pinned));
+const workspacePluginApps = computed(() => pluginApps.workspaceApps);
 
 const cpuUsage = (task: Task) => typeof task.cpu_usage === "number" ? `${task.cpu_usage.toFixed(1)}%` : "--";
 const memoryUsage = (task: Task) => typeof task.memory_usage === "number" ? formatFileSize(task.memory_usage).replace(/\s+/g, "") : "--";
@@ -188,6 +247,9 @@ const handleDesktopDragEnter = (event: DragEvent) => { if (isFileDragEvent(event
 const handleDesktopDragLeave = (event: DragEvent) => { if (isFileDragEvent(event)) { dragDepth.value = Math.max(0, dragDepth.value - 1); if (!dragDepth.value) isDraggingUpload.value = false; } };
 const handleDesktopDragOver = (event: DragEvent) => { if (isFileDragEvent(event)) { if (event.dataTransfer) event.dataTransfer.dropEffect = "copy"; isDraggingUpload.value = true; } };
 const handleDesktopDrop = async (event: DragEvent) => { if (!isFileDragEvent(event)) return; dragDepth.value = 0; isDraggingUpload.value = false; const scripts = Array.from(event.dataTransfer?.files ?? []).filter((file) => isSupportedScriptFileName(file.name)); if (!scripts.length) return void ElMessage.warning("仅支持 Python、Node、Shell 脚本文件"); const file = scripts[0]; try { await ElMessageBox.confirm(`检测到脚本文件 ${file.name}，是否创建任务？`, "创建任务", { type: "info", confirmButtonText: "创建任务", cancelButtonText: "取消" }); workspace.openTaskCreateWindow({ uploadedFile: file }); } catch { /* User cancelled. */ } };
-onMounted(() => void taskStore.init());
+onMounted(() => {
+  void taskStore.init();
+  void pluginApps.loadApps().catch(() => {});
+});
 onUnmounted(() => taskStore.stopStatusStream());
 </script>

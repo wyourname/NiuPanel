@@ -21,7 +21,7 @@
         v-if="core && !core.launcher_managed"
         class="mt-3 rounded-md border border-amber-300/70 bg-amber-50 px-3 py-2 text-[11px] leading-5 text-amber-800 dark:border-amber-700/60 dark:bg-amber-950/20 dark:text-amber-200"
       >
-        当前开发进程未由 launcher 启动，可以查看版本，但不能执行 Core 更新或回退。
+        当前为直接启动模式。为确保更新后能自动重启、健康检查和失败回退，面板仅提供版本查看；Docker 部署请拉取新镜像并重建容器，二进制部署请改由 niupanel-launcher 启动。
       </div>
 
       <div

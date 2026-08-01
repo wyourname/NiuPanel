@@ -80,6 +80,7 @@ export interface UpdateInfo {
   channel?: UpdateChannel;
   prerelease?: boolean;
   size: number;
+  launcher_managed: boolean;
   [key: string]: unknown;
 }
 

@@ -7,8 +7,6 @@ FRONTEND_DIR="niupanelweb"
 TOOLS_CACHE_DIR="release_tools"
 WEB_VERSION=""
 CORE_VERSION=$(sed -n '/^\[package\]/,/^\[/{s/^version = "\([^"]*\)"/\1/p}' niupanel/Cargo.toml | head -n 1)
-SOURCE_SHA=$(git rev-parse HEAD)
-BUILT_CORE_ASSETS=()
 
 node scripts/verify-version-contract.mjs
 
@@ -181,34 +179,9 @@ build_backend_and_package() {
 
     echo "📦 打包为 $TAR_NAME ..."
     tar -czvf "$TAR_NAME" -C "$TEMP_DIR" .
-    BUILT_CORE_ASSETS+=("$TAR_NAME")
     rm -rf "$TEMP_DIR"
     echo "✨ 构建完成: $TAR_NAME"
     echo "----------------------------------------"
-}
-
-generate_release_bundle() {
-    local staging_dir
-    local web_archive="docker/niupanel_web_${WEB_VERSION}.tar.gz"
-    staging_dir=$(mktemp -d)
-
-    for asset in "${BUILT_CORE_ASSETS[@]}"; do
-        cp "$asset" "$staging_dir/"
-    done
-    cp "$web_archive" "$staging_dir/"
-
-    node scripts/generate-release-manifest.mjs \
-        "$staging_dir" \
-        "$CORE_VERSION" \
-        "$SOURCE_SHA" \
-        "docker/niupanel-release.json"
-    node scripts/verify-release-bundle.mjs \
-        "docker/niupanel-release.json" \
-        "docker" \
-        --expected-version "$CORE_VERSION" \
-        --expected-git-sha "$SOURCE_SHA"
-    rm -rf "$staging_dir"
-    echo "📋 统一发布索引已生成: docker/niupanel-release.json"
 }
 
 # === 主流程 ===
@@ -242,7 +215,5 @@ else
             ;;
     esac
 fi
-
-generate_release_bundle
 
 echo "🎉 所有任务执行完毕！"

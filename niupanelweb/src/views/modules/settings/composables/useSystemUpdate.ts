@@ -18,6 +18,7 @@ const createFallbackUpdateInfo = (channel: UpdateChannel): UpdateInfo => ({
   size: 0,
   tag_name: "Latest",
   update_available: true,
+  launcher_managed: false,
 });
 
 export function useSystemUpdate() {
@@ -120,6 +121,10 @@ export function useSystemUpdate() {
   };
 
   const startUpdate = async () => {
+    if (!updateInfo.value?.launcher_managed) {
+      ElMessage.warning("当前为直接启动模式；请改用 niupanel-launcher，或通过更新 Docker 镜像完成 Core 更新。");
+      return;
+    }
     executingUpdate.value = true;
     updateStatusMessage.value = "正在初始化...";
     updateProgress.value = 0;

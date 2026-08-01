@@ -1,25 +1,27 @@
 name: Publish Docker Image
 
-# Docker 是独立环境交付物：只从 main 与已发布的应用 Release 构建。
-# 应用 Release 即使仍处于 Pre-release，镜像也沿用环境版本与 latest 标签。
 on:
-  release:
-    types: [prereleased, released]
+  push:
+    branches: [release-index]
+    paths:
+      - preview.json
+      - stable.json
   workflow_dispatch:
     inputs:
-      release_tag:
-        description: '已发布的 Core GitHub Release Tag（可为 Pre-release），例如 v0.8.0'
+      channel:
+        description: '要构建的组件通道'
         required: true
-        type: string
+        default: preview
+        type: choice
+        options: [preview, stable]
       docker_version:
-        description: '覆盖 main 中的 docker/VERSION；留空读取 docker/VERSION'
+        description: '覆盖 docker/VERSION；留空读取仓库版本'
         required: false
         type: string
 
 permissions:
   contents: read
 
-# 环境标签和 latest 都是可变标签，禁止两个构建同时覆盖它们。
 concurrency:
   group: niupanel-docker-publish
   cancel-in-progress: false
@@ -34,84 +36,96 @@ jobs:
         with:
           ref: main
 
-      - name: Download and verify published Core and Web packages
+      - name: Checkout selected update index
+        uses: actions/checkout@v6
+        with:
+          # A push must build exactly the index revision that triggered it.
+          # Reading the branch head here could otherwise pair an older event
+          # with a newer preview/stable component set.
+          ref: ${{ github.event_name == 'push' && github.sha || 'release-index' }}
+          path: update-index
+          fetch-depth: 1
+
+      - name: Select changed update channel
+        id: channel
+        env:
+          CHANNEL_INPUT: ${{ inputs.channel }}
+        run: |
+          set -euo pipefail
+          if [ -n "$CHANNEL_INPUT" ]; then
+            CHANNEL="$CHANNEL_INPUT"
+          else
+            CHANGED=$(git -C update-index diff-tree --root --no-commit-id --name-only -r HEAD)
+          fi
+          if [ -z "${CHANNEL:-}" ]; then
+            if grep -qx 'stable.json' <<<"$CHANGED"; then
+              CHANNEL=stable
+            elif grep -qx 'preview.json' <<<"$CHANGED"; then
+              CHANNEL=preview
+            else
+              echo 'No update channel index changed' >&2
+              exit 1
+            fi
+          fi
+          echo "channel=$CHANNEL" >> "$GITHUB_OUTPUT"
+
+      - name: Download and verify indexed component assets
         id: release
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ inputs.release_tag || github.event.release.tag_name }}
+          CHANNEL: ${{ steps.channel.outputs.channel }}
         run: |
-          if ! [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo 'release_tag must use a plain numeric version, for example v0.8.1' >&2
-            exit 1
-          fi
-          RELEASE_STATE=$(gh release view "$RELEASE_TAG" \
-            --repo "$GITHUB_REPOSITORY" \
-            --json isDraft)
-          if [[ "$(jq -r '.isDraft' <<<"$RELEASE_STATE")" != 'false' ]]; then
-            echo "$RELEASE_TAG is still a draft" >&2
-            exit 1
-          fi
-          mkdir -p release-assets
-          gh release download "$RELEASE_TAG" \
-            --repo "$GITHUB_REPOSITORY" \
-            --dir release-assets \
-            --pattern niupanel-release.json \
+          set -euo pipefail
+          INDEX="update-index/${CHANNEL}.json"
+          export INDEX
+          node scripts/verify-update-channel-index.mjs "$INDEX" "$CHANNEL"
+          CORE_TAG=$(node -p "require('./' + process.env.INDEX).core.tag")
+          WEB_TAG=$(node -p "require('./' + process.env.INDEX).web.tag")
+          CORE_VERSION=$(node -p "require('./' + process.env.INDEX).core.version")
+          WEB_VERSION=$(node -p "require('./' + process.env.INDEX).web.version")
+          mkdir release-assets
+          gh release download "$CORE_TAG" --repo "$GITHUB_REPOSITORY" --dir release-assets \
             --pattern niupanel_linux_x86_64.tar.gz \
             --pattern niupanel_linux_aarch64.tar.gz \
-            --pattern niupanel_linux_armv7.tar.gz \
+            --pattern niupanel_linux_armv7.tar.gz
+          gh release download "$WEB_TAG" --repo "$GITHUB_REPOSITORY" --dir release-assets \
             --pattern 'niupanel_web_*.tar.gz'
-
-          node scripts/verify-release-bundle.mjs \
-            release-assets/niupanel-release.json \
-            release-assets \
-            --expected-version "$RELEASE_TAG" \
-            --require-all-core-assets > release-metadata.json
-          CORE_VERSION=$(node -p "require('./release-metadata.json').core_version")
-          WEB_VERSION=$(node -p "require('./release-metadata.json').web_version")
-          WEB_ARCHIVE=$(node -p "require('./release-metadata.json').web_asset")
+          node scripts/verify-update-channel-assets.mjs "$INDEX" release-assets
           echo "core_version=$CORE_VERSION" >> "$GITHUB_OUTPUT"
           echo "web_version=$WEB_VERSION" >> "$GITHUB_OUTPUT"
-          echo "web_archive=$WEB_ARCHIVE" >> "$GITHUB_OUTPUT"
 
       - name: Prepare Docker build context
         run: |
+          set -euo pipefail
           mkdir -p docker/packages/amd64 docker/packages/arm64 docker/packages/arm docker/packages/web
           cp release-assets/niupanel_linux_x86_64.tar.gz docker/packages/amd64/niupanel.tar.gz
           cp release-assets/niupanel_linux_aarch64.tar.gz docker/packages/arm64/niupanel.tar.gz
           cp release-assets/niupanel_linux_armv7.tar.gz docker/packages/arm/niupanel.tar.gz
-          cp "release-assets/${{ steps.release.outputs.web_archive }}" docker/packages/web/niupanel_web.tar.gz
+          cp release-assets/niupanel_web_*.tar.gz docker/packages/web/niupanel_web.tar.gz
 
       - name: Determine Docker environment version
         id: version
         env:
           DOCKER_VERSION_INPUT: ${{ inputs.docker_version }}
         run: |
-          if [ -n "$DOCKER_VERSION_INPUT" ]; then
-            VERSION="$DOCKER_VERSION_INPUT"
-          else
-            VERSION="$(tr -d '[:space:]' < docker/VERSION)"
-          fi
+          set -euo pipefail
+          VERSION="${DOCKER_VERSION_INPUT:-$(tr -d '[:space:]' < docker/VERSION)}"
           VERSION="${VERSION#v}"
           if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "Docker environment version must be stable semantic version: $VERSION" >&2
+            echo "Docker environment version must be a stable semantic version: $VERSION" >&2
             exit 1
           fi
           echo "environment_version=$VERSION" >> "$GITHUB_OUTPUT"
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
-
-      - name: Login to Docker Hub
-        uses: docker/login-action@v4
+      - uses: docker/login-action@v4
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_TOKEN }}
 
-      - name: Build and push multi-architecture image
-        uses: docker/build-push-action@v7
+      - uses: docker/build-push-action@v7
         with:
           context: docker
           file: docker/Dockerfile
@@ -123,6 +137,7 @@ jobs:
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
+            io.niupanel.update.channel=${{ steps.channel.outputs.channel }}
           build-args: |
             NIUPANEL_ENVIRONMENT_VERSION=${{ steps.version.outputs.environment_version }}
             NIUPANEL_CORE_VERSION=${{ steps.release.outputs.core_version }}

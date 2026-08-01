@@ -50,6 +50,17 @@ export const primaryPluginAppForCapability = (
   capabilityNamespace: string,
 ) => pluginAppsForCapability(apps, capabilityNamespace)[0] ?? null;
 
+const sortPluginApps = (apps: PluginAppRecord[]) =>
+  [...apps].sort((a, b) => {
+    const displayOrder = a.ui.display.order - b.ui.display.order;
+    if (displayOrder !== 0) return displayOrder;
+    const routeOrder =
+      (primaryPluginRoute(a)?.order ?? 0) -
+      (primaryPluginRoute(b)?.order ?? 0);
+    if (routeOrder !== 0) return routeOrder;
+    return a.name.localeCompare(b.name);
+  });
+
 export const usePluginAppsStore = defineStore("pluginApps", () => {
   const apps = ref<PluginAppRecord[]>([]);
   const loaded = ref(false);
@@ -79,23 +90,27 @@ export const usePluginAppsStore = defineStore("pluginApps", () => {
     apps.value.find((item) => item.plugin_id === pluginId) ?? null;
 
   const menuApps = computed(() =>
-    apps.value
-      .filter(
+    sortPluginApps(
+      apps.value.filter(
         (item) =>
           item.ui.mode === "vue_app" &&
           item.ui.display.sidebar &&
           visiblePluginRoutes(item).length > 0 &&
           hasPluginAppPermissions(item),
-      )
-      .sort((a, b) => {
-        const displayOrder = a.ui.display.order - b.ui.display.order;
-        if (displayOrder !== 0) return displayOrder;
-        const routeOrder =
-          (primaryPluginRoute(a)?.order ?? 0) -
-          (primaryPluginRoute(b)?.order ?? 0);
-        if (routeOrder !== 0) return routeOrder;
-        return a.name.localeCompare(b.name);
-      }),
+      ),
+    ),
+  );
+
+  const workspaceApps = computed(() =>
+    sortPluginApps(
+      apps.value.filter(
+        (item) =>
+          item.ui.mode === "vue_app" &&
+          item.ui.display.workspace &&
+          visiblePluginRoutes(item).length > 0 &&
+          hasPluginAppPermissions(item),
+      ),
+    ),
   );
 
   return {
@@ -106,5 +121,6 @@ export const usePluginAppsStore = defineStore("pluginApps", () => {
     loaded,
     loading,
     menuApps,
+    workspaceApps,
   };
 });

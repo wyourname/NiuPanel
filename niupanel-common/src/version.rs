@@ -9,8 +9,8 @@ pub const SCHEMA_EPOCH: u32 = 1;
 pub const SCHEMA_REVISION: u32 = 30;
 pub const WEB_RELEASE_MANIFEST_FILE: &str = "release-manifest.json";
 pub const CORE_RELEASE_MANIFEST_FILE: &str = "core-release.json";
-pub const RELEASE_BUNDLE_MANIFEST_FILE: &str = "niupanel-release.json";
-pub const RELEASE_BUNDLE_SCHEMA_VERSION: u32 = 2;
+pub const UPDATE_CHANNEL_INDEX_SCHEMA_VERSION: u32 = 1;
+pub const MINIMUM_UPDATE_CORE_VERSION: &str = "0.8.0";
 pub const CORE_STATE_FILE: &str = "core/state.json";
 pub const CORE_TRANSACTIONS_DIR: &str = "core/transactions";
 pub const RELEASE_PROTOCOL_VERSION: u32 = 1;
@@ -48,53 +48,58 @@ pub struct CoreReleaseManifest {
     pub built_at: Option<String>,
 }
 
+/// The sole remote update contract used by 0.8.0 and later. The index lives
+/// independently of component releases so Core and Web can advance separately.
 #[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
-pub struct ReleaseAssetManifest {
+pub struct UpdateChannelIndex {
+    pub schema_version: u32,
+    pub channel: String,
+    pub updated_at: String,
+    pub core: UpdateCoreComponent,
+    pub web: UpdateWebComponent,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
+pub struct UpdateAsset {
     pub name: String,
+    pub url: String,
     pub sha256: String,
     pub size: u64,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
-pub struct CoreReleaseAssetManifest {
+pub struct UpdateCoreAsset {
     pub name: String,
+    pub url: String,
     pub target: String,
     pub sha256: String,
     pub size: u64,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
-pub struct ReleaseCoreComponent {
+pub struct UpdateCoreComponent {
     pub version: String,
+    pub tag: String,
+    pub release_url: String,
+    #[serde(default)]
+    pub notes: String,
     pub launcher_protocol: u32,
     pub api_contract: u32,
     pub schema_epoch: u32,
     pub schema_revision: u32,
-    pub assets: BTreeMap<String, CoreReleaseAssetManifest>,
+    pub assets: BTreeMap<String, UpdateCoreAsset>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
-pub struct ReleaseWebComponent {
+pub struct UpdateWebComponent {
     pub version: String,
+    pub tag: String,
+    pub release_url: String,
+    #[serde(default)]
+    pub notes: String,
     pub api_contract: u32,
     pub core: ComponentCompatibility,
-    pub asset: ReleaseAssetManifest,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
-pub struct ReleaseBundleComponents {
-    pub core: ReleaseCoreComponent,
-    pub web: ReleaseWebComponent,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
-pub struct ReleaseBundleManifest {
-    pub schema_version: u32,
-    pub release_version: String,
-    pub git_sha: String,
-    pub generated_at: String,
-    pub api_contract: u32,
-    pub components: ReleaseBundleComponents,
+    pub asset: UpdateAsset,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]

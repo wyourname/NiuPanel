@@ -28,27 +28,38 @@ if (migrationCount !== schemaRevision) {
 
 const coreVersion = packageVersion(coreCargo, 'niupanel')
 const launcherVersion = packageVersion(launcherCargo, 'niupanel-launcher')
-const releaseVersion = process.argv[2]?.replace(/^v/, '')
+const releaseTag = process.argv[2]
 const stableVersionPattern = /^\d+\.\d+\.\d+$/
 if (!stableVersionPattern.test(coreVersion)) {
   throw new Error(
     `Core package version must use a plain numeric version (for example 0.8.1), got ${coreVersion}`
   )
 }
-if (releaseVersion && releaseVersion !== coreVersion) {
-  throw new Error(
-    `Release version ${releaseVersion} must match the Core package version ${coreVersion}`
-  )
-}
-if (releaseVersion && !stableVersionPattern.test(releaseVersion)) {
-  throw new Error(
-    `Release tags must use v<major>.<minor>.<patch> without prerelease suffixes, got ${process.argv[2]}`
-  )
+if (releaseTag) {
+  const coreTag = releaseTag.match(/^core-v(\d+\.\d+\.\d+)$/)
+  const webTag = releaseTag.match(/^web-v(\d+\.\d+\.\d+)$/)
+  if (coreTag) {
+    if (coreTag[1] !== coreVersion) {
+      throw new Error(
+        `Core tag ${releaseTag} must match the Core package version ${coreVersion}`
+      )
+    }
+  } else if (webTag) {
+    if (webTag[1] !== webPackage.version) {
+      throw new Error(
+        `Web tag ${releaseTag} must match the Web package version ${webPackage.version}`
+      )
+    }
+  } else {
+    throw new Error(
+      `Release tags must use core-v<major>.<minor>.<patch> or web-v<major>.<minor>.<patch>, got ${releaseTag}`
+    )
+  }
 }
 if (constant('RELEASE_PROTOCOL_VERSION') < 1 || constant('API_CONTRACT_VERSION') < 1) {
   throw new Error('Release protocol and API contract versions must be positive')
 }
 
 console.log(
-  `Version contract verified: Release ${releaseVersion || coreVersion}, Core ${coreVersion}, Launcher ${launcherVersion}, release protocol ${constant('RELEASE_PROTOCOL_VERSION')}, Web ${webPackage.version}, schema ${constant('SCHEMA_EPOCH')}.${schemaRevision}, API ${constant('API_CONTRACT_VERSION')}`
+  `Version contract verified: ${releaseTag || 'local build'}, Core ${coreVersion}, Launcher ${launcherVersion}, release protocol ${constant('RELEASE_PROTOCOL_VERSION')}, Web ${webPackage.version}, schema ${constant('SCHEMA_EPOCH')}.${schemaRevision}, API ${constant('API_CONTRACT_VERSION')}`
 )

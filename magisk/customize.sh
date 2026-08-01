@@ -49,28 +49,62 @@ case "$ARCH" in
     armv7) ARCH_SUFFIX="armv7" ;;
 esac
 
-FILE_NAME="niupanel_linux_${ARCH_SUFFIX}.tar.gz"
-URL="https://github.com/${REPO}/releases/latest/download/${FILE_NAME}"
-ui_print "- 正在获取 NiuPanel 二进制..."
-curl -L -f --connect-timeout 20 --retry 3 "$URL" -o "$MODPATH/app.tar.gz"
-if [ -f "$MODPATH/app.tar.gz" ]; then
-    tar -xzf "$MODPATH/app.tar.gz" -C "$MODPATH/app/"
-    rm "$MODPATH/app.tar.gz"
-fi
+UPDATE_INDEX_URL="https://raw.githubusercontent.com/${REPO}/release-index/stable.json"
+UPDATE_INDEX="$MODPATH/update-index.json"
+ui_print "- 正在读取稳定更新索引..."
+curl -L -f --connect-timeout 20 --retry 3 "$UPDATE_INDEX_URL" -o "$UPDATE_INDEX" \
+    || abort "无法获取稳定更新索引"
 
-RELEASE_MANIFEST_URL="https://github.com/${REPO}/releases/latest/download/niupanel-release.json"
-ui_print "- 正在获取与 Core 匹配的独立 Web UI..."
-curl -L -f --connect-timeout 20 --retry 3 "$RELEASE_MANIFEST_URL" -o "$MODPATH/release-manifest.json"
-WEB_FILE_NAME=$(sed -n 's/.*"name": "\(niupanel_web_[^"]*\.tar\.gz\)".*/\1/p' "$MODPATH/release-manifest.json" | head -n 1)
-if [ -z "$WEB_FILE_NAME" ]; then
-    abort "Release manifest 中缺少独立 Web UI 包"
-fi
-curl -L -f --connect-timeout 20 --retry 3 \
-    "https://github.com/${REPO}/releases/latest/download/${WEB_FILE_NAME}" \
-    -o "$MODPATH/web.tar.gz"
+json_string() {
+    printf '%s\n' "$1" | sed -n "s/^[[:space:]]*\"$2\"[[:space:]]*:[[:space:]]*\"\\([^\"]*\\)\"[,]*[[:space:]]*$/\\1/p" | head -n 1
+}
+
+json_number() {
+    printf '%s\n' "$1" | sed -n "s/^[[:space:]]*\"$2\"[[:space:]]*:[[:space:]]*\\([0-9][0-9]*\\)[,]*[[:space:]]*$/\\1/p" | head -n 1
+}
+
+verify_download() {
+    local label="$1"
+    local url="$2"
+    local expected_sha="$3"
+    local expected_size="$4"
+    local output="$5"
+    curl -L -f --connect-timeout 20 --retry 3 "$url" -o "$output" \
+        || abort "${label} 下载失败"
+    local actual_size
+    actual_size=$(wc -c < "$output" | tr -d '[:space:]')
+    [ "$actual_size" = "$expected_size" ] \
+        || abort "${label} 大小校验失败"
+    command -v sha256sum >/dev/null 2>&1 \
+        || abort "系统缺少 sha256sum，无法校验 ${label}"
+    local actual_sha
+    actual_sha=$(sha256sum "$output" | awk '{print $1}')
+    [ "$actual_sha" = "$expected_sha" ] \
+        || abort "${label} SHA-256 校验失败"
+}
+
+CORE_ASSET=$(sed -n "/\"${ARCH_SUFFIX}\"[[:space:]]*:[[:space:]]*{/,/^[[:space:]]*},[[:space:]]*$/p" "$UPDATE_INDEX")
+CORE_URL=$(json_string "$CORE_ASSET" url)
+CORE_SHA=$(json_string "$CORE_ASSET" sha256)
+CORE_SIZE=$(json_number "$CORE_ASSET" size)
+[ -n "$CORE_URL" ] && [ -n "$CORE_SHA" ] && [ -n "$CORE_SIZE" ] \
+    || abort "稳定更新索引中缺少 ${ARCH_SUFFIX} Core 组件"
+ui_print "- 正在获取 NiuPanel Core..."
+verify_download "NiuPanel Core" "$CORE_URL" "$CORE_SHA" "$CORE_SIZE" "$MODPATH/app.tar.gz"
+tar -xzf "$MODPATH/app.tar.gz" -C "$MODPATH/app/"
+rm -f "$MODPATH/app.tar.gz"
+
+WEB_ASSET=$(sed -n '/"asset"[[:space:]]*:[[:space:]]*{/,/^[[:space:]]*}[,]*[[:space:]]*$/p' "$UPDATE_INDEX")
+WEB_URL=$(json_string "$WEB_ASSET" url)
+WEB_SHA=$(json_string "$WEB_ASSET" sha256)
+WEB_SIZE=$(json_number "$WEB_ASSET" size)
+[ -n "$WEB_URL" ] && [ -n "$WEB_SHA" ] && [ -n "$WEB_SIZE" ] \
+    || abort "稳定更新索引中缺少 Web 组件"
+ui_print "- 正在获取与 Core 兼容的独立 Web UI..."
+verify_download "NiuPanel Web UI" "$WEB_URL" "$WEB_SHA" "$WEB_SIZE" "$MODPATH/web.tar.gz"
 mkdir -p "$MODPATH/app/web"
 tar -xzf "$MODPATH/web.tar.gz" -C "$MODPATH/app/web/"
-rm -f "$MODPATH/web.tar.gz" "$MODPATH/release-manifest.json"
+rm -f "$MODPATH/web.tar.gz" "$UPDATE_INDEX"
 if [ ! -f "$MODPATH/app/web/release-manifest.json" ]; then
     abort "独立 Web UI 包无效"
 fi

@@ -99,9 +99,17 @@
           </div>
         </div>
 
+        <div
+          v-if="updateInfo && !updateInfo.launcher_managed"
+          class="mb-5 rounded-md border border-amber-300/70 bg-amber-50 px-3 py-2 text-[11px] leading-5 text-amber-800 dark:border-amber-700/60 dark:bg-amber-950/20 dark:text-amber-200"
+          role="alert"
+        >
+          当前为直接启动模式，不能执行 Core 更新或回退。Docker 部署请拉取新镜像并重建容器；二进制部署请使用 niupanel-launcher 启动。
+        </div>
+
         <div class="flex flex-col gap-3">
           <el-button
-            v-if="updateInfo?.update_available"
+            v-if="updateInfo?.update_available && updateInfo.launcher_managed"
             type="primary"
             size="large"
             class="!h-10 !w-full !rounded-md font-bold"
@@ -109,7 +117,7 @@
           >
             立即更新 Core
           </el-button>
-          <div v-else class="flex flex-col gap-3">
+          <div v-else-if="updateInfo?.launcher_managed" class="flex flex-col gap-3">
             <div class="text-center py-1 text-xs text-muted font-bold opacity-60">
               您当前使用的是最新{{ updateInfo?.channel === "preview" ? "预览" : "正式" }}版本
             </div>
