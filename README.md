@@ -189,7 +189,7 @@ cd NiuPanel
 - Core 与 Web UI 分别安装、激活、检查更新和回滚。
 - 应用版本和 Tag 统一使用 `X.Y.Z` / `vX.Y.Z`，不再添加 `-beta.1` 等后缀。新 Tag 首先创建 GitHub Pre-release，测试通过后将同一个 Release 原地提升为正式版，不重建或替换资产。
 - 本地构建、GitHub Release、内置 Core/Web 更新与 Docker 构建统一消费 schema 2 的 `niupanel-release.json`；它绑定 Git SHA、组件兼容契约、文件名、架构、大小和 SHA-256。preview/stable 只由 GitHub Release 状态决定。
-- Docker 环境镜像独立发布，但只能消费已提升为稳定版且通过上述 manifest 校验的 Core/Web 组合，并以 OCI label 记录所含组件版本。
+- Docker 环境镜像独立发布，可消费已经发布且通过上述 manifest 校验的 Core/Web 组合（包括 GitHub Pre-release），并以 OCI label 记录所含组件版本。
 - Web 发布包使用逐文件 SHA-256 manifest 校验并原子切换。
 - 内置 `/recovery` 恢复入口不依赖当前 Web UI 包。
 
@@ -208,7 +208,7 @@ docker run -d \
   wyourname/niupanel:latest
 ```
 
-镜像使用多架构 Manifest，Docker 会自动选择 AMD64、ARM64 或 ARMv7 产物。Docker 只消费已经从 Pre-release 提升为正式版、且由 `niupanel-release.json` 验证过的应用发布，使用 Docker 环境版本标签，例如 `wyourname/niupanel:3.0.0`；`latest` 是稳定版滚动别名。Docker 镜像通过单独的 Actions 工作流从 `main` 构建，并在 OCI label 中记录所含 Core 与 Web 版本。
+镜像使用多架构 Manifest，Docker 会自动选择 AMD64、ARM64 或 ARMv7 产物。Docker 可消费已发布的 Pre-release 或正式应用发布，只要通过 `niupanel-release.json` 验证；镜像保持 Docker 环境版本标签，例如 `wyourname/niupanel:3.0.0`，并同步更新 `latest`。Docker 镜像通过单独的 Actions 工作流从 `main` 构建，并在 OCI label 中记录所含 Core 与 Web 版本。
 
 启动后访问：
 

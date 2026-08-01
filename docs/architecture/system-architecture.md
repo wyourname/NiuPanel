@@ -25,7 +25,7 @@ Core 与 Web 分别发布版本，并共享以下兼容字段：
 
 同一 `schema_epoch` 内只允许 expand-first 迁移：新增表、可空字段、兼容索引和双读双写。删除字段、重命名字段、改变含义等破坏性变更必须延后到新的 epoch。生产回退不执行 `migration down`。
 
-正式应用发布使用 Core 版本作为 Git Tag，且统一采用 `vX.Y.Z` 纯数字形式。新 Tag 只构建一次并先创建 GitHub Pre-release；测试通过后将同一个 Release 提升为正式版，不重建或替换资产。Web、Launcher 与 Docker 分别保留独立组件版本。应用 CI 生成 schema 2 的 `niupanel-release.json`，记录 Git SHA、Core 三架构包、Web 包、兼容契约、大小及全部 SHA-256；该文件不保存通道，preview/stable 以 GitHub Release 状态为准。Docker 由独立工作流从已经提升为正式版并经该 manifest 校验的资产构建；Docker 正式标签使用环境版本，并通过 OCI label 记录所含 Core/Web 版本。Core/Launcher 通过 `launcher_protocol` 和 `RELEASE_PROTOCOL_VERSION` 验证兼容性，Web 通过 `api_contract` 和 `core.min/max` 加入同一发布。
+正式应用发布使用 Core 版本作为 Git Tag，且统一采用 `vX.Y.Z` 纯数字形式。新 Tag 只构建一次并先创建 GitHub Pre-release；测试通过后将同一个 Release 提升为正式版，不重建或替换资产。Web、Launcher 与 Docker 分别保留独立组件版本。应用 CI 生成 schema 2 的 `niupanel-release.json`，记录 Git SHA、Core 三架构包、Web 包、兼容契约、大小及全部 SHA-256；该文件不保存通道，preview/stable 以 GitHub Release 状态为准。Docker 由独立工作流从已发布且经该 manifest 校验的 Release 构建，包括 Pre-release；Docker 标签仍使用环境版本与 `latest`，并通过 OCI label 记录所含 Core/Web 版本。Core/Launcher 通过 `launcher_protocol` 和 `RELEASE_PROTOCOL_VERSION` 验证兼容性，Web 通过 `api_contract` 和 `core.min/max` 加入同一发布。
 
 ## Core 更新与回退
 
