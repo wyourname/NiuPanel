@@ -1,22 +1,21 @@
 use super::models::{
-    AuditListOutput, AuditListParams, AuditOutput, CoreReleaseListOutput, CoreReleaseOutput,
-    EnvironmentActionOutput, EnvironmentCreateParams, EnvironmentDeleteParams,
-    EnvironmentGetParams, EnvironmentInstallPackagesParams, EnvironmentJobOutput,
-    EnvironmentListOutput, EnvironmentOutput, EnvironmentPackagesOutput, EnvironmentPackagesParams,
+    AuditListOutput, AuditListParams, AuditOutput, EnvironmentActionOutput,
+    EnvironmentCreateParams, EnvironmentDeleteParams, EnvironmentGetParams,
+    EnvironmentInstallPackagesParams, EnvironmentJobOutput, EnvironmentListOutput,
+    EnvironmentOutput, EnvironmentPackagesOutput, EnvironmentPackagesParams,
     EnvironmentSetDefaultParams, EnvironmentUninstallPackageParams, EnvironmentVersionsOutput,
     FileActionOutput, FileContentOutput, FileItemOutput, FileListOutput, FileListParams,
     FilePathParams, FileWriteParams, GitDiscoveredTaskListOutput, GitDiscoveredTaskOutput,
     GitFileListOutput, GitFileOutput, GitRepoFilesParams, GitRepoIdParams, GitRepoListOutput,
     GitRepoOutput, GitSyncOutput, JobActionOutput, JobIdParams, JobListOutput, JobListParams,
     JobLogOutput, JobLogParams, JobOutput, ManagedEnvironmentRuntime, PackageRuntime,
-    ShareImportSourceOutput, ShareImportSourcesOutput, ShareStationFileOutput,
-    ShareStationFilesOutput, ShareStationStatsOutput, SystemStatusOutput, TaskActionOutput,
-    TaskCreateParams, TaskDeleteParams, TaskDetailOutput, TaskHistoryOutput, TaskHistoryParams,
-    TaskIdParams, TaskListOutput, TaskListParams, TaskLogOutput, TaskLogParams, TaskRunLogParams,
-    TaskRunOutput, TaskSummaryOutput, TaskUpdateParams, UpdateCheckOutput, VariableActionOutput,
-    VariableCreateParams, VariableIdParams, VariableListOutput, VariableListParams, VariableOutput,
-    VariableUpdateParams, WebReleaseListOutput, WebReleaseOutput, WebhookPushOutput,
-    WebhookPushParams,
+    PanelReleaseListOutput, PanelReleaseOutput, ShareImportSourceOutput, ShareImportSourcesOutput,
+    ShareStationFileOutput, ShareStationFilesOutput, ShareStationStatsOutput, SystemStatusOutput,
+    TaskActionOutput, TaskCreateParams, TaskDeleteParams, TaskDetailOutput, TaskHistoryOutput,
+    TaskHistoryParams, TaskIdParams, TaskListOutput, TaskListParams, TaskLogOutput, TaskLogParams,
+    TaskRunLogParams, TaskRunOutput, TaskSummaryOutput, TaskUpdateParams, UpdateCheckOutput,
+    VariableActionOutput, VariableCreateParams, VariableIdParams, VariableListOutput,
+    VariableListParams, VariableOutput, VariableUpdateParams, WebhookPushOutput, WebhookPushParams,
 };
 use crate::common::state::AppState;
 use crate::modules::auth::service::AuthenticatedUser;
@@ -37,7 +36,6 @@ use crate::modules::tasks::usecase::TaskUseCase;
 use crate::modules::variable::service as variable_service;
 use crate::modules::variable::{models::VariableQueryParams, models::VariableRequest};
 use niupanel_common::auth::permissions::Permission;
-use niupanel_common::error::AppError;
 use niupanel_core::audit::service::AuditService;
 use niupanel_core::event_bus::{SystemEvent, SystemNotification};
 use niupanel_entity::{

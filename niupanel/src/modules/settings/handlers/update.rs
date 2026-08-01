@@ -1,15 +1,12 @@
 use crate::common::state::AppState;
 use axum::{Json, extract::State};
-use niupanel_common::error::{AppError, Result};
+use niupanel_common::error::Result;
 use niupanel_common::models::update::ReleaseInfo;
 use niupanel_common::models::update::UpdateStatus;
 use niupanel_common::response::ApiResponse;
-use niupanel_common::upload::{TempUploadOptions, stream_field_to_temp_file};
 use niupanel_core::settings::SYSTEM_UPDATE_CHANNEL;
 
 use crate::modules::settings::models::UpdateChannelRequest;
-
-const MAX_LOCAL_UPDATE_UPLOAD_SIZE: u64 = 512 * 1024 * 1024;
 
 #[utoipa::path(
     get,
@@ -85,47 +82,5 @@ pub async fn cancel_update(State(state): State<AppState>) -> Result<ApiResponse<
 )]
 pub async fn execute_update(State(state): State<AppState>) -> Result<ApiResponse<()>> {
     state.update_service.execute_update().await?;
-    Ok(ApiResponse::success(()))
-}
-
-#[utoipa::path(
-    post,
-    path = "/api/v1/settings/update/upload",
-    responses(
-        (status = 200, description = "Upload and apply local update package")
-    ),
-    tag = "Settings",
-    security(("session_cookie" = []))
-)]
-pub async fn upload_update(
-    State(state): State<AppState>,
-    mut multipart: axum::extract::Multipart,
-) -> Result<ApiResponse<()>> {
-    let Some(mut field) = multipart
-        .next_field()
-        .await
-        .map_err(|e| AppError::Generic(e.to_string()))?
-    else {
-        return Err(AppError::ValidationError(
-            "No update file provided".to_string(),
-        ));
-    };
-
-    let upload = stream_field_to_temp_file(
-        &mut field,
-        TempUploadOptions::new(&std::env::temp_dir(), "niupanel-local-update-")
-            .with_max_size(MAX_LOCAL_UPDATE_UPLOAD_SIZE),
-    )
-    .await?;
-    if upload.size == 0 {
-        return Err(AppError::ValidationError(
-            "Update file cannot be empty".to_string(),
-        ));
-    }
-
-    state
-        .update_service
-        .execute_local_update(upload.path)
-        .await?;
     Ok(ApiResponse::success(()))
 }

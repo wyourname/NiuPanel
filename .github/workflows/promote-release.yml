@@ -1,10 +1,10 @@
-name: Promote Component Release
+name: Promote Panel Release
 
 on:
   workflow_dispatch:
     inputs:
-      release_tag:
-        description: '待提升的 Tag，例如 core-v0.8.1 或 web-v2.0.1'
+      panel_tag:
+        description: '待提升的 Panel Tag，例如 v0.8.2'
         required: true
         type: string
 
@@ -12,131 +12,78 @@ permissions:
   contents: write
 
 concurrency:
-  group: promote-component-${{ inputs.release_tag }}
+  group: niupanel-channel-pointer
   cancel-in-progress: false
 
 jobs:
   promote:
-    name: Verify and promote Pre-release
+    name: Promote Preview to Stable
     runs-on: ubuntu-latest
-    outputs:
-      component: ${{ steps.metadata.outputs.component }}
-      tag: ${{ steps.metadata.outputs.tag }}
     steps:
-      - uses: actions/checkout@v6
-        with:
-          ref: ${{ inputs.release_tag }}
-
-      - id: metadata
-        env:
-          RELEASE_TAG: ${{ inputs.release_tag }}
-        run: |
-          set -euo pipefail
-          if [[ "$RELEASE_TAG" =~ ^core-v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            COMPONENT=core
-          elif [[ "$RELEASE_TAG" =~ ^web-v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            COMPONENT=web
-          else
-            echo 'release_tag must use core-v<version> or web-v<version>' >&2
-            exit 1
-          fi
-          node scripts/verify-version-contract.mjs "$RELEASE_TAG"
-          echo "component=$COMPONENT" >> "$GITHUB_OUTPUT"
-          echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
-
-      - name: Download published component assets
-        env:
-          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
-          RELEASE_TAG: ${{ inputs.release_tag }}
-          COMPONENT: ${{ steps.metadata.outputs.component }}
-        run: |
-          set -euo pipefail
-          test -n "$GH_TOKEN" || { echo 'RELEASE_TOKEN is required' >&2; exit 1; }
-          STATE=$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft,isPrerelease)
-          test "$(jq -r .isDraft <<<"$STATE")" = false
-          test "$(jq -r .isPrerelease <<<"$STATE")" = true
-          mkdir release-assets
-          if [ "$COMPONENT" = core ]; then
-            gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --dir release-assets \
-              --pattern niupanel_linux_x86_64.tar.gz \
-              --pattern niupanel_linux_aarch64.tar.gz \
-              --pattern niupanel_linux_armv7.tar.gz
-          else
-            gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --dir release-assets \
-              --pattern 'niupanel_web_*.tar.gz'
-          fi
-          node scripts/generate-update-component.mjs \
-            "$COMPONENT" release-assets "$GITHUB_REPOSITORY" "$RELEASE_TAG" component.json
-
-      - name: Promote GitHub Release without replacing assets
-        env:
-          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
-          RELEASE_TAG: ${{ inputs.release_tag }}
-          COMPONENT: ${{ steps.metadata.outputs.component }}
-        run: |
-          set -euo pipefail
-          if [ "$COMPONENT" = core ]; then
-            gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --prerelease=false --latest
-          else
-            gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --prerelease=false --latest=false
-          fi
-
-      - uses: actions/upload-artifact@v6
-        with:
-          name: promoted-component
-          path: component.json
-          retention-days: 1
-
-  update-stable-index:
-    name: Update Stable channel index
-    needs: promote
-    runs-on: ubuntu-latest
-    concurrency:
-      group: niupanel-release-channel-stable
-      cancel-in-progress: false
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          ref: ${{ needs.promote.outputs.tag }}
-
-      - uses: actions/download-artifact@v8
-        with:
-          name: promoted-component
-          path: component
-
       - uses: actions/checkout@v6
         with:
           ref: main
-          path: update-index
           token: ${{ secrets.RELEASE_TOKEN }}
 
-      - name: Check Stable channel initialization
-        id: channel
-        run: |
-          if [ -f update-index/release/channels/stable.json ]; then
-            echo 'ready=true' >> "$GITHUB_OUTPUT"
-          else
-            echo 'ready=false' >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Explain initial index setup
-        if: steps.channel.outputs.ready != 'true'
-        run: |
-          echo 'Release is stable. Run Bootstrap Update Channel Index for stable after the initial Core and Web releases are both promoted.'
-
-      - name: Update and publish Stable index
-        if: steps.channel.outputs.ready == 'true'
+      - name: Verify Preview pointer and release
+        id: release
         env:
-          RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
-          COMPONENT: ${{ needs.promote.outputs.component }}
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          PANEL_TAG: ${{ inputs.panel_tag }}
         run: |
           set -euo pipefail
-          test -n "$RELEASE_TOKEN" || { echo 'RELEASE_TOKEN is required' >&2; exit 1; }
-          INDEX=update-index/release/channels/stable.json
-          node scripts/update-channel-index.mjs "$INDEX" stable "$COMPONENT" component/component.json
-          node scripts/verify-update-channel-index.mjs "$INDEX" stable
-          git -C update-index config user.name 'niupanel-release-bot'
-          git -C update-index config user.email 'release-bot@users.noreply.github.com'
-          git -C update-index add release/channels/stable.json
-          git -C update-index diff --cached --quiet || git -C update-index commit -m "release: update stable $COMPONENT"
-          git -C update-index push origin HEAD:main
+          [[ "$PANEL_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          node scripts/verify-update-channel-index.mjs release/channels/preview.json preview
+          test "$(node -p "require('./release/channels/preview.json').release.tag")" = "$PANEL_TAG"
+          PANEL_VERSION="${PANEL_TAG#v}"
+          ASSET="niupanel_panel_${PANEL_VERSION}.json"
+          mkdir immutable-panel
+          gh release download "$PANEL_TAG" --repo "$GITHUB_REPOSITORY" \
+            --pattern "$ASSET" --dir immutable-panel
+          export ASSET
+          node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs'
+          const pointer = JSON.parse(readFileSync('release/channels/preview.json', 'utf8'))
+          const immutable = JSON.parse(readFileSync(`immutable-panel/${process.env.ASSET}`, 'utf8'))
+          if (immutable.schema_version !== pointer.schema_version ||
+              JSON.stringify(immutable.release) !== JSON.stringify(pointer.release)) {
+            throw new Error('Preview pointer does not match the immutable Panel release')
+          }
+          NODE
+          IS_PRERELEASE=$(gh release view "$PANEL_TAG" --repo "$GITHUB_REPOSITORY" \
+            --json isPrerelease --jq .isPrerelease)
+          echo "is_prerelease=$IS_PRERELEASE" >> "$GITHUB_OUTPUT"
+
+      - name: Promote GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          PANEL_TAG: ${{ inputs.panel_tag }}
+        run: |
+          if [ '${{ steps.release.outputs.is_prerelease }}' = true ]; then
+            gh release edit "$PANEL_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --prerelease=false \
+              --latest
+          else
+            echo "$PANEL_TAG is already stable; continuing channel publication"
+          fi
+
+      - name: Move Stable channel pointer
+        env:
+          PANEL_TAG: ${{ inputs.panel_tag }}
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const fs = require('node:fs')
+          const value = require('./release/channels/preview.json')
+          value.channel = 'stable'
+          value.updated_at = new Date().toISOString()
+          fs.writeFileSync('release/channels/stable.json', `${JSON.stringify(value, null, 2)}\n`)
+          NODE
+          node scripts/verify-update-channel-index.mjs release/channels/stable.json stable
+          git config user.name 'niupanel-release-bot'
+          git config user.email 'release-bot@users.noreply.github.com'
+          git add release/channels/stable.json
+          git diff --cached --quiet || git commit -m "release: promote ${PANEL_TAG} to stable"
+          git pull --rebase origin main
+          git push origin HEAD:main

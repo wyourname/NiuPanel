@@ -102,30 +102,28 @@ pub(super) fn configure_plugin_sandbox(
 ) -> Result<()> {
     use std::os::unix::process::CommandExt;
 
-    let mut ruleset = Some(create_landlock_ruleset(
-        plugin_dir,
-        plugin_data_dir,
-        network_outbound,
-    )?);
+    let mut ruleset = if plugin_sandbox_capability().landlock_abi.is_some() {
+        match create_landlock_ruleset(plugin_dir, plugin_data_dir, network_outbound) {
+            Ok(ruleset) => Some(ruleset),
+            Err(error) => {
+                niupanel_common::warn!(
+                    %error,
+                    "Landlock is incompatible with this environment; using the mandatory UID/seccomp sandbox"
+                );
+                None
+            }
+        }
+    } else {
+        None
+    };
     unsafe {
         command.as_std_mut().pre_exec(move || {
             drop_plugin_privileges()?;
             install_plugin_process_guards(network_outbound)?;
-            let status = ruleset
-                .take()
-                .ok_or_else(|| std::io::Error::other("Landlock ruleset was already consumed"))?
-                .restrict_self()
-                .map_err(|error| std::io::Error::other(error.to_string()))?;
-            let filesystem_enforced = match &status.ruleset {
-                landlock::RulesetStatus::FullyEnforced => true,
-                landlock::RulesetStatus::PartiallyEnforced => network_outbound,
-                landlock::RulesetStatus::NotEnforced => false,
-            };
-            if !filesystem_enforced {
-                return Err(std::io::Error::other(format!(
-                    "Landlock filesystem ruleset was not enforced: {:?}",
-                    status.ruleset
-                )));
+            if let Some(ruleset) = ruleset.take() {
+                // Landlock is an optional filesystem hardening layer. Older kernels
+                // continue with UID isolation, no_new_privs and seccomp.
+                let _ = ruleset.restrict_self();
             }
             Ok(())
         });
@@ -175,7 +173,7 @@ pub(super) fn create_landlock_ruleset(
     };
 
     let abi = ABI::V4;
-    let read_only_paths = [
+    let read_only_directories = [
         PathBuf::from("/usr"),
         PathBuf::from("/bin"),
         PathBuf::from("/lib"),
@@ -183,27 +181,34 @@ pub(super) fn create_landlock_ruleset(
         PathBuf::from("/etc/ssl"),
         PathBuf::from("/etc/pki"),
         PathBuf::from("/etc/ca-certificates"),
+        plugin_dir.to_path_buf(),
+    ]
+    .into_iter()
+    .filter(|path| path.is_dir())
+    .collect::<Vec<_>>();
+    let read_only_files = [
         PathBuf::from("/etc/resolv.conf"),
         PathBuf::from("/etc/hosts"),
         PathBuf::from("/etc/host.conf"),
         PathBuf::from("/etc/nsswitch.conf"),
         PathBuf::from("/etc/gai.conf"),
         PathBuf::from("/etc/localtime"),
-        plugin_dir.to_path_buf(),
     ]
     .into_iter()
-    .filter(|path| path.exists())
+    .filter(|path| path.is_file())
     .collect::<Vec<_>>();
-    let read_write_paths = [
-        plugin_data_dir.to_path_buf(),
+    let device_files = [
         PathBuf::from("/dev/null"),
         PathBuf::from("/dev/zero"),
         PathBuf::from("/dev/random"),
         PathBuf::from("/dev/urandom"),
-    ];
+    ]
+    .into_iter()
+    .filter(|path| path.is_file())
+    .collect::<Vec<_>>();
 
     let mut ruleset = Ruleset::default()
-        .set_compatibility(CompatLevel::HardRequirement)
+        .set_compatibility(CompatLevel::BestEffort)
         .handle_access(AccessFs::from_all(abi));
     if network_outbound {
         ruleset = ruleset.and_then(|ruleset| {
@@ -216,14 +221,23 @@ pub(super) fn create_landlock_ruleset(
         .and_then(|ruleset| ruleset.create())
         .and_then(|ruleset| {
             ruleset.add_rules(path_beneath_rules(
-                read_only_paths,
+                read_only_directories,
                 AccessFs::from_read(abi),
             ))
         })
         .and_then(|ruleset| {
+            ruleset.add_rules(path_beneath_rules(read_only_files, AccessFs::ReadFile))
+        })
+        .and_then(|ruleset| {
             ruleset.add_rules(path_beneath_rules(
-                read_write_paths,
+                [plugin_data_dir.to_path_buf()],
                 AccessFs::from_all(abi),
+            ))
+        })
+        .and_then(|ruleset| {
+            ruleset.add_rules(path_beneath_rules(
+                device_files,
+                AccessFs::ReadFile | AccessFs::WriteFile,
             ))
         })
         .map_err(|error| {

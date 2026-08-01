@@ -563,11 +563,18 @@ useTasksPageLifecycle({
 }
 
 .modern-dropdown .el-dropdown-menu__item {
-  @apply mx-1 min-h-8 rounded-md px-3 py-1.5 text-[11px] font-semibold;
+  min-height: 2rem;
+  margin-inline: 0.25rem;
+  padding: 0.375rem 0.75rem;
+  border-radius: 0.375rem;
+  font-size: 11px;
+  font-weight: 600;
 }
 
 .modern-dialog .el-dialog__header {
-  @apply border-b border-light px-6 py-4 mr-0;
+  margin-right: 0;
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid var(--border-light);
 }
 
 @media (max-width: 768px) {

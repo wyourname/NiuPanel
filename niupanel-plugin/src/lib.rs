@@ -32,6 +32,62 @@ const PLUGIN_SANDBOX_GID: u32 = 65534;
 #[cfg(target_os = "linux")]
 const PLUGIN_WEB_PORTS: [u16; 2] = [80, 443];
 
+#[derive(Debug, Clone, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum PluginSandboxMode {
+    Full,
+    Compatible,
+    Degraded,
+    Unsupported,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct PluginSandboxCapability {
+    pub mode: PluginSandboxMode,
+    pub landlock_abi: Option<i32>,
+    pub uid_isolation: bool,
+    pub seccomp: bool,
+    pub no_new_privs: bool,
+}
+
+#[cfg(target_os = "linux")]
+pub fn plugin_sandbox_capability() -> PluginSandboxCapability {
+    const LANDLOCK_CREATE_RULESET_VERSION: libc::c_uint = 1;
+    let abi = unsafe {
+        libc::syscall(
+            libc::SYS_landlock_create_ruleset,
+            std::ptr::null::<libc::c_void>(),
+            0,
+            LANDLOCK_CREATE_RULESET_VERSION,
+        )
+    } as i32;
+    let landlock_abi = (abi > 0).then_some(abi);
+    let uid_isolation = unsafe { libc::geteuid() } == 0;
+    let mode = match (landlock_abi.is_some(), uid_isolation) {
+        (true, true) => PluginSandboxMode::Full,
+        (true, false) => PluginSandboxMode::Compatible,
+        (false, _) => PluginSandboxMode::Degraded,
+    };
+    PluginSandboxCapability {
+        mode,
+        landlock_abi,
+        uid_isolation,
+        seccomp: true,
+        no_new_privs: true,
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+pub fn plugin_sandbox_capability() -> PluginSandboxCapability {
+    PluginSandboxCapability {
+        mode: PluginSandboxMode::Unsupported,
+        landlock_abi: None,
+        uid_isolation: false,
+        seccomp: false,
+        no_new_privs: false,
+    }
+}
+
 mod manifest;
 mod process_invoke;
 mod process_pool;
@@ -54,6 +110,17 @@ use support::*;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn landlock_rules_are_compatible_with_file_and_directory_targets() {
+        if plugin_sandbox_capability().landlock_abi.is_none() {
+            return;
+        }
+        let plugin = tempfile::tempdir().unwrap();
+        let data = tempfile::tempdir().unwrap();
+        create_landlock_ruleset(plugin.path(), data.path(), true).unwrap();
+    }
 
     #[test]
     fn ui_manifest_accepts_structured_display_and_api_allow() {

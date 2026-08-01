@@ -70,7 +70,7 @@ if (kind === 'core') {
       size: statSync(path).size
     }
   }
-  if (tag !== `core-v${canonical.manifest.version}`) {
+  if (tag !== `Core-v${canonical.manifest.version}`) {
     throw new Error(`Core tag ${tag} does not match ${canonical.manifest.version}`)
   }
   writeFileSync(

@@ -75,11 +75,6 @@ pub fn create_router() -> Router<AppState> {
                 .route("/update/check", get(handlers::update::check_update))
                 .route("/update/execute", post(handlers::update::execute_update))
                 .route("/update/cancel", post(handlers::update::cancel_update))
-                .route(
-                    "/update/upload",
-                    post(handlers::update::upload_update)
-                        .layer(axum::extract::DefaultBodyLimit::max(1024 * 1024 * 1024)),
-                )
                 .require(Permission::SettingAll),
         )
 }

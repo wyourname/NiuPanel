@@ -21,8 +21,7 @@ impl PanelMcpServer {
         let versions = system::service::version_info();
         self.audit(&user, "system_status", None).await;
         Ok(Json(SystemStatusOutput {
-            core_version: versions.core_version,
-            web_version: versions.web_version,
+            panel_version: versions.panel_version,
             api_contract: versions.api_contract,
             schema_epoch: versions.schema_epoch,
             schema_revision: versions.schema_revision,
@@ -31,29 +30,28 @@ impl PanelMcpServer {
         }))
     }
 
-    #[tool(description = "List installed NiuPanel Core releases and rollback state")]
-    async fn system_core_releases(
+    #[tool(description = "List installed NiuPanel releases and rollback state")]
+    async fn system_releases(
         &self,
         context: RequestContext<RoleServer>,
-    ) -> Result<Json<CoreReleaseListOutput>, ErrorData> {
+    ) -> Result<Json<PanelReleaseListOutput>, ErrorData> {
         let user = Self::user_for(&context, Permission::OverviewRead)?;
-        let releases = system::core_releases::list_releases().map_err(tool_error)?;
+        let releases = system::panel_releases::list_releases()
+            .await
+            .map_err(tool_error)?;
         let items = releases
             .releases
             .into_iter()
-            .map(|release| CoreReleaseOutput {
+            .map(|release| PanelReleaseOutput {
                 version: release.version,
                 active: release.active,
                 previous: release.previous,
-                api_contract: release.api_contract,
-                schema_epoch: release.schema_epoch,
-                schema_revision: release.schema_revision,
-                target: release.target,
+                rollback_available: release.rollback_available,
                 installed_at: release.installed_at,
             })
             .collect();
-        self.audit(&user, "system_core_releases", None).await;
-        Ok(Json(CoreReleaseListOutput {
+        self.audit(&user, "system_releases", None).await;
+        Ok(Json(PanelReleaseListOutput {
             launcher_managed: releases.launcher_managed,
             active_version: releases.active_version,
             previous_version: releases.previous_version,
@@ -62,35 +60,8 @@ impl PanelMcpServer {
         }))
     }
 
-    #[tool(description = "List installed NiuPanel Web UI releases and compatibility status")]
-    async fn system_web_releases(
-        &self,
-        context: RequestContext<RoleServer>,
-    ) -> Result<Json<WebReleaseListOutput>, ErrorData> {
-        let user = Self::user_for(&context, Permission::OverviewRead)?;
-        let releases = system::web_releases::list_releases().map_err(tool_error)?;
-        let items = releases
-            .releases
-            .into_iter()
-            .map(|release| WebReleaseOutput {
-                version: release.version,
-                active: release.active,
-                previous: release.previous,
-                managed: release.managed,
-                compatible: release.compatible,
-                compatibility_error: release.compatibility_error,
-            })
-            .collect();
-        self.audit(&user, "system_web_releases", None).await;
-        Ok(Json(WebReleaseListOutput {
-            active_version: releases.active_version,
-            previous_version: releases.previous_version,
-            items,
-        }))
-    }
-
-    #[tool(description = "Check the configured NiuPanel release channel for a Core update")]
-    async fn system_core_update_check(
+    #[tool(description = "Check the configured stable or preview channel for a NiuPanel update")]
+    async fn system_update_check(
         &self,
         context: RequestContext<RoleServer>,
     ) -> Result<Json<UpdateCheckOutput>, ErrorData> {
@@ -101,9 +72,9 @@ impl PanelMcpServer {
             .check_update()
             .await
             .map_err(tool_error)?;
-        self.audit(&user, "system_core_update_check", None).await;
+        self.audit(&user, "system_update_check", None).await;
         Ok(Json(UpdateCheckOutput {
-            component: "core".to_string(),
+            component: "panel".to_string(),
             current_version: info.current_version,
             target_version: (info.tag_name != "unknown").then_some(info.tag_name),
             channel: info.channel,
@@ -113,48 +84,5 @@ impl PanelMcpServer {
             release_url: (!info.html_url.is_empty()).then_some(info.html_url),
             summary: release_summary(&info.body),
         }))
-    }
-
-    #[tool(description = "Check the configured NiuPanel release channel for a Web UI update")]
-    async fn system_web_update_check(
-        &self,
-        context: RequestContext<RoleServer>,
-    ) -> Result<Json<UpdateCheckOutput>, ErrorData> {
-        let user = Self::user_for(&context, Permission::OverviewRead)?;
-        let current_version = system::web_releases::list_releases()
-            .map_err(tool_error)?
-            .active_version;
-        let output = match self
-            .state
-            .update_service
-            .check_web_update(&current_version)
-            .await
-        {
-            Ok(info) => UpdateCheckOutput {
-                component: "web".to_string(),
-                current_version: info.current_version,
-                target_version: Some(info.version),
-                channel: info.channel,
-                prerelease: info.prerelease,
-                update_available: info.update_available,
-                size: info.size,
-                release_url: (!info.html_url.is_empty()).then_some(info.html_url),
-                summary: release_summary(&info.body),
-            },
-            Err(AppError::NotFound(message)) => UpdateCheckOutput {
-                component: "web".to_string(),
-                current_version,
-                target_version: None,
-                channel: "unknown".to_string(),
-                prerelease: false,
-                update_available: false,
-                size: 0,
-                release_url: None,
-                summary: Some(message),
-            },
-            Err(error) => return Err(tool_error(error)),
-        };
-        self.audit(&user, "system_web_update_check", None).await;
-        Ok(Json(output))
     }
 }

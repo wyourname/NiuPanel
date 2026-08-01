@@ -29,15 +29,15 @@ if (migrationCount !== schemaRevision) {
 const coreVersion = packageVersion(coreCargo, 'niupanel')
 const launcherVersion = packageVersion(launcherCargo, 'niupanel-launcher')
 const releaseTag = process.argv[2]
-const stableVersionPattern = /^\d+\.\d+\.\d+$/
+const stableVersionPattern = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/
 if (!stableVersionPattern.test(coreVersion)) {
   throw new Error(
     `Core package version must use a plain numeric version (for example 0.8.1), got ${coreVersion}`
   )
 }
 if (releaseTag) {
-  const coreTag = releaseTag.match(/^core-v(\d+\.\d+\.\d+)$/)
-  const webTag = releaseTag.match(/^web-v(\d+\.\d+\.\d+)$/)
+  const coreTag = releaseTag.match(/^Core-v((?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*))$/)
+  const webTag = releaseTag.match(/^web-v((?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*))$/)
   if (coreTag) {
     if (coreTag[1] !== coreVersion) {
       throw new Error(
@@ -52,7 +52,7 @@ if (releaseTag) {
     }
   } else {
     throw new Error(
-      `Release tags must use core-v<major>.<minor>.<patch> or web-v<major>.<minor>.<patch>, got ${releaseTag}`
+      `Release tags must use Core-v<major>.<minor>.<patch> or web-v<major>.<minor>.<patch>, got ${releaseTag}`
     )
   }
 }

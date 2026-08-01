@@ -41,30 +41,32 @@ const verifyAsset = async (asset) => {
   return path
 }
 
-for (const [architecture, asset] of Object.entries(index.core.assets || {})) {
+const { core, web } = index.release
+
+for (const [architecture, asset] of Object.entries(core.assets || {})) {
   const path = await verifyAsset(asset)
   const manifest = archiveManifest(path, 'core-release.json')
   if (
     manifest.component !== 'core' ||
-    manifest.version !== index.core.version ||
+    manifest.version !== core.version ||
     manifest.target !== asset.target ||
-    manifest.launcher_protocol !== index.core.launcher_protocol ||
-    manifest.api_contract !== index.core.api_contract ||
-    manifest.schema_epoch !== index.core.schema_epoch ||
-    manifest.schema_revision !== index.core.schema_revision
+    manifest.launcher_protocol !== core.launcher_protocol ||
+    manifest.api_contract !== core.api_contract ||
+    manifest.schema_epoch !== core.schema_epoch ||
+    manifest.schema_revision !== core.schema_revision
   ) {
     throw new Error(`Core ${architecture} archive does not match the update index`)
   }
 }
 
-const webPath = await verifyAsset(index.web.asset)
+const webPath = await verifyAsset(web.asset)
 const webManifest = archiveManifest(webPath, 'release-manifest.json')
 if (
   webManifest.component !== 'web' ||
-  webManifest.version !== index.web.version ||
-  webManifest.api_contract !== index.web.api_contract ||
-  webManifest.core?.min !== index.web.core?.min ||
-  (webManifest.core?.max || null) !== (index.web.core?.max || null)
+  webManifest.version !== web.version ||
+  webManifest.api_contract !== web.api_contract ||
+  webManifest.core?.min !== web.core?.min ||
+  (webManifest.core?.max || null) !== (web.core?.max || null)
 ) {
   throw new Error('Web archive does not match the update index')
 }

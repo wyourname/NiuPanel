@@ -40,7 +40,8 @@ RUN set -ex; \
         libatomic1 \
         libstdc++6; \
     # 清理缓存
-    apt-get clean;
+    apt-get clean; \
+    rm -rf /var/lib/apt/lists/* /var/cache/apt/*;
 
 # 2. 归档仅通过 BuildKit 临时挂载解压，避免将压缩包及其解压内容重复写入镜像层。
 # `packages/{amd64,arm64,arm}/niupanel.tar.gz` 和 Web 包由本地构建脚本或 CI 准备。
@@ -59,6 +60,7 @@ RUN --mount=type=bind,source=packages,target=/mnt/packages,readonly \
     tar -xzf "/mnt/packages/${TARGETARCH}/niupanel.tar.gz" -C /app/; \
     mkdir -p /app/web; \
     tar -xzf /mnt/packages/web/niupanel_web.tar.gz -C /app/web/; \
+    test -f /app/core-release.json; \
     test -f /app/web/release-manifest.json; \
     chmod +x /app/niupanel /app/niupanel-launcher /app/tools/uv /app/tools/pnpm; \
     test ! -e /app/tools/fnm; \
@@ -67,22 +69,26 @@ RUN --mount=type=bind,source=packages,target=/mnt/packages,readonly \
         echo "Unexpected bundled pnpm version: $BUNDLED_PNPM_VERSION"; \
         exit 1; \
     fi; \
-    /app/tools/uv --version
+    /app/tools/uv --version; \
+    rm -f /app/core-release.json /app/web/release-manifest.json
 
 ARG NIUPANEL_ENVIRONMENT_VERSION=unknown
+ARG NIUPANEL_PANEL_VERSION=unknown
 ARG NIUPANEL_CORE_VERSION=unknown
 ARG NIUPANEL_WEB_VERSION=unknown
 
 LABEL org.opencontainers.image.title="NiuPanel" \
       org.opencontainers.image.version="${NIUPANEL_ENVIRONMENT_VERSION}" \
-      io.niupanel.core.version="${NIUPANEL_CORE_VERSION}" \
-      io.niupanel.web.version="${NIUPANEL_WEB_VERSION}"
+      io.niupanel.bootstrap.version="${NIUPANEL_PANEL_VERSION}"
 
 # 3. 暴露端口与启动
 EXPOSE 7788
 ENV SYSTEM_DIR=/app/data/system \
     NIUPANEL_SYSTEM_DIR=/app/data/system \
     BUNDLED_WEB_DIR=/app/web \
+    NIUPANEL_BOOTSTRAP_PANEL_VERSION=${NIUPANEL_PANEL_VERSION} \
+    NIUPANEL_BOOTSTRAP_CORE_VERSION=${NIUPANEL_CORE_VERSION} \
+    NIUPANEL_BOOTSTRAP_WEB_VERSION=${NIUPANEL_WEB_VERSION} \
     PLUGIN_SIGNATURE_REQUIRED=true \
     NIUPANEL_BUNDLED_CORE=/app/niupanel
 CMD ["./niupanel-launcher"]

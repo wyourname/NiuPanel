@@ -118,7 +118,7 @@ import AuditLogTab from "@/views/modules/settings/AuditLogTab.vue";
 import { useAppStore } from "../../../stores/app";
 import { useHaptics } from "../../../composables/useHaptics";
 import { getVersion } from "@/api/settings";
-import { FRONTEND_VERSION, formatVersion } from "@/version";
+import { formatVersion } from "@/version";
 
 const systemVersion = ref("");
 onMounted(async () => {
@@ -138,7 +138,7 @@ const haptics = useHaptics();
 const activeSection = ref("basic");
 const drawerVisible = ref(false);
 const versionLabel = computed(
-  () => `服务端 ${formatVersion(systemVersion.value)} · Web ${formatVersion(FRONTEND_VERSION)}`,
+  () => `Panel ${formatVersion(systemVersion.value)}`,
 );
 
 const menuItems = [
@@ -201,7 +201,7 @@ const menuItems = [
   {
     id: "about",
     label: "版本与更新",
-    desc: "独立管理 Core 与 Web UI 的更新和回退",
+    desc: "管理完整 Panel Release 的更新通道、版本与回退",
     icon: "i-ep-info-filled",
     colorClass: "bg-slate-100 dark:bg-slate-800/35 text-slate-500",
     component: AboutTab,

@@ -3,11 +3,11 @@ name: Publish Core Pre-release
 on:
   push:
     tags:
-      - 'core-v*'
+      - 'Core-v*'
   workflow_dispatch:
     inputs:
       release_tag:
-        description: 'Core Tag，例如 core-v0.8.1'
+        description: 'Core Tag，例如 Core-v0.8.2'
         required: true
         type: string
 
@@ -26,6 +26,7 @@ jobs:
       tag: ${{ steps.release.outputs.tag }}
       version: ${{ steps.release.outputs.version }}
       source_sha: ${{ steps.release.outputs.source_sha }}
+      source_date_epoch: ${{ steps.release.outputs.source_date_epoch }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -37,17 +38,19 @@ jobs:
         run: |
           set -euo pipefail
           TAG="${RELEASE_TAG_INPUT:-$GITHUB_REF_NAME}"
-          if ! [[ "$TAG" =~ ^core-v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo 'release_tag must use core-v<major>.<minor>.<patch>' >&2
+          if ! [[ "$TAG" =~ ^Core-v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo 'release_tag must use Core-v<major>.<minor>.<patch>' >&2
             exit 1
           fi
           SOURCE_SHA=$(git rev-parse --verify "refs/tags/$TAG^{commit}")
+          SOURCE_DATE_EPOCH=$(git show -s --format=%ct "$SOURCE_SHA")
           git checkout --detach "$SOURCE_SHA"
           node scripts/verify-version-contract.mjs "$TAG"
-          VERSION="${TAG#core-v}"
+          VERSION="${TAG#Core-v}"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "source_sha=$SOURCE_SHA" >> "$GITHUB_OUTPUT"
+          echo "source_date_epoch=$SOURCE_DATE_EPOCH" >> "$GITHUB_OUTPUT"
 
   build:
     name: Build Core (${{ matrix.arch }})
@@ -82,6 +85,7 @@ jobs:
       - name: Build and package Core
         env:
           CORE_VERSION: ${{ needs.metadata.outputs.version }}
+          SOURCE_DATE_EPOCH: ${{ needs.metadata.outputs.source_date_epoch }}
         run: |
           set -euo pipefail
           export RUSTFLAGS='-C target-feature=+crt-static'
@@ -99,7 +103,9 @@ jobs:
           rm -f "$DIST_DIR/tools/.uv-version" "$DIST_DIR/tools/.pnpm-version" "$DIST_DIR/tools/fnm"
           test -x "$DIST_DIR/tools/uv"
           test -x "$DIST_DIR/tools/pnpm"
-          tar -czvf "niupanel_linux_${{ matrix.arch }}.tar.gz" -C "$DIST_DIR" .
+          tar --sort=name --mtime="@${SOURCE_DATE_EPOCH}" \
+            --owner=0 --group=0 --numeric-owner -cf - -C "$DIST_DIR" . \
+            | gzip -n > "niupanel_linux_${{ matrix.arch }}.tar.gz"
 
       - uses: actions/upload-artifact@v6
         with:
@@ -142,64 +148,45 @@ jobs:
           test -n "$GH_TOKEN" || { echo 'RELEASE_TOKEN is required' >&2; exit 1; }
           assets=(release-assets/niupanel_linux_*.tar.gz)
           if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            test "$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isPrerelease --jq .isPrerelease)" = true
-            gh release edit "$RELEASE_TAG" \
-              --repo "$GITHUB_REPOSITORY" \
-              --target "$SOURCE_SHA" \
-              --title "NiuPanel Core $RELEASE_VERSION" \
-              --prerelease \
-              --draft=false
-            gh release upload "$RELEASE_TAG" "${assets[@]}" --repo "$GITHUB_REPOSITORY" --clobber
+            IS_DRAFT=$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+              --json isDraft --jq .isDraft)
+            if [ "$IS_DRAFT" != true ]; then
+              IS_PRERELEASE=$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+                --json isPrerelease --jq .isPrerelease)
+              test "$IS_PRERELEASE" = true
+              mkdir published-assets
+              gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+                --dir published-assets --pattern 'niupanel_linux_*.tar.gz'
+              test "$(find published-assets -maxdepth 1 -type f | wc -l)" = 3
+              for asset in "${assets[@]}"; do
+                cmp --silent "$asset" "published-assets/$(basename "$asset")"
+              done
+              echo "$RELEASE_TAG is already published with identical immutable assets"
+              exit 0
+            fi
+            gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+              --json assets --jq '.assets[].name' | while IFS= read -r asset; do
+              gh release delete-asset "$RELEASE_TAG" "$asset" \
+                --repo "$GITHUB_REPOSITORY" --yes >/dev/null 2>&1 || true
+            done
           else
-            gh release create "$RELEASE_TAG" "${assets[@]}" \
+            gh release create "$RELEASE_TAG" \
               --repo "$GITHUB_REPOSITORY" \
               --target "$SOURCE_SHA" \
               --title "NiuPanel Core $RELEASE_VERSION" \
               --generate-notes \
-              --prerelease
+              --prerelease \
+              --draft
           fi
+          gh release upload "$RELEASE_TAG" "${assets[@]}" --repo "$GITHUB_REPOSITORY"
+          ASSET_COUNT=$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --json assets --jq '.assets | length')
+          test "$ASSET_COUNT" = 3
+          gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --draft=false --prerelease=true
 
       - uses: actions/upload-artifact@v6
         with:
           name: core-component
           path: core-component.json
           retention-days: 1
-
-  update-preview-index:
-    name: Update Preview channel index
-    needs: [metadata, release]
-    runs-on: ubuntu-latest
-    concurrency:
-      group: niupanel-release-channel-preview
-      cancel-in-progress: false
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          ref: ${{ needs.metadata.outputs.source_sha }}
-
-      - uses: actions/download-artifact@v8
-        with:
-          name: core-component
-          path: component
-
-      - uses: actions/checkout@v6
-        with:
-          ref: main
-          path: update-index
-          token: ${{ secrets.RELEASE_TOKEN }}
-
-      - name: Update and publish Preview index
-        env:
-          RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
-        run: |
-          set -euo pipefail
-          test -n "$RELEASE_TOKEN" || { echo 'RELEASE_TOKEN is required' >&2; exit 1; }
-          INDEX=update-index/release/channels/preview.json
-          test -f "$INDEX" || { echo 'Preview index is not initialized; run Bootstrap Update Channel Index first' >&2; exit 1; }
-          node scripts/update-channel-index.mjs "$INDEX" preview core component/core-component.json
-          node scripts/verify-update-channel-index.mjs "$INDEX" preview
-          git -C update-index config user.name 'niupanel-release-bot'
-          git -C update-index config user.email 'release-bot@users.noreply.github.com'
-          git -C update-index add release/channels/preview.json
-          git -C update-index diff --cached --quiet || git -C update-index commit -m 'release: update preview Core'
-          git -C update-index push origin HEAD:main

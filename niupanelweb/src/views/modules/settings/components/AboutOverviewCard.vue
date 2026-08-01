@@ -12,17 +12,11 @@
       </div>
     </header>
 
-    <dl class="grid border-b border-light sm:grid-cols-3">
+    <dl class="grid border-b border-light sm:grid-cols-2">
       <div class="border-b border-light py-4 sm:border-b-0 sm:border-r sm:pr-4">
-        <dt class="text-[11px] font-semibold text-muted">Core 版本</dt>
+        <dt class="text-[11px] font-semibold text-muted">Panel 版本</dt>
         <dd class="mt-1 font-mono text-[16px] font-bold text-default">
           {{ formatVersion(currentVersion) }}
-        </dd>
-      </div>
-      <div class="border-b border-light py-4 sm:border-b-0 sm:border-r sm:px-4">
-        <dt class="text-[11px] font-semibold text-muted">Web 版本</dt>
-        <dd class="mt-1 font-mono text-[16px] font-bold text-default">
-          {{ formatVersion(FRONTEND_VERSION) }}
         </dd>
       </div>
       <div class="py-4 sm:pl-4">
@@ -36,7 +30,7 @@
         <div>
           <h2 class="m-0 text-[14px] font-bold text-default">更新通道</h2>
           <p class="mt-1 text-[11px] text-muted">
-            正式通道使用稳定发布，预览通道包含 prerelease 版本。
+            切换后仅改变更新检查来源，不会自动安装。预览通道可发现 prerelease 版本。
           </p>
         </div>
         <span
@@ -69,16 +63,7 @@
         @click="emit('check-update')"
       >
         <span class="i-ep-search mr-2 text-[14px]"></span>
-        检查 Core 更新
-      </el-button>
-      <el-button
-        plain
-        class="!mx-0 !h-10 !rounded-md sm:flex-1"
-        :loading="uploadingUpdate"
-        @click="emit('upload')"
-      >
-        <span class="i-ep-upload mr-2 text-[14px]"></span>
-        上传 Core 包
+        检查 Panel 更新
       </el-button>
       <a
         href="https://github.com/wyourname/NiuPanel"
@@ -97,20 +82,18 @@
 
 <script setup lang="ts">
 import type { UpdateChannel } from "@/types";
-import { FRONTEND_VERSION, formatVersion } from "@/version";
+import { formatVersion } from "@/version";
 
 defineProps<{
   checkingUpdate: boolean;
   currentVersion: string;
   updateChannel: UpdateChannel;
   updatingUpdateChannel: boolean;
-  uploadingUpdate: boolean;
 }>();
 
 const emit = defineEmits<{
   (event: "check-update"): void;
   (event: "update-channel", channel: UpdateChannel): void;
-  (event: "upload"): void;
 }>();
 </script>
 

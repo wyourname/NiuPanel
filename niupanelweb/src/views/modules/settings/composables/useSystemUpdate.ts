@@ -1,8 +1,6 @@
 import { computed, onMounted, onScopeDispose, ref } from "vue";
-import { ElMessage, ElMessageBox } from "element-plus";
+import { ElMessage } from "element-plus";
 import * as settingsApi from "@/api/settings";
-import { createUploadFormData } from "@/api/upload";
-import { useUploadTransfer } from "@/composables/useUploadTransfer";
 import type { SettingItem, UpdateChannel, UpdateInfo } from "@/types";
 
 const RELOAD_DELAY_MS = 5000;
@@ -10,16 +8,6 @@ const POLL_INTERVAL_MS = 1000;
 
 const getErrorMessage = (error: unknown, fallback: string) =>
   error instanceof Error ? error.message : fallback;
-
-const createFallbackUpdateInfo = (channel: UpdateChannel): UpdateInfo => ({
-  body: "",
-  channel,
-  prerelease: channel === "preview",
-  size: 0,
-  tag_name: "Latest",
-  update_available: true,
-  launcher_managed: false,
-});
 
 export function useSystemUpdate() {
   const currentVersion = ref("");
@@ -31,22 +19,16 @@ export function useSystemUpdate() {
   const cancellingUpdate = ref(false);
   const currentState = ref("");
   const updateFailed = ref(false);
-  const fileInputRef = ref<HTMLInputElement | null>(null);
   const updateChannel = ref<UpdateChannel>("stable");
   const updatingUpdateChannel = ref(false);
-  const {
-    cancel: cancelUpdateUpload,
-    progress: updateProgress,
-    run: runUpdateUpload,
-    uploading: uploadingUpdate,
-  } = useUploadTransfer();
+  const updateProgress = ref(0);
 
   let updatePollTimer: ReturnType<typeof setInterval> | null = null;
 
   const dialogTitle = computed(() => {
     if (updateFailed.value) return "更新失败";
-    if (executingUpdate.value) return "正在更新 Core";
-    return updateInfo.value?.update_available ? "发现新的 Core 版本" : "Core 版本详情";
+    if (executingUpdate.value) return "正在更新 Panel";
+    return updateInfo.value?.update_available ? "发现新的 Panel 版本" : "Panel 版本详情";
   });
 
   const channelLabel = computed(() =>
@@ -55,7 +37,7 @@ export function useSystemUpdate() {
 
   const canCancel = computed(() => {
     return executingUpdate.value
-      && (uploadingUpdate.value || currentState.value === "Downloading");
+      && currentState.value === "Downloading";
   });
 
   const clearUpdatePollTimer = () => {
@@ -122,7 +104,7 @@ export function useSystemUpdate() {
 
   const startUpdate = async () => {
     if (!updateInfo.value?.launcher_managed) {
-      ElMessage.warning("当前为直接启动模式；请改用 niupanel-launcher，或通过更新 Docker 镜像完成 Core 更新。");
+      ElMessage.warning("当前为直接启动模式；请改用 niupanel-launcher，或通过更新 Docker 镜像完成 Panel 更新。");
       return;
     }
     executingUpdate.value = true;
@@ -139,80 +121,14 @@ export function useSystemUpdate() {
     }
   };
 
-  const handleForceUpdate = () => {
-    ElMessageBox.confirm(
-      "将从 GitHub 下载当前通道的 Core 包并交给 launcher 重新安装。确定继续吗？",
-      "重新安装 Core",
-      {
-        confirmButtonText: "确定更新",
-        cancelButtonText: "取消",
-        type: "warning",
-      },
-    )
-      .then(() => {
-        if (!updateInfo.value) {
-          updateInfo.value = createFallbackUpdateInfo(updateChannel.value);
-        }
-        void startUpdate();
-      })
-      .catch(() => {});
-  };
-
   const retryUpdate = () => {
     updateFailed.value = false;
     void startUpdate();
   };
 
-  const triggerUpload = () => {
-    fileInputRef.value?.click();
-  };
-
-  const handleFileUpload = async (event: Event) => {
-    const target = event.target;
-    if (!(target instanceof HTMLInputElement)) return;
-    if (!target.files || target.files.length === 0) return;
-
-    const file = target.files[0];
-    target.value = "";
-
-    updateDialogVisible.value = true;
-    executingUpdate.value = true;
-    updateFailed.value = false;
-    updateStatusMessage.value = "正在上传 Core 包...";
-    updateProgress.value = 0;
-    cancellingUpdate.value = false;
-    currentState.value = "Uploading";
-
-    try {
-      const formData = createUploadFormData([["file", file]]);
-      const result = await runUpdateUpload(
-        (options) => settingsApi.uploadUpdate(formData, options),
-        { initialTotalBytes: file.size },
-      );
-      if (result.cancelled) {
-        executingUpdate.value = false;
-        updateFailed.value = false;
-        updateProgress.value = 0;
-        updateStatusMessage.value = "Core 包上传已取消";
-        ElMessage.info("Core 包上传已取消");
-        return;
-      }
-
-      startPollingUpdateStatus();
-    } catch (error: unknown) {
-      executingUpdate.value = false;
-      updateFailed.value = true;
-      updateStatusMessage.value = getErrorMessage(error, "上传 Core 包失败");
-    }
-  };
-
   const handleCancelUpdate = async () => {
     cancellingUpdate.value = true;
     try {
-      if (uploadingUpdate.value) {
-        cancelUpdateUpload();
-        return;
-      }
       await settingsApi.cancelUpdate();
       ElMessage.info("正在请求取消...");
     } catch (error: unknown) {
@@ -250,7 +166,9 @@ export function useSystemUpdate() {
     updatingUpdateChannel.value = true;
     try {
       await settingsApi.updateUpdateChannel(channel);
-      ElMessage.success(`已切换到${channel === "preview" ? "预览版本" : "正式版本"}`);
+      ElMessage.success(
+        `已切换到${channel === "preview" ? "预览" : "正式"}通道；不会自动安装更新`,
+      );
     } catch (error: unknown) {
       updateChannel.value = previous;
       ElMessage.error(getErrorMessage(error, "更新通道切换失败"));
@@ -275,15 +193,11 @@ export function useSystemUpdate() {
     currentVersion,
     dialogTitle,
     executingUpdate,
-    fileInputRef,
     handleCancelUpdate,
     handleCheckUpdate,
-    handleFileUpload,
-    handleForceUpdate,
     handleUpdateChannelChange,
     retryUpdate,
     startUpdate,
-    triggerUpload,
     updateChannel,
     updateDialogVisible,
     updateFailed,
@@ -291,7 +205,6 @@ export function useSystemUpdate() {
     updateProgress,
     updateStatusMessage,
     updatingUpdateChannel,
-    uploadingUpdate,
   };
 }
 

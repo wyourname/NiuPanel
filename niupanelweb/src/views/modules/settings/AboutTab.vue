@@ -5,21 +5,11 @@
       :current-version="currentVersion"
       :update-channel="updateChannel"
       :updating-update-channel="updatingUpdateChannel"
-      :uploading-update="uploadingUpdate"
       @check-update="handleCheckUpdate"
       @update-channel="handleUpdateChannelChange"
-      @upload="triggerUpload"
     />
 
     <ReleaseManagementPanel />
-
-    <input
-      ref="fileInputRef"
-      type="file"
-      class="hidden"
-      accept=".tar.gz"
-      @change="handleFileUpload"
-    />
 
     <SystemUpdateDialog
       v-model:visible="updateDialogVisible"
@@ -33,7 +23,6 @@
       :update-progress="updateProgress"
       :update-status-message="updateStatusMessage"
       @cancel-update="handleCancelUpdate"
-      @force-update="handleForceUpdate"
       @retry-update="retryUpdate"
       @start-update="startUpdate"
     />
@@ -57,15 +46,11 @@ const {
   currentVersion,
   dialogTitle,
   executingUpdate,
-  fileInputRef,
   handleCancelUpdate,
   handleCheckUpdate,
-  handleFileUpload,
-  handleForceUpdate,
   handleUpdateChannelChange,
   retryUpdate,
   startUpdate,
-  triggerUpload,
   updateChannel,
   updateDialogVisible,
   updateFailed,
@@ -73,7 +58,6 @@ const {
   updateProgress,
   updateStatusMessage,
   updatingUpdateChannel,
-  uploadingUpdate,
 } = useSystemUpdate();
 
 const dialogWidth = computed(() => {

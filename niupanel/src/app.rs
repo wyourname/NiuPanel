@@ -12,10 +12,10 @@ use tracing::Level;
 
 pub fn create_router(state: AppState) -> Router {
     let config = niupanel_common::config::Config::global();
-    if let Err(error) = modules::system::web_releases::ensure_web_runtime() {
+    if let Err(error) = modules::system::web_runtime::ensure_web_runtime() {
         tracing::warn!("Web release runtime is not ready: {error}");
     }
-    let web_root = modules::system::web_releases::web_root();
+    let web_root = modules::system::web_runtime::web_root();
     let cors = if config.cors_allowed_origins.is_empty() {
         None
     } else {

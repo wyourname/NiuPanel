@@ -41,7 +41,7 @@ mod tests {
             .collect::<HashSet<_>>();
 
         assert_eq!(names.len(), info.tools.len());
-        assert_eq!(info.tools.len(), 51);
+        assert_eq!(info.tools.len(), 49);
         assert!(info.tools.iter().all(|tool| !tool.permission.is_empty()));
         assert!(names.contains("tasks_history"));
         assert!(names.contains("tasks_get_run_log"));
@@ -57,6 +57,7 @@ mod tests {
         assert!(names.contains("webhook_push"));
         assert!(names.contains("share_station_stats"));
         assert!(names.contains("git_repo_sync"));
-        assert!(names.contains("system_web_update_check"));
+        assert!(names.contains("system_releases"));
+        assert!(names.contains("system_update_check"));
     }
 }

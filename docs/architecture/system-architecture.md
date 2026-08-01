@@ -4,9 +4,9 @@
 
 | 模块 | 归属 | 职责 |
 | --- | --- | --- |
-| launcher | 公开 Core | Core 进程监督、健康检查、SQLite 快照、自动回退 |
+| launcher | 公开 Core | Panel 进程监督、发布事务、健康检查、SQLite 快照和失败恢复 |
 | Core | 公开 Core | API、任务、权限、插件宿主、面板 MCP Server |
-| Web UI | 独立发布 | Vue 3 面板，可独立安装、激活和回退 |
+| Web UI | 独立构建组件 | Vue 3 面板，由 Panel Release 与匹配的 Core 一起激活或回退 |
 | 插件平台 | Core 扩展能力 | 应用安装、签名、版本、原生 Vue UI 和进程协议 |
 | 业务扩展 | 独立插件 | Agents、编译器等可选能力通过插件交付 |
 | Telegram Bot | 迁移中的独立插件 | 当前内置实现保持兼容，目标由插件负责长驻连接、通知和远程操作 |
@@ -16,7 +16,7 @@ MCP 不属于扩展中心，也不负责连接外部 MCP Server。扩展中心�
 
 ## 版本契约
 
-Core 与 Web 分别发布版本，并共享以下兼容字段：
+Core 与 Web 是不可变组件，Panel Release 是用户可见、可激活的唯一发布单元。它们共享以下兼容字段：
 
 - `launcher_protocol`：launcher 与 Core 激活事务协议。
 - `api_contract`：Web、Open API 和 Core 的接口契约代次。
@@ -25,44 +25,37 @@ Core 与 Web 分别发布版本，并共享以下兼容字段：
 
 同一 `schema_epoch` 内只允许 expand-first 迁移：新增表、可空字段、兼容索引和双读双写。删除字段、重命名字段、改变含义等破坏性变更必须延后到新的 epoch。生产回退不执行 `migration down`。
 
-Core 使用 `core-vX.Y.Z` Tag，Web 使用 `web-vX.Y.Z` Tag，均先发布为 GitHub Pre-release，验证后原地提升为正式版。`main/release/channels/preview.json` 与 `stable.json` 是唯一通道契约：它们分别引用完整 Core 三架构包和独立 Web 包，并保存下载地址、SHA-256、大小与兼容信息。写入索引时必须验证 Core/Web 的 `api_contract`、Web `core.min/max` 和 Core `launcher_protocol`；0.8.0 是支持的最早更新基线，不再兼容旧协议。Docker 由索引变更触发，按索引组合构建，并继续使用环境版本与 `latest` 标签。Core/Launcher 通过 `launcher_protocol` 和 `RELEASE_PROTOCOL_VERSION` 验证兼容性，Web 通过 `api_contract` 和 `core.min/max` 验证兼容性。
+Core 使用 `Core-vX.Y.Z` Tag，Web 使用 `web-vX.Y.Z` Tag，组件 Tag 永远不覆盖。Panel 使用 `vX.Y.Z` 或 `vX.Y.Z-beta.N` Tag；GitHub prerelease 状态与 `preview` 通道一致。`main/release/channels/preview.json` 与 `stable.json` 是唯一通道指针，每个文件只指向一个完整 Panel Release，并包含经验证的 Core/Web 组件描述。切换通道只改变检查来源，不自动安装。0.8.0 是新协议的最低基线，不读取 0.7.x 状态格式。
 
-## Core 更新与回退
+## Panel 更新与回退
 
-Core 发布包只包含 `niupanel`、`niupanel-launcher`、`core-release.json` 与按架构准备的运行时工具；它不包含 Web UI。首次手动部署从同一通道索引取得兼容的 Core 与 Web 组件，或直接使用已完成该组合的 Docker / Magisk 安装方式。运行目录：
+Core 包含 `niupanel`、`niupanel-launcher`、构建期 manifest 与按架构准备的运行时工具；Web 包包含 Vite 构建结果与构建期 manifest。manifest 只用于发布和安装校验，不复制到运行目录。运行目录：
 
 ```text
 data/system/
-  releases/core/<version>/
-  core/state.json
-  core/transactions/<transaction>.json
+  runtime.db
+  releases/panel/<panel-version>/
+    core/
+    web/
+  web/current -> ../releases/panel/<panel-version>/web
   snapshots/<transaction>/
 ```
 
 激活流程：
 
-1. Core 校验包结构、launcher 协议和二进制 SHA-256，安装到不可变版本目录。
-2. Core 写入 pending activation 后退出。
-3. launcher 在旧 Core 完全退出后复制 SQLite 主文件、WAL 和 SHM 快照。
-4. launcher 启动候选 Core，检查 `/healthz` 并执行试运行窗口。
-5. 成功后提交 active/previous；失败则恢复数据库快照并启动上一版。
+1. Core 校验通道、组件契约、归档 SHA-256、内部 manifest 和文件完整性，只下载发生变化的组件。
+2. Core 在同一文件系统的 staging 目录组装完整 Panel Release，原子移动到不可变版本目录，再将 pending activation 写入 `runtime.db` 后退出。
+3. Launcher 在旧进程完全退出后创建并持久化不可覆盖的数据库快照；中断重试前先恢复该快照。
+4. Launcher 启动候选 Panel，检查包含 Panel 版本的 `/healthz`，并执行稳定观察窗口。
+5. 成功时在同一个 SQLite 事务中提交 active/previous 与激活日志；失败时恢复快照，并原子记录失败事务。
 
-同 epoch 手动回退保留当前数据库。跨 epoch 回退必须找到进入新 epoch 前的快照，并要求用户确认升级后数据会丢失。
+回退始终恢复目标版本离开时的数据库快照，并要求用户显式确认该快照之后的数据会丢失；不执行 `migration down`，也不允许绕过 Launcher 直接切换文件。
 
-## Web UI 独立发布
+## Web 组件发布
 
-Web 发布包只包含 Vite 构建结果和 `release-manifest.json`：
+Web 可以独立构建和发布，因此纯前端修复不需要重建 Core。它不能独立激活：维护者使用现有 Core Tag 与新 Web Tag 组合一个新的 Panel Release，Launcher 随后把完整发布作为一个事务切换。manifest 包含 Web 版本、API contract、Core 最低/最高版本和逐文件 SHA-256；安装器拒绝路径穿越、链接文件、缺失文件和哈希不一致。
 
-```text
-data/system/
-  releases/web/<version>/
-  web/state.json
-  web/current -> ../../releases/web/<version>
-```
-
-manifest 包含 Web 版本、API contract、Core 最低/最高版本和逐文件 SHA-256。Core 在 staging 目录解包并拒绝路径穿越、链接文件、缺失文件和哈希不一致；通过后使用原子 symlink 切换，无需重启后端。
-
-`/recovery` 是编译进 Core 的最小恢复控制台，不依赖当前 Vue 包。正常面板无法加载时，管理员仍可登录并切换 Core/Web 版本。
+`/recovery` 是编译进 Core 的最小恢复控制台，不依赖当前 Vue 包。正常面板无法加载时，管理员仍可登录并回退完整 Panel Release。
 
 ## MCP Server
 
@@ -76,10 +69,11 @@ NiuPanel 在 `/mcp` 提供 Streamable HTTP MCP Server，统一使用 `X-API-Key`
 
 ## 发布验证
 
-- Core、launcher、Web 分别通过构建和契约测试。
-- Core 与 Web 各自发布不可变归档；`main/release/channels` 只允许引用全部三架构 Core 包、唯一 Web 包和兼容的组件组合。
-- 内置 Core/Web 更新只读取当前通道索引，精确校验版本、架构、文件名、大小和 SHA-256 后才下载或安装组件。
-- Docker 环境版本独立维护。索引的 Core 或 Web 指针变更都会触发 Docker 工作流；工作流校验同一索引组合后推送环境版本标签和 `latest`。
+- Core、Launcher、Web 和 Panel 通道分别通过构建、契约与状态机测试。
+- Core 与 Web 各自发布不可变归档；Panel 发布只组合已经存在的组件，不重复打包二进制。
+- 内置更新只读取当前通道指向的 Panel Release，精确校验版本、架构、文件名、大小和 SHA-256 后才安装。
+- Docker 环境版本独立维护为 `3.0.1`。只有容器基线需要更新时才手动构建，推送 `3.0.1` 与 `latest`，不使用 preview 镜像标签，也不在界面展示组件组合。
 - Docker 由 launcher 作为 PID 1 启动，并持久化整个 `/app/data`。
-- 发布检查应覆盖候选启动失败自动回退、Web 安装/切换/回退和 MCP 鉴权。
-- 最近至少保留 3 个 Web 版本；Core 版本和数据库快照按事务保留策略清理，不允许删除 active、previous 或回退链依赖的快照。
+- 容器启动时，Launcher 会比较镜像内置 Panel 与 `runtime.db` 的 active 版本：仅当内置版本更高时才通过同一 pending/快照/健康检查事务激活；版本相同保持不可变，版本更低绝不降级。
+- 发布检查应覆盖候选启动失败、Launcher 中断重试、数据库恢复、Panel 回退和 MCP 鉴权。
+- 清理策略不得删除 active、previous、pending 或回退链依赖的发布目录和快照。
