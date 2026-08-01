@@ -40,7 +40,7 @@ Release and Magisk packages bundle `uv` plus pnpm; they must never bundle fnm. `
 - 每个应用 Release 都必须包含三个 Core 归档、唯一的 Web 归档和 schema 2 的 `niupanel-release.json`。该索引绑定 Git SHA、组件兼容契约、文件名、架构、大小和 SHA-256，不持久化 preview/stable 通道；通道只由 GitHub Release 的 `prerelease` 状态决定。内置更新器必须先读取并验证该索引，不能通过文件名猜测 Core 或 Web 资产。
 - 本地 `./build.sh [amd64|arm64|armv7|all]` 生成与 CI 相同结构的 Core/Web 归档和 `docker/niupanel-release.json`，并在构建结束时调用同一个 bundle verifier。它允许只包含本次构建的单架构 Core；CI 发布则强制包含全部三架构。
 - Docker images can package any published application Release, including a GitHub Pre-release, after verifying its `niupanel-release.json`. They always use the environment tag `<docker-environment-version>` and the rolling `latest` alias; the bundled Core and Web versions are recorded in OCI labels.
-- Docker 镜像仅通过 `Publish Docker Image` 的手动工作流构建。输入一个已经发布的应用 Release Tag（可为 Pre-release）；工作流固定使用 `main` 的 Dockerfile 与 `docker/VERSION`，下载并根据该 Release 的同一份 `niupanel-release.json` 校验三架构 Core 包和唯一的 Web 包，再进行多架构构建，沿用环境版本标签和 `latest`。
+- `Publish Docker Image` 会在应用 Release 发布为 Pre-release 或正式版时自动构建 Docker 镜像，也可手动输入一个已经发布的应用 Release Tag。工作流固定使用 `main` 的 Dockerfile 与 `docker/VERSION`，下载并根据该 Release 的同一份 `niupanel-release.json` 校验三架构 Core 包和唯一的 Web 包，再进行多架构构建，沿用环境版本标签和 `latest`。
 - 发布步骤优先使用 `RELEASE_TOKEN`（fine-grained PAT，目标仓库 `Contents: Read and write`），未配置时才使用 `GITHUB_TOKEN`；若使用后者，仓库 Settings → Actions → General → Workflow permissions 必须设为 `Read and write permissions`。
 - Plugins: independently versioned packages; their manifests must declare their own license.
 - User data and imported scripts: never part of the source distribution.

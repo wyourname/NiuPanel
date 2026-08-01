@@ -3,6 +3,8 @@ name: Publish Docker Image
 # Docker 是独立环境交付物：只从 main 与已发布的应用 Release 构建。
 # 应用 Release 即使仍处于 Pre-release，镜像也沿用环境版本与 latest 标签。
 on:
+  release:
+    types: [prereleased, released]
   workflow_dispatch:
     inputs:
       release_tag:
@@ -36,7 +38,7 @@ jobs:
         id: release
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ inputs.release_tag }}
+          RELEASE_TAG: ${{ inputs.release_tag || github.event.release.tag_name }}
         run: |
           if ! [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo 'release_tag must use a plain numeric version, for example v0.8.1' >&2
