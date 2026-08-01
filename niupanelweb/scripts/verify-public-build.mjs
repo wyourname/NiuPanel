@@ -14,6 +14,7 @@ const shareSource = join(root, "src/views/modules/share/index.vue");
 const extensionsSource = join(root, "src/views/modules/extensions/index.vue");
 const apiKeyTabSource = join(root, "src/views/modules/settings/ApiKeyTab.vue");
 const packageSource = join(root, "package.json");
+const versionContractSource = join(root, "../niupanel-common/src/version.rs");
 const releaseManifestSource = join(dist, "release-manifest.json");
 
 const fail = (message) => {
@@ -107,11 +108,16 @@ if (!existsSync(releaseManifestSource)) {
 }
 const releaseManifest = JSON.parse(readFileSync(releaseManifestSource, "utf8"));
 const frontendPackage = JSON.parse(readFileSync(packageSource, "utf8"));
+const versionContract = readFileSync(versionContractSource, "utf8");
+const minimumCoreVersion = versionContract.match(
+  /pub const MINIMUM_UPDATE_CORE_VERSION: &str = "([^"]+)";/,
+)?.[1];
 if (
   releaseManifest.component !== "web" ||
   releaseManifest.version !== frontendPackage.version ||
   releaseManifest.api_contract !== 1 ||
-  releaseManifest.core?.min !== "0.8.0"
+  !minimumCoreVersion ||
+  releaseManifest.core?.min !== minimumCoreVersion
 ) {
   fail("Web release manifest contract is invalid.");
 }

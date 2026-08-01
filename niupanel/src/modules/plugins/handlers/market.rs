@@ -1,12 +1,8 @@
 use super::*;
 
-struct MarketPluginPackage {
-    entry: PluginMarketEntry,
-    asset: PluginMarketAsset,
-    public_key_ed25519: Option<String>,
-    file_name: String,
-    bytes: Vec<u8>,
-}
+mod package;
+
+use package::load_market_plugin_package;
 
 #[utoipa::path(
     get,
@@ -178,31 +174,6 @@ pub async fn install_plugin_from_market(
         )?
     };
     Ok(ApiResponse::success(record))
-}
-
-async fn load_market_plugin_package(
-    state: &AppState,
-    payload: &PluginMarketInstallRequest,
-) -> Result<MarketPluginPackage> {
-    let index = fetch_plugin_market_index(state, &payload.index_url).await?;
-    let entry = index
-        .plugins
-        .iter()
-        .find(|entry| entry.id == payload.plugin_id)
-        .cloned()
-        .ok_or_else(|| AppError::NotFound("Plugin market entry not found".to_string()))?;
-    let asset = select_market_asset(&entry)?.clone();
-    let download_url = resolve_market_download_url(&payload.index_url, &asset.file)?;
-    let bytes = download_plugin_market_package(state, download_url.as_str()).await?;
-    let file_name = market_package_file_name(&download_url);
-    let public_key_ed25519 = index.signing.and_then(|signing| signing.public_key_ed25519);
-    Ok(MarketPluginPackage {
-        entry,
-        asset,
-        public_key_ed25519,
-        file_name,
-        bytes,
-    })
 }
 
 pub(super) async fn fetch_plugin_market_index(
@@ -462,113 +433,5 @@ pub(super) fn select_market_asset(entry: &PluginMarketEntry) -> Result<&PluginMa
         })
 }
 
-pub(super) fn resolve_market_download_url(
-    index_url: &str,
-    download_url: &str,
-) -> Result<reqwest::Url> {
-    let base = reqwest::Url::parse(index_url)
-        .map_err(|err| AppError::ValidationError(format!("Invalid plugin market URL: {err}")))?;
-    let resolved = base
-        .join(download_url)
-        .map_err(|err| AppError::ValidationError(format!("Invalid plugin download URL: {err}")))?;
-    if !matches!(resolved.scheme(), "http" | "https") {
-        return Err(AppError::ValidationError(
-            "Plugin download URL must use http or https".to_string(),
-        ));
-    }
-    Ok(resolved)
-}
-
-pub(super) async fn download_plugin_market_package(state: &AppState, url: &str) -> Result<Vec<u8>> {
-    let response = state.http_client.get(url).send().await?;
-    if !response.status().is_success() {
-        return Err(AppError::ExternalApi(format!(
-            "Plugin package download failed: {}",
-            response.status()
-        )));
-    }
-    Ok(response.bytes().await?.to_vec())
-}
-
-pub(super) fn market_package_file_name(url: &reqwest::Url) -> String {
-    url.path_segments()
-        .and_then(|mut segments| segments.next_back())
-        .filter(|segment| !segment.trim().is_empty())
-        .map(str::to_string)
-        .unwrap_or_else(|| "plugin-package.tgz".to_string())
-}
-
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn platform_asset_market_index_is_the_only_supported_schema() {
-        let platform = current_plugin_market_platform().expect("test host is supported");
-        let mut index = decode_plugin_market_index(
-            format!(
-                r#"{{
-                    "schema_version": 1,
-                    "name": "Private plugins",
-                    "signing": {{ "public_key_ed25519": "test-public-key" }},
-                    "plugins": [{{
-                        "id": "private-loader",
-                        "version": "0.1.0",
-                        "assets": [{{
-                            "platform": "{platform}",
-                            "file": "./private-loader.tgz",
-                            "checksum_sha256": "abc",
-                            "signature_ed25519": "signature"
-                        }}]
-                    }}]
-                }}"#,
-            )
-            .as_bytes(),
-        )
-        .expect("platform asset index deserializes");
-        validate_plugin_market_index(&mut index).expect("platform asset index validates");
-
-        assert_eq!(index.plugins.len(), 1);
-        assert_eq!(index.plugins[0].name, "private-loader");
-        assert_eq!(index.plugins[0].assets[0].file, "./private-loader.tgz");
-        assert_eq!(
-            index
-                .signing
-                .as_ref()
-                .and_then(|signing| signing.public_key_ed25519.as_deref()),
-            Some("test-public-key")
-        );
-    }
-
-    #[test]
-    fn legacy_download_url_market_entries_are_rejected() {
-        let mut index = decode_plugin_market_index(
-            br#"{
-                "schema_version": 1,
-                "name": "Legacy",
-                "plugins": [{
-                    "id": "legacy-plugin",
-                    "name": "Legacy Plugin",
-                    "version": "0.1.0",
-                    "download_url": "./legacy-plugin.tgz"
-                }]
-            }"#,
-        )
-        .expect("legacy JSON still has valid JSON syntax");
-
-        assert!(validate_plugin_market_index(&mut index).is_err());
-    }
-
-    #[test]
-    fn checked_in_platform_market_index_is_accepted() {
-        let mut index = decode_plugin_market_index(include_bytes!(
-            "../../../../../plugins/niupanel-private-plugins.json"
-        ))
-        .expect("private plugin market index parses");
-        validate_plugin_market_index(&mut index).expect("private plugin market index validates");
-
-        let asset = select_market_asset(&index.plugins[0]).expect("host asset is present");
-        assert_eq!(asset.platform, current_plugin_market_platform().unwrap());
-        assert!(!asset.file.is_empty());
-    }
-}
+mod tests;

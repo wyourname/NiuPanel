@@ -30,8 +30,11 @@ const MAX_BACKUP_UPLOAD_SIZE: u64 = 512 * 1024 * 1024;
     security(("session_cookie" = []))
 )]
 pub async fn get_version(State(_state): State<AppState>) -> Result<ApiResponse<String>> {
-    let version = env!("CARGO_PKG_VERSION");
-    Ok(ApiResponse::success(version.to_string()))
+    let version = std::env::var("NIUPANEL_ACTIVE_PANEL_VERSION")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_string());
+    Ok(ApiResponse::success(version))
 }
 
 #[utoipa::path(

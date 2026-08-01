@@ -1,11 +1,6 @@
 name: Publish Docker Image
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - release/channels/preview.json
-      - release/channels/stable.json
   workflow_dispatch:
     inputs:
       channel:
@@ -34,30 +29,16 @@ jobs:
       - name: Checkout Docker source
         uses: actions/checkout@v6
         with:
-          ref: ${{ github.event_name == 'push' && github.sha || 'main' }}
+          ref: main
           fetch-depth: 1
 
-      - name: Select changed update channel
+      - name: Select bootstrap channel
         id: channel
         env:
           CHANNEL_INPUT: ${{ inputs.channel }}
         run: |
           set -euo pipefail
-          if [ -n "$CHANNEL_INPUT" ]; then
-            CHANNEL="$CHANNEL_INPUT"
-          else
-            CHANGED=$(git diff-tree --root --no-commit-id --name-only -r HEAD)
-          fi
-          if [ -z "${CHANNEL:-}" ]; then
-            if grep -qx 'release/channels/stable.json' <<<"$CHANGED"; then
-              CHANNEL=stable
-            elif grep -qx 'release/channels/preview.json' <<<"$CHANGED"; then
-              CHANNEL=preview
-            else
-              echo 'No update channel index changed' >&2
-              exit 1
-            fi
-          fi
+          CHANNEL="${CHANNEL_INPUT:-preview}"
           echo "channel=$CHANNEL" >> "$GITHUB_OUTPUT"
 
       - name: Download and verify indexed component assets
@@ -70,10 +51,11 @@ jobs:
           INDEX="release/channels/${CHANNEL}.json"
           export INDEX
           node scripts/verify-update-channel-index.mjs "$INDEX" "$CHANNEL"
-          CORE_TAG=$(node -p "require('./' + process.env.INDEX).core.tag")
-          WEB_TAG=$(node -p "require('./' + process.env.INDEX).web.tag")
-          CORE_VERSION=$(node -p "require('./' + process.env.INDEX).core.version")
-          WEB_VERSION=$(node -p "require('./' + process.env.INDEX).web.version")
+          PANEL_VERSION=$(node -p "require('./' + process.env.INDEX).release.version")
+          CORE_TAG=$(node -p "require('./' + process.env.INDEX).release.core.tag")
+          WEB_TAG=$(node -p "require('./' + process.env.INDEX).release.web.tag")
+          CORE_VERSION=$(node -p "require('./' + process.env.INDEX).release.core.version")
+          WEB_VERSION=$(node -p "require('./' + process.env.INDEX).release.web.version")
           mkdir release-assets
           gh release download "$CORE_TAG" --repo "$GITHUB_REPOSITORY" --dir release-assets \
             --pattern niupanel_linux_x86_64.tar.gz \
@@ -82,6 +64,7 @@ jobs:
           gh release download "$WEB_TAG" --repo "$GITHUB_REPOSITORY" --dir release-assets \
             --pattern 'niupanel_web_*.tar.gz'
           node scripts/verify-update-channel-assets.mjs "$INDEX" release-assets
+          echo "panel_version=$PANEL_VERSION" >> "$GITHUB_OUTPUT"
           echo "core_version=$CORE_VERSION" >> "$GITHUB_OUTPUT"
           echo "web_version=$WEB_VERSION" >> "$GITHUB_OUTPUT"
 
@@ -131,6 +114,7 @@ jobs:
             io.niupanel.update.channel=${{ steps.channel.outputs.channel }}
           build-args: |
             NIUPANEL_ENVIRONMENT_VERSION=${{ steps.version.outputs.environment_version }}
+            NIUPANEL_PANEL_VERSION=${{ steps.release.outputs.panel_version }}
             NIUPANEL_CORE_VERSION=${{ steps.release.outputs.core_version }}
             NIUPANEL_WEB_VERSION=${{ steps.release.outputs.web_version }}
           cache-from: type=gha

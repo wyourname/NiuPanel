@@ -40,16 +40,3 @@ pub struct ReleaseInfo {
     pub size: u64,
     pub launcher_managed: bool,
 }
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct WebReleaseInfo {
-    pub version: String,
-    pub current_version: String,
-    pub release_tag: String,
-    pub html_url: String,
-    pub body: String,
-    pub channel: String,
-    pub prerelease: bool,
-    pub update_available: bool,
-    pub size: u64,
-}

@@ -1,17 +1,22 @@
 use crate::settings::{SYSTEM_GITHUB_PROXY, SYSTEM_UPDATE_CHANNEL, SettingsManager};
 use niupanel_common::download::{DownloadEvent, DownloadOptions, download_with_resume};
 use niupanel_common::error::{AppError, Result};
-use niupanel_common::models::update::{ReleaseInfo, UpdateState, UpdateStatus, WebReleaseInfo};
+use niupanel_common::models::update::{ReleaseInfo, UpdateState, UpdateStatus};
+use niupanel_common::panel_runtime::{
+    PanelReleaseDescriptor, PendingPanelActivation, directory_digest, enqueue_panel_activation,
+    list_panel_releases, read_panel_runtime_state, verify_panel_release,
+};
 use niupanel_common::version::{
-    API_CONTRACT_VERSION, CORE_RELEASE_MANIFEST_FILE, CoreActivationReason, CoreReleaseDescriptor,
-    CoreReleaseManifest, MINIMUM_UPDATE_CORE_VERSION, PendingCoreActivation,
-    UPDATE_CHANNEL_INDEX_SCHEMA_VERSION, UpdateAsset, UpdateChannelIndex, UpdateCoreAsset,
-    read_core_runtime_state, write_core_runtime_state,
+    API_CONTRACT_VERSION, CORE_RELEASE_MANIFEST_FILE, CoreReleaseDescriptor, CoreReleaseManifest,
+    MINIMUM_UPDATE_CORE_VERSION, PanelActivationReason, UPDATE_CHANNEL_INDEX_SCHEMA_VERSION,
+    UpdateAsset, UpdateChannelIndex, UpdateCoreAsset, UpdateCoreComponent, UpdateWebComponent,
+    WEB_RELEASE_MANIFEST_FILE, WebReleaseManifest,
 };
 use reqwest::header::{HeaderMap, HeaderValue, USER_AGENT};
 use sea_orm::DatabaseConnection;
 use semver::Version;
 use sha2::{Digest, Sha256};
+use std::collections::BTreeSet;
 use std::fs;
 use std::io::Read;
 use std::path::Component;
@@ -27,6 +32,9 @@ const RELEASE_DOWNLOAD_TIMEOUT_SECS: u64 = 60 * 30;
 const UPDATE_DOWNLOAD_RETRIES: u8 = 5;
 const RELEASE_MANIFEST_MAX_SIZE: u64 = 1024 * 1024;
 
+mod contract;
+use contract::*;
+
 #[derive(Clone)]
 pub struct UpdateService {
     db: DatabaseConnection,
@@ -34,12 +42,6 @@ pub struct UpdateService {
     pub app_version: String,
     pub update_status: Arc<RwLock<UpdateStatus>>,
     pub update_cancellation_token: Arc<Mutex<Option<CancellationToken>>>,
-}
-
-pub struct DownloadedWebRelease {
-    pub info: WebReleaseInfo,
-    pub package_path: PathBuf,
-    pub temp_dir: tempfile::TempDir,
 }
 
 impl UpdateService {
@@ -60,7 +62,7 @@ impl UpdateService {
     }
 
     pub async fn check_update(&self) -> Result<ReleaseInfo> {
-        let current_version = self.app_version.clone();
+        let current_version = active_panel_version(&self.app_version);
         let channel = self.update_channel().await;
         let index = match self.fetch_update_index(&channel).await {
             Ok(index) => index,
@@ -80,80 +82,43 @@ impl UpdateService {
             }
         };
 
-        let asset_size = core_asset_for_current_target(&index)
-            .map(|asset| asset.size)
-            .unwrap_or(0);
+        let update_available = compare_versions(&index.release.version, &current_version);
+        let core_asset = core_asset_for_current_target(&index)?;
+        let runtime = match absolute_system_root() {
+            Ok(root) => read_panel_runtime_state(root).await.ok(),
+            Err(_) => None,
+        };
+        let asset_size = if update_available {
+            match runtime {
+                Some(runtime) => {
+                    u64::from(runtime.active.core.version != index.release.core.version)
+                        * core_asset.size
+                        + u64::from(runtime.active.web_version != index.release.web.version)
+                            * index.release.web.asset.size
+                }
+                None => core_asset.size + index.release.web.asset.size,
+            }
+        } else {
+            0
+        };
 
         Ok(ReleaseInfo {
-            tag_name: index.core.tag.clone(),
-            html_url: index.core.release_url,
-            body: index.core.notes,
+            tag_name: index.release.tag.clone(),
+            html_url: index.release.release_url,
+            body: index.release.notes,
             current_version: current_version.clone(),
             channel,
             prerelease: index.channel == "preview",
-            update_available: compare_versions(&index.core.version, &current_version),
+            update_available,
             size: asset_size,
             launcher_managed: launcher_managed(),
-        })
-    }
-
-    pub async fn check_web_update(&self, current_version: &str) -> Result<WebReleaseInfo> {
-        let channel = self.update_channel().await;
-        let index = self.fetch_update_index(&channel).await?;
-        let version = index.web.version.clone();
-        Ok(WebReleaseInfo {
-            version: version.clone(),
-            current_version: current_version.to_string(),
-            release_tag: index.web.tag,
-            html_url: index.web.release_url,
-            body: index.web.notes,
-            channel,
-            prerelease: index.channel == "preview",
-            update_available: compare_versions(&version, current_version),
-            size: index.web.asset.size,
-        })
-    }
-
-    pub async fn download_web_update(&self, current_version: &str) -> Result<DownloadedWebRelease> {
-        let channel = self.update_channel().await;
-        let index = self.fetch_update_index(&channel).await?;
-        let asset = index.web.asset.clone();
-        let version = index.web.version.clone();
-        let info = WebReleaseInfo {
-            version: version.clone(),
-            current_version: current_version.to_string(),
-            release_tag: index.web.tag,
-            html_url: index.web.release_url,
-            body: index.web.notes,
-            channel,
-            prerelease: index.channel == "preview",
-            update_available: compare_versions(&version, current_version),
-            size: asset.size,
-        };
-        let temp_dir = tempfile::Builder::new()
-            .prefix("niupanel_web_update_")
-            .tempdir()
-            .map_err(AppError::Io)?;
-        let package_path = temp_dir.path().join(&asset.name);
-        download_component_asset(self, &asset, &package_path).await?;
-        verify_downloaded_asset(
-            &asset.name,
-            asset.size,
-            &asset.sha256,
-            asset.size,
-            &package_path,
-        )?;
-        Ok(DownloadedWebRelease {
-            info,
-            package_path,
-            temp_dir,
         })
     }
 
     pub async fn execute_update(&self) -> Result<()> {
         if !launcher_managed() {
             return Err(AppError::ValidationError(
-                "当前为直接启动模式，Core 更新需要由 niupanel-launcher 启动服务；Docker 部署请更新镜像"
+                "当前为直接启动模式，Panel 更新需要由 niupanel-launcher 启动服务；Docker 部署请更新镜像"
                     .to_string(),
             ));
         }
@@ -197,72 +162,6 @@ impl UpdateService {
                     }
                     _ => {
                         tracing::error!("Update failed: {}", e);
-                        if let Ok(mut guard) = self_clone.update_status.write() {
-                            if guard.state != UpdateState::Idle {
-                                guard.state = UpdateState::Error;
-                                guard.error = Some(e.to_string());
-                                guard.message = format!("更新失败: {}", e);
-                            }
-                        }
-                    }
-                }
-            }
-            if let Ok(mut token_guard) = self_clone.update_cancellation_token.lock() {
-                *token_guard = None;
-            }
-        });
-
-        Ok(())
-    }
-
-    pub async fn execute_local_update(&self, package_path: tempfile::TempPath) -> Result<()> {
-        if !launcher_managed() {
-            return Err(AppError::ValidationError(
-                "当前为直接启动模式，Core 更新需要由 niupanel-launcher 启动服务；Docker 部署请更新镜像"
-                    .to_string(),
-            ));
-        }
-        let mut status_guard = self
-            .update_status
-            .write()
-            .map_err(|_| AppError::Internal("Lock poisoned".to_string()))?;
-
-        match status_guard.state {
-            UpdateState::Downloading | UpdateState::Installing | UpdateState::Restarting => {
-                return Err(AppError::ValidationError(
-                    "Update already in progress".to_string(),
-                ));
-            }
-            _ => {}
-        }
-
-        let token = CancellationToken::new();
-        {
-            let mut token_guard = self
-                .update_cancellation_token
-                .lock()
-                .map_err(|_| AppError::Internal("Lock poisoned".to_string()))?;
-            *token_guard = Some(token.clone());
-        }
-
-        *status_guard = UpdateStatus {
-            state: UpdateState::Installing,
-            progress: 100,
-            message: "准备安装本地更新包...".to_string(),
-            error: None,
-        };
-        drop(status_guard);
-
-        let self_clone = self.clone();
-        tokio::spawn(async move {
-            if let Err(e) = perform_local_update_task(self_clone.clone(), token, package_path).await
-            {
-                match e {
-                    AppError::Cancelled => {
-                        niupanel_common::info!("Local update task was cancelled.");
-                    }
-                    _ => {
-                        tracing::error!("Local update failed: {}", e);
                         if let Ok(mut guard) = self_clone.update_status.write() {
                             if guard.state != UpdateState::Idle {
                                 guard.state = UpdateState::Error;
@@ -375,144 +274,12 @@ impl UpdateService {
     }
 }
 
-fn parse_plain_version(value: &str, label: &str) -> Result<Version> {
-    let version = Version::parse(value)
-        .map_err(|error| AppError::ValidationError(format!("{label} 不是有效版本号: {error}")))?;
-    if !version.pre.is_empty() || !version.build.is_empty() {
-        return Err(AppError::ValidationError(format!(
-            "{label} 必须使用纯数字版本号，不能包含预发布或构建后缀"
-        )));
-    }
-    Ok(version)
-}
-
-fn validate_asset_descriptor(name: &str, url: &str, sha256: &str, size: u64) -> Result<()> {
-    if name.is_empty()
-        || Path::new(name).file_name().and_then(|value| value.to_str()) != Some(name)
-        || !url.starts_with("https://")
-        || size == 0
-        || sha256.len() != 64
-        || !sha256.chars().all(|value| value.is_ascii_hexdigit())
-    {
-        return Err(AppError::ValidationError(format!(
-            "更新索引中的资产 {} 描述不合法",
-            name
-        )));
-    }
-    Ok(())
-}
-
-fn validate_update_channel_index(index: &UpdateChannelIndex, expected_channel: &str) -> Result<()> {
-    if index.schema_version != UPDATE_CHANNEL_INDEX_SCHEMA_VERSION {
-        return Err(AppError::ValidationError(format!(
-            "不支持的更新索引 schema {}",
-            index.schema_version
-        )));
-    }
-    if index.channel != expected_channel || !matches!(index.channel.as_str(), "preview" | "stable")
-    {
-        return Err(AppError::ValidationError(format!(
-            "更新索引通道 {} 与请求通道 {} 不一致",
-            index.channel, expected_channel
-        )));
-    }
-    let minimum_supported = parse_plain_version(MINIMUM_UPDATE_CORE_VERSION, "最低支持 Core 版本")?;
-    let core_version = parse_plain_version(&index.core.version, "Core 版本")?;
-    if core_version < minimum_supported {
-        return Err(AppError::ValidationError(format!(
-            "Core {} 低于最低支持更新基线 {}",
-            index.core.version, MINIMUM_UPDATE_CORE_VERSION
-        )));
-    }
-    if index.core.tag != format!("core-v{}", index.core.version) {
-        return Err(AppError::ValidationError(
-            "Core Tag 与版本不一致".to_string(),
-        ));
-    }
-    if index.web.tag != format!("web-v{}", index.web.version) {
-        return Err(AppError::ValidationError(
-            "Web Tag 与版本不一致".to_string(),
-        ));
-    }
-    if !index.core.release_url.starts_with("https://")
-        || !index.web.release_url.starts_with("https://")
-    {
-        return Err(AppError::ValidationError(
-            "更新索引中的 Release 地址不合法".to_string(),
-        ));
-    }
-    if index.core.api_contract != API_CONTRACT_VERSION
-        || index.web.api_contract != API_CONTRACT_VERSION
-    {
-        return Err(AppError::ValidationError(format!(
-            "更新索引 API contract 不兼容：Core={}, Web={}, 当前={}",
-            index.core.api_contract, index.web.api_contract, API_CONTRACT_VERSION
-        )));
-    }
-    if index.core.api_contract != index.web.api_contract {
-        return Err(AppError::ValidationError(
-            "更新索引 Core 与 Web 的 API contract 不一致".to_string(),
-        ));
-    }
-    if index.core.launcher_protocol != niupanel_common::version::RELEASE_PROTOCOL_VERSION {
-        return Err(AppError::ValidationError(format!(
-            "更新索引 Core launcher 协议 {} 与当前协议不兼容",
-            index.core.launcher_protocol
-        )));
-    }
-
-    for (architecture, target) in [
-        ("x86_64", "x86_64-unknown-linux-musl"),
-        ("aarch64", "aarch64-unknown-linux-musl"),
-        ("armv7", "armv7-unknown-linux-musleabihf"),
-    ] {
-        let asset = index.core.assets.get(architecture).ok_or_else(|| {
-            AppError::ValidationError(format!("更新索引缺少 {architecture} Core 资产"))
-        })?;
-        validate_asset_descriptor(&asset.name, &asset.url, &asset.sha256, asset.size)?;
-        if asset.target != target {
-            return Err(AppError::ValidationError(format!(
-                "Core 资产 {} 的 target {} 与架构 {} 不一致",
-                asset.name, asset.target, architecture
-            )));
-        }
-    }
-    validate_asset_descriptor(
-        &index.web.asset.name,
-        &index.web.asset.url,
-        &index.web.asset.sha256,
-        index.web.asset.size,
-    )?;
-    let minimum = parse_plain_version(&index.web.core.min, "Web 最低 Core 版本")?;
-    if core_version < minimum {
-        return Err(AppError::ValidationError(format!(
-            "Core {} 低于 Web 最低要求 {}",
-            index.core.version, index.web.core.min
-        )));
-    }
-    if let Some(maximum) = index.web.core.max.as_deref() {
-        let maximum = parse_plain_version(maximum, "Web 最高 Core 版本")?;
-        if core_version > maximum {
-            return Err(AppError::ValidationError(format!(
-                "Core {} 高于 Web 最高支持版本 {}",
-                index.core.version, maximum
-            )));
-        }
-    }
-    Ok(())
-}
-
-fn core_asset_for_current_target(index: &UpdateChannelIndex) -> Result<&UpdateCoreAsset> {
-    let architecture = match std::env::consts::ARCH {
-        "arm" => "armv7",
-        value => value,
-    };
-    index.core.assets.get(architecture).ok_or_else(|| {
-        AppError::ExternalApi(format!(
-            "Core {} 不支持当前架构 {}",
-            index.core.version, architecture
-        ))
-    })
+fn active_panel_version(fallback: &str) -> String {
+    std::env::var("NIUPANEL_ACTIVE_PANEL_VERSION")
+        .ok()
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| fallback.to_owned())
 }
 
 fn launcher_managed() -> bool {
@@ -541,24 +308,6 @@ fn verify_downloaded_asset(
         )));
     }
     Ok(())
-}
-
-async fn download_component_asset(
-    service: &UpdateService,
-    asset: &UpdateAsset,
-    package_path: &Path,
-) -> Result<()> {
-    let token = CancellationToken::new();
-    download_indexed_asset(
-        service,
-        &token,
-        &asset.name,
-        &asset.url,
-        asset.size,
-        package_path,
-        false,
-    )
-    .await
 }
 
 async fn download_indexed_asset(
@@ -624,100 +373,12 @@ async fn download_indexed_asset(
 }
 
 fn compare_versions(remote: &str, local: &str) -> bool {
-    parse_version(remote) > parse_version(local)
-}
-
-#[derive(Debug, Eq, PartialEq)]
-struct VersionKey {
-    numbers: Vec<u32>,
-    prerelease: Option<Vec<PrereleasePart>>,
-}
-
-#[derive(Debug, Eq, PartialEq)]
-enum PrereleasePart {
-    Number(u32),
-    Text(String),
-}
-
-impl Ord for VersionKey {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        let max_len = self.numbers.len().max(other.numbers.len());
-        for index in 0..max_len {
-            let left = self.numbers.get(index).copied().unwrap_or(0);
-            let right = other.numbers.get(index).copied().unwrap_or(0);
-            match left.cmp(&right) {
-                std::cmp::Ordering::Equal => {}
-                ordering => return ordering,
-            }
-        }
-
-        match (&self.prerelease, &other.prerelease) {
-            (None, None) => std::cmp::Ordering::Equal,
-            (None, Some(_)) => std::cmp::Ordering::Greater,
-            (Some(_), None) => std::cmp::Ordering::Less,
-            (Some(left), Some(right)) => left.cmp(right),
-        }
-    }
-}
-
-impl PartialOrd for VersionKey {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for PrereleasePart {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        match (self, other) {
-            (Self::Number(left), Self::Number(right)) => left.cmp(right),
-            (Self::Number(_), Self::Text(_)) => std::cmp::Ordering::Less,
-            (Self::Text(_), Self::Number(_)) => std::cmp::Ordering::Greater,
-            (Self::Text(left), Self::Text(right)) => left.cmp(right),
-        }
-    }
-}
-
-impl PartialOrd for PrereleasePart {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-fn parse_version(version: &str) -> VersionKey {
-    let cleaned = version
-        .trim()
-        .trim_start_matches(|c: char| !c.is_ascii_digit());
-    let without_build = cleaned.split_once('+').map(|(v, _)| v).unwrap_or(cleaned);
-    let (base, prerelease) = without_build
-        .split_once('-')
-        .map(|(base, pre)| (base, Some(pre)))
-        .unwrap_or((without_build, None));
-
-    let numbers = base
-        .split('.')
-        .map(|part| {
-            part.chars()
-                .take_while(|char| char.is_ascii_digit())
-                .collect::<String>()
-        })
-        .filter(|part| !part.is_empty())
-        .filter_map(|part| part.parse::<u32>().ok())
-        .collect::<Vec<_>>();
-
-    let prerelease = prerelease.map(|pre| {
-        pre.split(['.', '-'])
-            .filter(|part| !part.is_empty())
-            .map(|part| {
-                part.parse::<u32>()
-                    .map(PrereleasePart::Number)
-                    .unwrap_or_else(|_| PrereleasePart::Text(part.to_ascii_lowercase()))
-            })
-            .collect::<Vec<_>>()
-    });
-
-    VersionKey {
-        numbers,
-        prerelease,
+    match (
+        Version::parse(remote.trim().trim_start_matches('v')),
+        Version::parse(local.trim().trim_start_matches('v')),
+    ) {
+        (Ok(remote), Ok(local)) => remote > local,
+        _ => false,
     }
 }
 
@@ -742,96 +403,204 @@ async fn perform_update_task(service: UpdateService, token: CancellationToken) -
         guard.progress = 0;
     }
 
-    let asset = core_asset_for_current_target(&index)?.clone();
+    let system_root = absolute_system_root()?;
+    let runtime = read_panel_runtime_state(&system_root)
+        .await
+        .map_err(AppError::Internal)?;
+    verify_panel_release(&runtime.active).map_err(AppError::ValidationError)?;
+    if runtime.active.version == index.release.version {
+        return Err(AppError::ValidationError(format!(
+            "Panel {} 已经是当前版本",
+            index.release.version
+        )));
+    }
+    let core_asset = core_asset_for_current_target(&index)?.clone();
+    if !compare_versions(&index.release.version, &runtime.active.version) {
+        return Err(AppError::ValidationError(format!(
+            "Panel {} 不高于当前版本 {}；历史版本只能通过回退流程激活",
+            index.release.version, runtime.active.version
+        )));
+    }
+    if let Some(installed) = list_panel_releases(&system_root)
+        .await
+        .map_err(AppError::Internal)?
+        .into_iter()
+        .find(|release| release.version == index.release.version)
+    {
+        validate_installed_panel_release(&installed, &index, &core_asset)?;
+        return queue_panel_activation(&service, &runtime.active.version, installed).await;
+    }
+    let orphan = system_root
+        .join("releases/panel")
+        .join(&index.release.version);
+    if orphan.exists() {
+        fs::remove_dir_all(&orphan).map_err(AppError::Io)?;
+    }
+    let web_asset = index.release.web.asset.clone();
     let temp_dir = tempfile::Builder::new()
-        .prefix("niupanel_update_download_")
+        .prefix("niupanel_panel_update_")
         .tempdir()
         .map_err(AppError::Io)?;
-    let package_path = temp_dir.path().join(&asset.name);
+    let core_package = if runtime.active.core.version == index.release.core.version {
+        None
+    } else {
+        Some(download_release_asset(&service, &token, &core_asset, temp_dir.path()).await?)
+    };
+    let web_package = if runtime.active.web_version == index.release.web.version {
+        None
+    } else {
+        Some(download_release_asset(&service, &token, &web_asset, temp_dir.path()).await?)
+    };
+    install_panel_release(
+        service,
+        index,
+        runtime.active,
+        temp_dir,
+        core_package,
+        web_package,
+    )
+    .await
+}
 
+async fn download_release_asset(
+    service: &UpdateService,
+    token: &CancellationToken,
+    asset: &impl IndexedAsset,
+    directory: &Path,
+) -> Result<PathBuf> {
+    let package_path = directory.join(asset.name());
     download_indexed_asset(
-        &service,
-        &token,
-        &asset.name,
-        &asset.url,
-        asset.size,
+        service,
+        token,
+        asset.name(),
+        asset.url(),
+        asset.size(),
         &package_path,
         true,
     )
     .await?;
     verify_downloaded_asset(
-        &asset.name,
-        asset.size,
-        &asset.sha256,
-        asset.size,
+        asset.name(),
+        asset.size(),
+        asset.sha256(),
+        asset.size(),
         &package_path,
     )?;
-    install_update_archive(service, temp_dir, package_path).await
+    Ok(package_path)
 }
 
-async fn perform_local_update_task(
-    service: UpdateService,
-    token: CancellationToken,
-    package_path: tempfile::TempPath,
-) -> Result<()> {
-    if token.is_cancelled() {
-        return Err(AppError::Cancelled);
+trait IndexedAsset {
+    fn name(&self) -> &str;
+    fn url(&self) -> &str;
+    fn sha256(&self) -> &str;
+    fn size(&self) -> u64;
+}
+
+impl IndexedAsset for UpdateAsset {
+    fn name(&self) -> &str {
+        &self.name
     }
-    let temp_dir = tempfile::Builder::new()
-        .prefix("niupanel_local_update_")
-        .tempdir()
-        .map_err(AppError::Io)?;
-    let result = install_update_archive(service, temp_dir, package_path.to_path_buf()).await;
-    drop(package_path);
-    result
+    fn url(&self) -> &str {
+        &self.url
+    }
+    fn sha256(&self) -> &str {
+        &self.sha256
+    }
+    fn size(&self) -> u64 {
+        self.size
+    }
 }
 
-async fn install_update_archive(
+impl IndexedAsset for UpdateCoreAsset {
+    fn name(&self) -> &str {
+        &self.name
+    }
+    fn url(&self) -> &str {
+        &self.url
+    }
+    fn sha256(&self) -> &str {
+        &self.sha256
+    }
+    fn size(&self) -> u64 {
+        self.size
+    }
+}
+
+async fn install_panel_release(
     service: UpdateService,
+    index: UpdateChannelIndex,
+    active: PanelReleaseDescriptor,
     temp_dir: tempfile::TempDir,
-    package_path: PathBuf,
+    core_package: Option<PathBuf>,
+    web_package: Option<PathBuf>,
 ) -> Result<()> {
     if std::env::var("NIUPANEL_LAUNCHED").as_deref() != Ok("1") {
         return Err(AppError::ValidationError(
-            "Core 更新和回退需要由 niupanel-launcher 启动当前服务".to_string(),
+            "Panel 更新和回退需要由 niupanel-launcher 启动当前服务".to_string(),
         ));
     }
     if let Ok(mut guard) = service.update_status.write() {
         guard.state = UpdateState::Installing;
-        guard.message = "正在校验并安装 Core 候选版本...".to_string();
+        guard.message = "正在校验并安装 Panel 候选版本...".to_string();
         guard.progress = 100;
     }
 
-    let descriptor = tokio::task::spawn_blocking(move || -> Result<CoreReleaseDescriptor> {
-        let unpack_dir = temp_dir.path().join("unpacked");
-        fs::create_dir_all(&unpack_dir).map_err(AppError::Io)?;
-        unpack_core_archive(&package_path, &unpack_dir)?;
-        stage_core_release(&unpack_dir)
+    let expected_active_version = active.version.clone();
+    let descriptor = tokio::task::spawn_blocking(move || -> Result<PanelReleaseDescriptor> {
+        stage_panel_release(
+            &index,
+            &active,
+            temp_dir.path(),
+            core_package.as_deref(),
+            web_package.as_deref(),
+        )
     })
     .await
     .map_err(|error| AppError::Internal(format!("Update task join error: {error}")))??;
 
-    let system_root = absolute_system_root()?;
-    let mut runtime = read_core_runtime_state(&system_root).map_err(AppError::Internal)?;
-    if runtime.pending.is_some() {
-        return Err(AppError::ValidationError(
-            "已有等待激活的 Core 版本".to_string(),
-        ));
-    }
-    if runtime.active.version == descriptor.version {
+    queue_panel_activation(&service, &expected_active_version, descriptor).await
+}
+
+fn validate_installed_panel_release(
+    release: &PanelReleaseDescriptor,
+    index: &UpdateChannelIndex,
+    asset: &UpdateCoreAsset,
+) -> Result<()> {
+    let expected = &index.release;
+    if release.version != expected.version
+        || release.core.version != expected.core.version
+        || release.core.launcher_protocol != expected.core.launcher_protocol
+        || release.core.api_contract != expected.core.api_contract
+        || release.core.schema_epoch != expected.core.schema_epoch
+        || release.core.schema_revision != expected.core.schema_revision
+        || release.core.target != asset.target
+        || release.web_version != expected.web.version
+    {
         return Err(AppError::ValidationError(format!(
-            "Core {} 已经是当前版本；版本目录不可原地覆盖",
-            descriptor.version
+            "已安装的 Panel {} 与当前通道发布描述不一致",
+            release.version
         )));
     }
-    runtime.pending = Some(PendingCoreActivation {
+    verify_panel_release(release).map_err(AppError::ValidationError)
+}
+
+async fn queue_panel_activation(
+    service: &UpdateService,
+    expected_active_version: &str,
+    descriptor: PanelReleaseDescriptor,
+) -> Result<()> {
+    let system_root = absolute_system_root()?;
+    let pending = PendingPanelActivation {
         transaction_id: nanoid::nanoid!(16),
         candidate: descriptor,
-        reason: CoreActivationReason::Update,
+        reason: PanelActivationReason::Update,
         requested_at: chrono::Utc::now().to_rfc3339(),
+        activation_snapshot_path: None,
         restore_before_start: None,
-    });
-    write_core_runtime_state(&system_root, &runtime).map_err(AppError::Internal)?;
+    };
+    enqueue_panel_activation(&system_root, expected_active_version, pending)
+        .await
+        .map_err(AppError::ValidationError)?;
 
     if let Ok(mut guard) = service.update_status.write() {
         guard.state = UpdateState::Restarting;
@@ -839,6 +608,118 @@ async fn install_update_archive(
     }
     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
     std::process::exit(0);
+}
+
+fn stage_panel_release(
+    index: &UpdateChannelIndex,
+    active: &PanelReleaseDescriptor,
+    download_root: &Path,
+    core_package: Option<&Path>,
+    web_package: Option<&Path>,
+) -> Result<PanelReleaseDescriptor> {
+    let system_root = absolute_system_root()?;
+    let releases_root = system_root.join("releases/panel");
+    let final_root = releases_root.join(&index.release.version);
+    if final_root.exists() {
+        return Err(AppError::ValidationError(format!(
+            "Panel {} 已存在；发布版本是不可变的",
+            index.release.version
+        )));
+    }
+    fs::create_dir_all(&releases_root).map_err(AppError::Io)?;
+    let staging_root = system_root.join("staging/panel").join(format!(
+        "{}-{}",
+        index.release.version,
+        nanoid::nanoid!(10)
+    ));
+    fs::create_dir_all(&staging_root).map_err(AppError::Io)?;
+
+    let result = (|| {
+        let core_root = staging_root.join("core");
+        let web_root = staging_root.join("web");
+        let final_core_binary = final_root.join("core/niupanel");
+        let final_web_root = final_root.join("web");
+
+        let core = if active.core.version == index.release.core.version {
+            let source = Path::new(&active.core.path)
+                .parent()
+                .ok_or_else(|| AppError::ValidationError("当前 Core 路径没有父目录".to_string()))?;
+            copy_release_tree(source, &core_root)?;
+            if !core_root.join("niupanel").is_file() {
+                return Err(AppError::ValidationError(
+                    "当前 Core 发布目录缺少 niupanel".to_string(),
+                ));
+            }
+            CoreReleaseDescriptor {
+                path: final_core_binary.to_string_lossy().into_owned(),
+                ..active.core.clone()
+            }
+        } else {
+            let package = core_package.ok_or_else(|| {
+                AppError::ValidationError("更新 Core 时缺少 Core 资产".to_string())
+            })?;
+            let unpack_root = download_root.join("core-unpacked");
+            fs::create_dir_all(&unpack_root).map_err(AppError::Io)?;
+            unpack_release_archive(package, &unpack_root, "Core")?;
+            let package_root = find_core_package_root(&unpack_root)?;
+            let asset = core_asset_for_current_target(index)?;
+            stage_core_component(
+                &package_root,
+                &core_root,
+                &final_core_binary,
+                &index.release.core,
+                asset,
+            )?
+        };
+        let core_digest = directory_digest(&core_root).map_err(AppError::ValidationError)?;
+        if active.core.version == index.release.core.version
+            && !core_digest.eq_ignore_ascii_case(&active.core_digest)
+        {
+            return Err(AppError::ValidationError(
+                "当前 Core 文件与 runtime.db 中的完整性记录不一致".to_string(),
+            ));
+        }
+
+        if active.web_version == index.release.web.version {
+            copy_release_tree(Path::new(&active.web_path), &web_root)?;
+        } else {
+            let package = web_package
+                .ok_or_else(|| AppError::ValidationError("更新 Web 时缺少 Web 资产".to_string()))?;
+            let unpack_root = download_root.join("web-unpacked");
+            fs::create_dir_all(&unpack_root).map_err(AppError::Io)?;
+            unpack_release_archive(package, &unpack_root, "Web")?;
+            let package_root = find_web_package_root(&unpack_root)?;
+            stage_web_component(&package_root, &web_root, &index.release.web)?;
+        }
+        if !web_root.join("index.html").is_file() {
+            return Err(AppError::ValidationError(
+                "Panel Web 目录缺少 index.html".to_string(),
+            ));
+        }
+        let web_digest = directory_digest(&web_root).map_err(AppError::ValidationError)?;
+        if active.web_version == index.release.web.version
+            && !web_digest.eq_ignore_ascii_case(&active.web_digest)
+        {
+            return Err(AppError::ValidationError(
+                "当前 Web 文件与 runtime.db 中的完整性记录不一致".to_string(),
+            ));
+        }
+        fs::rename(&staging_root, &final_root).map_err(AppError::Io)?;
+        Ok(PanelReleaseDescriptor {
+            version: index.release.version.clone(),
+            core,
+            core_digest,
+            web_version: index.release.web.version.clone(),
+            web_path: final_web_root.to_string_lossy().into_owned(),
+            web_digest,
+            installed_at: chrono::Utc::now().to_rfc3339(),
+        })
+    })();
+
+    if result.is_err() {
+        let _ = fs::remove_dir_all(&staging_root);
+    }
+    result
 }
 
 fn absolute_system_root() -> Result<PathBuf> {
@@ -867,7 +748,7 @@ fn validate_archive_path(path: &Path) -> Result<()> {
     Ok(())
 }
 
-fn unpack_core_archive(package_path: &Path, destination: &Path) -> Result<()> {
+fn unpack_release_archive(package_path: &Path, destination: &Path, component: &str) -> Result<()> {
     let file = fs::File::open(package_path).map_err(AppError::Io)?;
     let decoder = flate2::read::GzDecoder::new(file);
     let mut archive = tar::Archive::new(decoder);
@@ -878,9 +759,9 @@ fn unpack_core_archive(package_path: &Path, destination: &Path) -> Result<()> {
         let mut entry = entry.map_err(|error| AppError::ValidationError(error.to_string()))?;
         let kind = entry.header().entry_type();
         if !(kind.is_file() || kind.is_dir()) {
-            return Err(AppError::ValidationError(
-                "Core 更新包只能包含普通文件和目录".to_string(),
-            ));
+            return Err(AppError::ValidationError(format!(
+                "{component} 更新包只能包含普通文件和目录"
+            )));
         }
         let path = entry
             .path()
@@ -914,6 +795,27 @@ fn find_core_package_root(unpack_dir: &Path) -> Result<PathBuf> {
         .to_path_buf())
 }
 
+fn find_web_package_root(unpack_dir: &Path) -> Result<PathBuf> {
+    let manifests = walkdir::WalkDir::new(unpack_dir)
+        .min_depth(1)
+        .max_depth(4)
+        .into_iter()
+        .filter_map(std::result::Result::ok)
+        .filter(|entry| entry.file_type().is_file())
+        .filter(|entry| entry.file_name() == WEB_RELEASE_MANIFEST_FILE)
+        .map(|entry| entry.into_path())
+        .collect::<Vec<_>>();
+    if manifests.len() != 1 {
+        return Err(AppError::ValidationError(
+            "Web 更新包必须包含且只能包含一个 release-manifest.json".to_string(),
+        ));
+    }
+    Ok(manifests[0]
+        .parent()
+        .expect("Web manifest path has a parent")
+        .to_path_buf())
+}
+
 fn file_sha256(path: &Path) -> Result<String> {
     let mut file = fs::File::open(path).map_err(AppError::Io)?;
     let mut hasher = Sha256::new();
@@ -933,6 +835,12 @@ fn copy_release_tree(source: &Path, destination: &Path) -> Result<()> {
     for entry in fs::read_dir(source).map_err(AppError::Io)? {
         let entry = entry.map_err(AppError::Io)?;
         let file_type = entry.file_type().map_err(AppError::Io)?;
+        if matches!(
+            entry.file_name().to_str(),
+            Some(CORE_RELEASE_MANIFEST_FILE | WEB_RELEASE_MANIFEST_FILE)
+        ) {
+            continue;
+        }
         let target = destination.join(entry.file_name());
         if file_type.is_dir() {
             copy_release_tree(&entry.path(), &target)?;
@@ -948,7 +856,7 @@ fn copy_release_tree(source: &Path, destination: &Path) -> Result<()> {
             .map_err(AppError::Io)?;
         } else {
             return Err(AppError::ValidationError(
-                "Core 更新包 tools 只能包含普通文件和目录".to_string(),
+                "发布目录只能包含普通文件和目录".to_string(),
             ));
         }
     }
@@ -987,8 +895,13 @@ fn stage_release_tools(package_root: &Path, release_root: &Path) -> Result<()> {
     result
 }
 
-fn stage_core_release(unpack_dir: &Path) -> Result<CoreReleaseDescriptor> {
-    let package_root = find_core_package_root(unpack_dir)?;
+fn stage_core_component(
+    package_root: &Path,
+    destination: &Path,
+    final_binary: &Path,
+    expected: &UpdateCoreComponent,
+    expected_asset: &UpdateCoreAsset,
+) -> Result<CoreReleaseDescriptor> {
     let manifest: CoreReleaseManifest = serde_json::from_slice(
         &fs::read(package_root.join(CORE_RELEASE_MANIFEST_FILE)).map_err(AppError::Io)?,
     )
@@ -998,12 +911,16 @@ fn stage_core_release(unpack_dir: &Path) -> Result<CoreReleaseDescriptor> {
             "Core manifest component 必须为 core".to_string(),
         ));
     }
-    if manifest.launcher_protocol != niupanel_common::version::RELEASE_PROTOCOL_VERSION {
-        return Err(AppError::ValidationError(format!(
-            "Core launcher 协议 {} 与当前协议 {} 不兼容",
-            manifest.launcher_protocol,
-            niupanel_common::version::RELEASE_PROTOCOL_VERSION
-        )));
+    if manifest.version != expected.version
+        || manifest.launcher_protocol != expected.launcher_protocol
+        || manifest.api_contract != expected.api_contract
+        || manifest.schema_epoch != expected.schema_epoch
+        || manifest.schema_revision != expected.schema_revision
+        || manifest.target != expected_asset.target
+    {
+        return Err(AppError::ValidationError(
+            "Core manifest 与通道索引不一致".to_string(),
+        ));
     }
     let binary = package_root.join("niupanel");
     if !binary.is_file() {
@@ -1033,37 +950,20 @@ fn stage_core_release(unpack_dir: &Path) -> Result<CoreReleaseDescriptor> {
         }
     }
 
-    let release_root = absolute_system_root()?
-        .join("releases/core")
-        .join(&manifest.version);
-    fs::create_dir_all(&release_root).map_err(AppError::Io)?;
-    let installed_binary = release_root.join("niupanel");
-    if installed_binary.exists() {
-        if !file_sha256(&installed_binary)?.eq_ignore_ascii_case(&manifest.binary_sha256) {
-            return Err(AppError::ValidationError(format!(
-                "Core {} 已存在但内容不同；版本号必须保持不可变",
-                manifest.version
-            )));
-        }
-    } else {
-        fs::copy(&binary, &installed_binary).map_err(AppError::Io)?;
-        #[cfg(unix)]
-        fs::set_permissions(
-            &installed_binary,
-            fs::metadata(&binary).map_err(AppError::Io)?.permissions(),
-        )
-        .map_err(AppError::Io)?;
-    }
-    stage_release_tools(&package_root, &release_root)?;
-    fs::write(
-        release_root.join(CORE_RELEASE_MANIFEST_FILE),
-        serde_json::to_vec_pretty(&manifest).map_err(AppError::Json)?,
+    fs::create_dir_all(destination).map_err(AppError::Io)?;
+    let staged_binary = destination.join("niupanel");
+    fs::copy(&binary, &staged_binary).map_err(AppError::Io)?;
+    #[cfg(unix)]
+    fs::set_permissions(
+        &staged_binary,
+        fs::metadata(&binary).map_err(AppError::Io)?.permissions(),
     )
     .map_err(AppError::Io)?;
+    stage_release_tools(package_root, destination)?;
 
     Ok(CoreReleaseDescriptor {
         version: manifest.version,
-        path: installed_binary.to_string_lossy().into_owned(),
+        path: final_binary.to_string_lossy().into_owned(),
         launcher_protocol: manifest.launcher_protocol,
         api_contract: manifest.api_contract,
         schema_epoch: manifest.schema_epoch,
@@ -1073,6 +973,61 @@ fn stage_core_release(unpack_dir: &Path) -> Result<CoreReleaseDescriptor> {
             .built_at
             .unwrap_or_else(|| chrono::Utc::now().to_rfc3339()),
     })
+}
+
+fn stage_web_component(
+    package_root: &Path,
+    destination: &Path,
+    expected: &UpdateWebComponent,
+) -> Result<()> {
+    let manifest: WebReleaseManifest = serde_json::from_slice(
+        &fs::read(package_root.join(WEB_RELEASE_MANIFEST_FILE)).map_err(AppError::Io)?,
+    )
+    .map_err(AppError::Json)?;
+    if manifest.component != "web"
+        || manifest.version != expected.version
+        || manifest.api_contract != expected.api_contract
+        || manifest.core.min != expected.core.min
+        || manifest.core.max != expected.core.max
+    {
+        return Err(AppError::ValidationError(
+            "Web manifest 与通道索引不一致".to_string(),
+        ));
+    }
+    if manifest.files.is_empty() || !package_root.join("index.html").is_file() {
+        return Err(AppError::ValidationError(
+            "Web manifest 缺少文件摘要或更新包缺少 index.html".to_string(),
+        ));
+    }
+    let mut actual_files = BTreeSet::new();
+    for entry in walkdir::WalkDir::new(package_root) {
+        let entry = entry.map_err(|error| AppError::Io(error.into()))?;
+        if !entry.file_type().is_file() || entry.file_name() == WEB_RELEASE_MANIFEST_FILE {
+            continue;
+        }
+        let relative = entry
+            .path()
+            .strip_prefix(package_root)
+            .map_err(|error| AppError::Internal(error.to_string()))?
+            .to_string_lossy()
+            .replace('\\', "/");
+        actual_files.insert(relative);
+    }
+    let declared_files = manifest.files.keys().cloned().collect::<BTreeSet<_>>();
+    if actual_files != declared_files {
+        return Err(AppError::ValidationError(
+            "Web 更新包的实际文件与 manifest 不一致".to_string(),
+        ));
+    }
+    for (relative, expected_hash) in &manifest.files {
+        validate_archive_path(Path::new(relative))?;
+        if !file_sha256(&package_root.join(relative))?.eq_ignore_ascii_case(expected_hash) {
+            return Err(AppError::ValidationError(format!(
+                "Web 文件摘要不一致: {relative}"
+            )));
+        }
+    }
+    copy_release_tree(package_root, destination)
 }
 
 fn build_target_url(proxy_url: &str, original_url: &str) -> String {
@@ -1117,7 +1072,9 @@ mod tests {
                 architecture.to_string(),
                 UpdateCoreAsset {
                     name: format!("niupanel_linux_{architecture}.tar.gz"),
-                    url: format!("https://example.com/{architecture}.tar.gz"),
+                    url: format!(
+                        "https://example.com/releases/download/Core-v0.8.1/niupanel_linux_{architecture}.tar.gz"
+                    ),
                     target: target.to_string(),
                     sha256: "a".repeat(64),
                     size: 1,
@@ -1128,32 +1085,39 @@ mod tests {
             schema_version: UPDATE_CHANNEL_INDEX_SCHEMA_VERSION,
             channel: "preview".into(),
             updated_at: "2026-08-01T00:00:00Z".into(),
-            core: niupanel_common::version::UpdateCoreComponent {
+            release: niupanel_common::version::PanelUpdateRelease {
                 version: "0.8.1".into(),
-                tag: "core-v0.8.1".into(),
-                release_url: "https://example.com/core".into(),
+                tag: "v0.8.1".into(),
+                release_url: "https://example.com/releases/tag/v0.8.1".into(),
                 notes: String::new(),
                 launcher_protocol: niupanel_common::version::RELEASE_PROTOCOL_VERSION,
-                api_contract: API_CONTRACT_VERSION,
-                schema_epoch: 1,
-                schema_revision: 30,
-                assets: core_assets,
-            },
-            web: niupanel_common::version::UpdateWebComponent {
-                version: "2.0.0".into(),
-                tag: "web-v2.0.0".into(),
-                release_url: "https://example.com/web".into(),
-                notes: String::new(),
-                api_contract: API_CONTRACT_VERSION,
-                core: niupanel_common::version::ComponentCompatibility {
-                    min: "0.8.1".into(),
-                    max: None,
+                core: niupanel_common::version::UpdateCoreComponent {
+                    version: "0.8.1".into(),
+                    tag: "Core-v0.8.1".into(),
+                    release_url: "https://example.com/releases/tag/Core-v0.8.1".into(),
+                    notes: String::new(),
+                    launcher_protocol: niupanel_common::version::RELEASE_PROTOCOL_VERSION,
+                    api_contract: API_CONTRACT_VERSION,
+                    schema_epoch: 1,
+                    schema_revision: 30,
+                    assets: core_assets,
                 },
-                asset: UpdateAsset {
-                    name: "niupanel_web_2.0.0.tar.gz".into(),
-                    url: "https://example.com/web.tar.gz".into(),
-                    sha256: "b".repeat(64),
-                    size: 2,
+                web: niupanel_common::version::UpdateWebComponent {
+                    version: "2.0.0".into(),
+                    tag: "web-v2.0.0".into(),
+                    release_url: "https://example.com/releases/tag/web-v2.0.0".into(),
+                    notes: String::new(),
+                    api_contract: API_CONTRACT_VERSION,
+                    core: niupanel_common::version::ComponentCompatibility {
+                        min: "0.8.1".into(),
+                        max: None,
+                    },
+                    asset: UpdateAsset {
+                        name: "niupanel_web_2.0.0.tar.gz".into(),
+                        url: "https://example.com/releases/download/web-v2.0.0/niupanel_web_2.0.0.tar.gz".into(),
+                        sha256: "b".repeat(64),
+                        size: 2,
+                    },
                 },
             },
         }
@@ -1170,8 +1134,8 @@ mod tests {
     #[test]
     fn update_index_rejects_legacy_core_versions() {
         let mut index = update_index_fixture();
-        index.core.version = "0.7.9".into();
-        index.core.tag = "core-v0.7.9".into();
+        index.release.core.version = "0.7.9".into();
+        index.release.core.tag = "Core-v0.7.9".into();
 
         let error = validate_update_channel_index(&index, "preview").unwrap_err();
 

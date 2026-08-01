@@ -91,10 +91,8 @@ API Key 只通过 `X-API-Key` 发送，不使用 `Authorization: Bearer`。
 | `git_repo_files` | `git:read` | 浏览指定仓库文件 |
 | `git_repo_scan_tasks` | `git:read` | 扫描可导入任务，不执行导入 |
 | `git_repo_sync` | `git:sync` | 同步指定仓库 |
-| `system_core_releases` | `overview:read` | 读取已安装 Core 版本和回退状态 |
-| `system_web_releases` | `overview:read` | 读取已安装 Web UI 版本和兼容状态 |
-| `system_core_update_check` | `overview:read` | 检查 Core 在线更新 |
-| `system_web_update_check` | `overview:read` | 检查 Web UI 在线更新 |
+| `system_releases` | `overview:read` | 读取已安装 Panel 版本和回退状态 |
+| `system_update_check` | `overview:read` | 按当前 stable/preview 通道检查 Panel 更新 |
 
 后续工具继续按面板业务域增加，不通过插件动态注入。插件可以拥有自己的 API 和 UI，但不能替代系统 MCP 权限边界。
 

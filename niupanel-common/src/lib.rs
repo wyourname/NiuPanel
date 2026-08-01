@@ -7,6 +7,7 @@ pub mod filesystem;
 pub mod logger;
 pub mod metrics;
 pub mod models;
+pub mod panel_runtime;
 pub mod response;
 pub mod tools;
 #[cfg(feature = "axum")]

@@ -4,6 +4,10 @@ pub(crate) struct LauncherConfig {
     pub(crate) system_root: PathBuf,
     pub(crate) bundled_binary: PathBuf,
     pub(crate) bundled_manifest_root: PathBuf,
+    pub(crate) bundled_web_dir: PathBuf,
+    pub(crate) bootstrap_panel_version: Option<String>,
+    pub(crate) bootstrap_core_version: Option<String>,
+    pub(crate) bootstrap_web_version: Option<String>,
     pub(crate) working_dir: PathBuf,
     pub(crate) health_addr: String,
     pub(crate) database_path: PathBuf,
@@ -38,6 +42,9 @@ impl LauncherConfig {
             .parent()
             .unwrap_or(executable_dir)
             .to_path_buf();
+        let bundled_web_dir = env::var("BUNDLED_WEB_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| executable_dir.join("web"));
         let health_addr = env::var("NIUPANEL_HEALTH_ADDR").unwrap_or_else(|_| {
             health_addr_from_server().unwrap_or_else(|| "127.0.0.1:7788".into())
         });
@@ -48,12 +55,20 @@ impl LauncherConfig {
             system_root,
             bundled_binary,
             bundled_manifest_root,
+            bundled_web_dir,
+            bootstrap_panel_version: non_empty_env("NIUPANEL_BOOTSTRAP_PANEL_VERSION"),
+            bootstrap_core_version: non_empty_env("NIUPANEL_BOOTSTRAP_CORE_VERSION"),
+            bootstrap_web_version: non_empty_env("NIUPANEL_BOOTSTRAP_WEB_VERSION"),
             working_dir,
             health_addr,
             database_path,
             shutdown: Arc::new(AtomicBool::new(false)),
         })
     }
+}
+
+fn non_empty_env(name: &str) -> Option<String> {
+    env::var(name).ok().filter(|value| !value.trim().is_empty())
 }
 
 pub(crate) fn absolute_from(root: &Path, path: &Path) -> PathBuf {
@@ -77,10 +92,10 @@ pub(crate) fn health_addr_from_server() -> Option<String> {
 pub(crate) fn sqlite_path(working_dir: &Path, database_url: &str) -> Result<PathBuf> {
     let raw = database_url
         .strip_prefix("sqlite://")
-        .ok_or_else(|| anyhow!("Core rollback currently requires a SQLite DATABASE_URL"))?;
+        .ok_or_else(|| anyhow!("Panel rollback currently requires a SQLite DATABASE_URL"))?;
     let path = raw.split('?').next().unwrap_or(raw);
     if path.is_empty() || path == ":memory:" {
-        bail!("Core rollback requires a persistent SQLite database");
+        bail!("Panel rollback requires a persistent SQLite database");
     }
     Ok(absolute_from(working_dir, Path::new(path)))
 }

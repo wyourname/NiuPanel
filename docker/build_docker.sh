@@ -1,13 +1,15 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
 # --- Configuration ---
 VERSION="${DOCKER_IMAGE_VERSION:-$(tr -d '[:space:]' < VERSION)}"
 VERSION="${VERSION#v}"
 CORE_VERSION=$(sed -n '/^\[package\]/,/^\[/{s/^version = "\([^"]*\)"/\1/p}' ../niupanel/Cargo.toml | head -n 1)
+PANEL_VERSION="${PANEL_RELEASE_VERSION:-$CORE_VERSION}"
 IMAGE_NAME="niupanel"
 DOCKER_USERNAME="${DOCKER_HUB_USERNAME:-wyourname}"
 BASE_IMAGE="${DOCKER_USERNAME}/${IMAGE_NAME}"
+RELEASE_REPOSITORY="${GITHUB_REPOSITORY:-wyourname/NiuPanel}"
 WEB_TAR_FILE=""
 
 # Architectures: Key=PackageSuffix, Value=DockerPlatform
@@ -71,11 +73,14 @@ build_and_push() {
         --provenance=false \
         --pull \
         --build-arg NIUPANEL_ENVIRONMENT_VERSION="${VERSION}" \
+        --build-arg NIUPANEL_PANEL_VERSION="${PANEL_VERSION}" \
         --build-arg NIUPANEL_CORE_VERSION="${CORE_VERSION}" \
+        --build-arg NIUPANEL_WEB_VERSION="${WEB_VERSION}" \
         -t "${IMAGE_NAME}:${VERSION}-${tag_arch}" .
 
     # Tag & Push
     local remote_version="${BASE_IMAGE}:${VERSION}-${tag_arch}"
+    docker tag "${IMAGE_NAME}:${VERSION}-${tag_arch}" "$remote_version"
 
     log "🚀 推送: ${remote_version}"
     local retries=0
@@ -109,8 +114,33 @@ prepare_web_package() {
         exit 1
     fi
     WEB_TAR_FILE="${matches[0]}"
+    WEB_VERSION="${WEB_TAR_FILE#niupanel_web_}"
+    WEB_VERSION="${WEB_VERSION%.tar.gz}"
+    if ! [[ "$PANEL_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+        err "无效的 Panel 版本: $PANEL_VERSION"
+        exit 1
+    fi
+    if ! [[ "$WEB_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        err "无效的 Web 版本: $WEB_VERSION"
+        exit 1
+    fi
     mkdir -p packages/web
     cp "$WEB_TAR_FILE" packages/web/niupanel_web.tar.gz
+}
+
+validate_release_packages() {
+    local validation_dir
+    validation_dir=$(mktemp -d)
+    node ../scripts/generate-update-component.mjs \
+        core . "$RELEASE_REPOSITORY" "Core-v${CORE_VERSION}" "$validation_dir/core.json"
+    node ../scripts/generate-update-component.mjs \
+        web . "$RELEASE_REPOSITORY" "web-v${WEB_VERSION}" "$validation_dir/web.json"
+    node ../scripts/compose-update-channel-index.mjs \
+        preview "$PANEL_VERSION" "$validation_dir/core.json" "$validation_dir/web.json" \
+        "$RELEASE_REPOSITORY" "$validation_dir/index.json"
+    node ../scripts/verify-update-channel-index.mjs "$validation_dir/index.json" preview
+    node ../scripts/verify-update-channel-assets.mjs "$validation_dir/index.json" .
+    rm -rf -- "$validation_dir"
 }
 
 create_manifest() {
@@ -184,6 +214,10 @@ if [ ! -f "Dockerfile" ]; then
     err "未找到 Dockerfile"
     exit 1
 fi
+if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    err "Docker 环境版本必须使用纯数字 SemVer: $VERSION"
+    exit 1
+fi
 
 log "🚀 开始构建流程 | 版本: ${VERSION} | 用户: ${DOCKER_USERNAME}"
 
@@ -192,6 +226,7 @@ docker run --privileged --rm tonistiigi/binfmt --install all
 
 BUILT_TAGS=()
 prepare_web_package
+validate_release_packages
 
 # Iterate and Build
 for suffix in "${!ARCH_MAP[@]}"; do

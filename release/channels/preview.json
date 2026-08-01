@@ -1,55 +1,62 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "channel": "preview",
   "updated_at": "2026-08-01T11:26:02.461Z",
-  "core": {
+  "release": {
     "version": "0.8.1",
-    "tag": "core-v0.8.1",
-    "release_url": "https://github.com/wyourname/NiuPanel/releases/tag/core-v0.8.1",
+    "tag": "v0.8.1",
+    "release_url": "https://github.com/wyourname/NiuPanel/releases/tag/v0.8.1",
     "notes": "",
     "launcher_protocol": 1,
-    "api_contract": 1,
-    "schema_epoch": 1,
-    "schema_revision": 30,
-    "assets": {
-      "x86_64": {
-        "name": "niupanel_linux_x86_64.tar.gz",
-        "url": "https://github.com/wyourname/NiuPanel/releases/download/core-v0.8.1/niupanel_linux_x86_64.tar.gz",
-        "target": "x86_64-unknown-linux-musl",
-        "sha256": "43f10888a96d3b6dac34d6c78ec8bf61009477fadfeec433f292d438bacbf302",
-        "size": 89134954
-      },
-      "aarch64": {
-        "name": "niupanel_linux_aarch64.tar.gz",
-        "url": "https://github.com/wyourname/NiuPanel/releases/download/core-v0.8.1/niupanel_linux_aarch64.tar.gz",
-        "target": "aarch64-unknown-linux-musl",
-        "sha256": "eed7a1013fd28dff7ac1ed9c7d920397481117fe88c4bbd0b30c7fc15ce9e404",
-        "size": 87246998
-      },
-      "armv7": {
-        "name": "niupanel_linux_armv7.tar.gz",
-        "url": "https://github.com/wyourname/NiuPanel/releases/download/core-v0.8.1/niupanel_linux_armv7.tar.gz",
-        "target": "armv7-unknown-linux-musleabihf",
-        "sha256": "e230d3015b186d7ef75d8e240f0d91f6b318696173dca2b2420fb99c3df32be4",
-        "size": 92564540
-      }
-    }
-  },
-  "web": {
-    "version": "2.0.1",
-    "tag": "web-v2.0.1",
-    "release_url": "https://github.com/wyourname/NiuPanel/releases/tag/web-v2.0.1",
-    "notes": "",
-    "api_contract": 1,
     "core": {
-      "min": "0.8.0",
-      "max": null
+      "version": "0.8.1",
+      "tag": "Core-v0.8.1",
+      "release_url": "https://github.com/wyourname/NiuPanel/releases/tag/Core-v0.8.1",
+      "notes": "",
+      "launcher_protocol": 1,
+      "api_contract": 1,
+      "schema_epoch": 1,
+      "schema_revision": 30,
+      "assets": {
+        "x86_64": {
+          "name": "niupanel_linux_x86_64.tar.gz",
+          "url": "https://github.com/wyourname/NiuPanel/releases/download/Core-v0.8.1/niupanel_linux_x86_64.tar.gz",
+          "target": "x86_64-unknown-linux-musl",
+          "sha256": "43f10888a96d3b6dac34d6c78ec8bf61009477fadfeec433f292d438bacbf302",
+          "size": 89134954
+        },
+        "aarch64": {
+          "name": "niupanel_linux_aarch64.tar.gz",
+          "url": "https://github.com/wyourname/NiuPanel/releases/download/Core-v0.8.1/niupanel_linux_aarch64.tar.gz",
+          "target": "aarch64-unknown-linux-musl",
+          "sha256": "eed7a1013fd28dff7ac1ed9c7d920397481117fe88c4bbd0b30c7fc15ce9e404",
+          "size": 87246998
+        },
+        "armv7": {
+          "name": "niupanel_linux_armv7.tar.gz",
+          "url": "https://github.com/wyourname/NiuPanel/releases/download/Core-v0.8.1/niupanel_linux_armv7.tar.gz",
+          "target": "armv7-unknown-linux-musleabihf",
+          "sha256": "e230d3015b186d7ef75d8e240f0d91f6b318696173dca2b2420fb99c3df32be4",
+          "size": 92564540
+        }
+      }
     },
-    "asset": {
-      "name": "niupanel_web_2.0.1.tar.gz",
-      "url": "https://github.com/wyourname/NiuPanel/releases/download/web-v2.0.1/niupanel_web_2.0.1.tar.gz",
-      "sha256": "e230af77762b87b7f3c17cff1f4c065c1e84515c2223f2380ac348273def1549",
-      "size": 7645406
+    "web": {
+      "version": "2.0.1",
+      "tag": "web-v2.0.1",
+      "release_url": "https://github.com/wyourname/NiuPanel/releases/tag/web-v2.0.1",
+      "notes": "",
+      "api_contract": 1,
+      "core": {
+        "min": "0.8.0",
+        "max": null
+      },
+      "asset": {
+        "name": "niupanel_web_2.0.1.tar.gz",
+        "url": "https://github.com/wyourname/NiuPanel/releases/download/web-v2.0.1/niupanel_web_2.0.1.tar.gz",
+        "sha256": "e230af77762b87b7f3c17cff1f4c065c1e84515c2223f2380ac348273def1549",
+        "size": 7645406
+      }
     }
   }
 }

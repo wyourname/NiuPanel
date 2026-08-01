@@ -116,10 +116,3 @@ export const getUpdateStatus = (): Promise<ApiResponse<UpdateStatus>> => {
 export const cancelUpdate = (): Promise<ApiResponse<void>> => {
   return request.post('/settings/update/cancel')
 }
-
-export const uploadUpdate = (
-  formData: FormData,
-  options: UploadRequestOptions = {}
-): Promise<ApiResponse<void>> => {
-  return uploadMultipart('/settings/update/upload', formData, options)
-}

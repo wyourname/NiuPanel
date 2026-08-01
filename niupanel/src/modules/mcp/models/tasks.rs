@@ -84,8 +84,7 @@ pub struct TaskRunLogParams {
 
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct SystemStatusOutput {
-    pub core_version: String,
-    pub web_version: String,
+    pub panel_version: String,
     pub api_contract: u32,
     pub schema_epoch: u32,
     pub schema_revision: u32,

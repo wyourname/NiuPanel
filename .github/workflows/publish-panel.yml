@@ -1,0 +1,204 @@
+name: Publish Panel Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      panel_version:
+        description: '用户可见的 Panel 版本，例如 0.8.2'
+        required: true
+        type: string
+      channel:
+        description: '发布到哪个更新通道'
+        required: true
+        default: preview
+        type: choice
+        options: [preview, stable]
+      core_tag:
+        description: '已发布的不可变 Core Tag，例如 Core-v0.8.2'
+        required: true
+        type: string
+      web_tag:
+        description: '已发布的不可变 Web Tag，例如 web-v2.0.2'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: niupanel-channel-pointer
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Compose and publish Panel release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 1
+          token: ${{ secrets.RELEASE_TOKEN }}
+
+      - name: Validate release identity
+        env:
+          PANEL_VERSION: ${{ inputs.panel_version }}
+          CHANNEL: ${{ inputs.channel }}
+          CORE_TAG: ${{ inputs.core_tag }}
+          WEB_TAG: ${{ inputs.web_tag }}
+        run: |
+          set -euo pipefail
+          [[ "$PANEL_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]
+          [[ "$CORE_TAG" =~ ^Core-v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ "$WEB_TAG" =~ ^web-v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          if [ "$CHANNEL" = stable ]; then
+            [[ "$PANEL_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          fi
+
+      - name: Download and verify component releases
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          CORE_TAG: ${{ inputs.core_tag }}
+          WEB_TAG: ${{ inputs.web_tag }}
+        run: |
+          set -euo pipefail
+          test -n "$GH_TOKEN" || { echo 'RELEASE_TOKEN is required' >&2; exit 1; }
+          mkdir release-assets
+          gh release download "$CORE_TAG" --repo "$GITHUB_REPOSITORY" --dir release-assets \
+            --pattern niupanel_linux_x86_64.tar.gz \
+            --pattern niupanel_linux_aarch64.tar.gz \
+            --pattern niupanel_linux_armv7.tar.gz
+          gh release download "$WEB_TAG" --repo "$GITHUB_REPOSITORY" --dir release-assets \
+            --pattern 'niupanel_web_*.tar.gz'
+          node scripts/generate-update-component.mjs \
+            core release-assets "$GITHUB_REPOSITORY" "$CORE_TAG" core.json
+          node scripts/generate-update-component.mjs \
+            web release-assets "$GITHUB_REPOSITORY" "$WEB_TAG" web.json
+          node scripts/compose-update-channel-index.mjs \
+            '${{ inputs.channel }}' '${{ inputs.panel_version }}' \
+            core.json web.json "$GITHUB_REPOSITORY" index.json
+          node scripts/verify-update-channel-index.mjs index.json '${{ inputs.channel }}'
+          node scripts/verify-update-channel-assets.mjs index.json release-assets
+
+      - name: Prepare Panel release
+        id: panel_release
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          PANEL_VERSION: ${{ inputs.panel_version }}
+          CHANNEL: ${{ inputs.channel }}
+        run: |
+          set -euo pipefail
+          TAG="v${PANEL_VERSION}"
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            IS_DRAFT=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" \
+              --json isDraft --jq .isDraft)
+            IS_PRERELEASE=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" \
+              --json isPrerelease --jq .isPrerelease)
+            if [ "$IS_DRAFT" != true ] && [ "$CHANNEL" = preview ] && [ "$IS_PRERELEASE" != true ]; then
+              echo "$TAG is already stable and cannot be published to preview" >&2
+              exit 1
+            fi
+            if [ "$IS_DRAFT" != true ] && [ "$CHANNEL" = stable ] && [ "$IS_PRERELEASE" = true ]; then
+              echo "$TAG is a prerelease; use Promote Panel Release instead" >&2
+              exit 1
+            fi
+            echo "draft=$IS_DRAFT" >> "$GITHUB_OUTPUT"
+            echo "$TAG already exists; its immutable descriptor will be verified"
+            exit 0
+          fi
+          args=(
+            "$TAG"
+            --repo "$GITHUB_REPOSITORY"
+            --target "$GITHUB_SHA"
+            --title "NiuPanel $PANEL_VERSION"
+            --generate-notes
+            --draft
+          )
+          if [ "$CHANNEL" = preview ]; then
+            args+=(--prerelease)
+          else
+            :
+          fi
+          gh release create "${args[@]}"
+          echo 'draft=true' >> "$GITHUB_OUTPUT"
+
+      - name: Attach release notes to channel metadata
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          PANEL_VERSION: ${{ inputs.panel_version }}
+          CHANNEL: ${{ inputs.channel }}
+        run: |
+          set -euo pipefail
+          gh release view "v${PANEL_VERSION}" --repo "$GITHUB_REPOSITORY" \
+            --json body --jq .body > panel-notes.md
+          node --input-type=module <<'NODE'
+          import { readFileSync, writeFileSync } from 'node:fs'
+          const index = JSON.parse(readFileSync('index.json', 'utf8'))
+          index.release.notes = readFileSync('panel-notes.md', 'utf8').trim()
+          writeFileSync('index.json', `${JSON.stringify(index, null, 2)}\n`)
+          NODE
+          node scripts/verify-update-channel-index.mjs index.json "$CHANNEL"
+
+      - name: Freeze and verify Panel composition
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          PANEL_VERSION: ${{ inputs.panel_version }}
+          IS_DRAFT: ${{ steps.panel_release.outputs.draft }}
+        run: |
+          set -euo pipefail
+          TAG="v${PANEL_VERSION}"
+          ASSET="niupanel_panel_${PANEL_VERSION}.json"
+          export ASSET
+          node --input-type=module <<'NODE'
+          import { readFileSync, writeFileSync } from 'node:fs'
+          const index = JSON.parse(readFileSync('index.json', 'utf8'))
+          writeFileSync(process.env.ASSET, `${JSON.stringify({
+            schema_version: index.schema_version,
+            release: index.release,
+          }, null, 2)}\n`)
+          NODE
+          if [ "$IS_DRAFT" = true ]; then
+            gh release delete-asset "$TAG" "$ASSET" --repo "$GITHUB_REPOSITORY" --yes \
+              >/dev/null 2>&1 || true
+            gh release upload "$TAG" "$ASSET" --repo "$GITHUB_REPOSITORY"
+          else
+            mkdir immutable-panel
+            gh release download "$TAG" --repo "$GITHUB_REPOSITORY" \
+              --pattern "$ASSET" --dir immutable-panel
+            cmp --silent "$ASSET" "immutable-panel/$ASSET" || {
+              echo "$TAG already exists with a different Core/Web composition" >&2
+              exit 1
+            }
+          fi
+
+      - name: Publish prepared Panel release
+        if: steps.panel_release.outputs.draft == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          PANEL_VERSION: ${{ inputs.panel_version }}
+          CHANNEL: ${{ inputs.channel }}
+        run: |
+          set -euo pipefail
+          TAG="v${PANEL_VERSION}"
+          if [ "$CHANNEL" = preview ]; then
+            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" \
+              --draft=false --prerelease=true
+          else
+            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" \
+              --draft=false --prerelease=false --latest
+          fi
+
+      - name: Publish channel pointer
+        env:
+          CHANNEL: ${{ inputs.channel }}
+          PANEL_VERSION: ${{ inputs.panel_version }}
+        run: |
+          set -euo pipefail
+          mkdir -p release/channels
+          cp index.json "release/channels/${CHANNEL}.json"
+          git config user.name 'niupanel-release-bot'
+          git config user.email 'release-bot@users.noreply.github.com'
+          git add "release/channels/${CHANNEL}.json"
+          git diff --cached --quiet || git commit -m "release: publish ${CHANNEL} Panel ${PANEL_VERSION}"
+          git pull --rebase origin main
+          git push origin HEAD:main

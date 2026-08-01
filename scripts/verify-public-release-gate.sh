@@ -47,7 +47,7 @@ run cargo check -p niupanel-bot --all-features
 run cargo check -p niupanel-launcher
 run cargo test -p niupanel public_openapi_exposes_plugins_without_legacy_agents_routes
 run cargo test -p niupanel modules::system::service::tests
-run cargo test -p niupanel modules::system::web_releases::tests
+run cargo test -p niupanel modules::system::web_runtime::tests
 run cargo test -p niupanel-launcher
 run cargo test -p niupanel-plugin --lib
 run cargo test -p niupanel-plugin json_lines_plugin_can_call_injected_tools
@@ -99,21 +99,21 @@ fi
 run node scripts/package-plugin.mjs examples/plugins/compiler/echo-compiler \
   --out "$tmp_dir/plugin-packages" \
   --market "$tmp_dir/plugin-packages/index.json" \
-  --download-url ./echo-compiler.tgz \
+  --asset-url ./echo-compiler.tgz \
   --index-name "NiuPanel Gate Plugin Market"
 run node scripts/package-plugin.mjs examples/plugins/theme-graphite \
   --out "$tmp_dir/plugin-packages" \
   --market "$tmp_dir/plugin-packages/index.json" \
-  --download-url ./theme-graphite.tgz
+  --asset-url ./theme-graphite.tgz
 run node -e 'const fs=require("node:fs"); JSON.parse(fs.readFileSync("docs/plugins/plugin.schema.json","utf8")); console.log("plugin schema JSON parsed.");'
 
 run node -e 'const {generateKeyPairSync}=require("node:crypto"); const {writeFileSync}=require("node:fs"); const {privateKey}=generateKeyPairSync("ed25519"); writeFileSync(process.argv[1], privateKey.export({format:"pem", type:"pkcs8"}));' "$tmp_dir/plugin-signing-key.pem"
 run node scripts/package-plugin.mjs examples/plugins/compiler/echo-compiler \
   --out "$tmp_dir/signed-plugin-packages" \
   --market "$tmp_dir/signed-plugin-packages/index.json" \
-  --download-url ./echo-compiler.tgz \
+  --asset-url ./echo-compiler.tgz \
   --sign-key "$tmp_dir/plugin-signing-key.pem"
-run node -e 'const fs=require("node:fs"); const index=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); const entry=index.plugins.find((plugin)=>plugin.id==="echo-compiler"); if (!entry?.signature_ed25519 || !entry?.public_key_ed25519 || !String(entry.public_key_ed25519).includes("BEGIN PUBLIC KEY")) { console.error("signed plugin market entry is missing signature or public key"); process.exit(1); } console.log("signed plugin market entry verified.");' "$tmp_dir/signed-plugin-packages/index.json"
+run node -e 'const fs=require("node:fs"); const index=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); const entry=index.plugins.find((plugin)=>plugin.id==="echo-compiler"); const asset=entry?.assets?.find((candidate)=>candidate.signature_ed25519); if (!asset || !String(index.signing?.public_key_ed25519).includes("BEGIN PUBLIC KEY")) { console.error("signed plugin market index is missing the asset signature or market public key"); process.exit(1); } console.log("signed plugin market entry verified.");' "$tmp_dir/signed-plugin-packages/index.json"
 
 run node scripts/create-private-plugin-repo.mjs "$tmp_dir/private-plugin-repo" \
   --agents-id private-agent-app \
@@ -124,7 +124,7 @@ run node "$tmp_dir/private-plugin-repo/scripts/package-plugin.mjs" \
   "$tmp_dir/private-plugin-repo/plugins/private-compiler-loader" \
   --out "$tmp_dir/private-plugin-repo/dist/plugins" \
   --market "$tmp_dir/private-plugin-repo/dist/plugins/index.json" \
-  --download-url ./private-compiler-loader.tgz
+  --asset-url ./private-compiler-loader.tgz
 run env PLUGIN_SIGN_KEY="$tmp_dir/private-plugin-repo/keys/plugin-ed25519.pem" \
   pnpm --dir "$tmp_dir/private-plugin-repo" run package:compiler:signed
 run pnpm --dir "$tmp_dir/private-plugin-repo" run package:agents

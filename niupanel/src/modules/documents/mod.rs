@@ -227,7 +227,6 @@ pub struct ApiDocTasks;
         settings::handlers::update::get_update_status,
         settings::handlers::update::cancel_update,
         settings::handlers::update::execute_update,
-        settings::handlers::update::upload_update,
         settings::handlers::notification::update_notification_settings,
         settings::handlers::notification::test_notification,
         environment::handlers::list_environments,
@@ -365,27 +364,16 @@ pub struct ApiDocMcp;
 #[openapi(
     paths(
         system::handlers::get_system_meta,
-        system::handlers::list_core_releases,
-        system::handlers::activate_core_release,
-        system::handlers::list_web_releases,
-        system::handlers::upload_web_release,
-        system::handlers::activate_web_release,
-        system::handlers::rollback_web_release,
-        system::handlers::check_web_update,
-        system::handlers::install_web_update
+        system::handlers::list_panel_releases,
+        system::handlers::rollback_panel_release
     ),
     components(schemas(
         system::models::SystemVersionInfo,
-        system::web_releases::WebReleaseList,
-        system::web_releases::WebReleaseRecord,
-        system::web_releases::WebReleaseMutation,
-        system::core_releases::CoreReleaseList,
-        system::core_releases::CoreReleaseRecord,
-        system::core_releases::CoreReleaseMutation,
-        system::core_releases::ActivateCoreReleaseRequest,
-        niupanel_common::version::CoreActivationFailure,
-        niupanel_common::version::WebReleaseManifest,
-        niupanel_common::version::ComponentCompatibility
+        system::panel_releases::PanelReleaseList,
+        system::panel_releases::PanelReleaseRecord,
+        system::panel_releases::PanelReleaseMutation,
+        system::panel_releases::RollbackPanelReleaseRequest,
+        niupanel_common::panel_runtime::PanelActivationFailure
     ))
 )]
 pub struct ApiDocSystem;

@@ -109,14 +109,8 @@ mod tests {
             "/api/v1/plugins/{id}/invoke",
             "/api/v1/mcp/info",
             "/api/v1/system/meta",
-            "/api/v1/system/core/releases",
-            "/api/v1/system/core/releases/{version}/activate",
-            "/api/v1/system/web/releases",
-            "/api/v1/system/web/releases/upload",
-            "/api/v1/system/web/releases/{version}/activate",
-            "/api/v1/system/web/rollback",
-            "/api/v1/system/web/update/check",
-            "/api/v1/system/web/update/install",
+            "/api/v1/system/releases",
+            "/api/v1/system/releases/{version}/rollback",
         ] {
             assert!(paths.contains_key(path), "missing OpenAPI path: {path}");
         }

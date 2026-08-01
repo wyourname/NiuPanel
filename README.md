@@ -35,7 +35,7 @@ cd NiuPanel
 | 分享 | `.npack` 打包、导入预览、来源跟踪、分享市场和中转站 |
 | 扩展 | 插件安装、上传、市场、签名、权限预览、健康检查、更新和回滚 |
 | 自动化 | OpenAPI、API Key、Webhook、MCP Server 和 Telegram |
-| 系统 | 权限审计、会话安全、备份恢复、日志清理、Core/Web 独立更新回退 |
+| 系统 | 权限审计、会话安全、备份恢复、日志清理、Panel 原子更新与回退 |
 
 ## 完整功能
 
@@ -184,13 +184,13 @@ cd NiuPanel
 - 创建、下载、上传、恢复和删除系统备份。
 - 可选择备份数据库、配置、Telegram 数据等内容。
 - 支持运行日志清理和维护任务状态查询。
-- Launcher 负责 Core 进程监督、候选版本健康检查和失败自动回退。
-- Core 更新前保存 SQLite 主文件、WAL 和 SHM 快照。
-- Core 与 Web UI 分别安装、激活、检查更新和回滚。
-- Core 使用 `core-vX.Y.Z` Tag，Web UI 使用 `web-vX.Y.Z` Tag；两者独立发布，均先创建 GitHub Pre-release，再原地提升为正式版。
-- `main` 分支的 `release/channels/preview.json` 与 `release/channels/stable.json` 是内置更新和 Docker 的唯一更新来源；它们绑定已验证的 Core/Web 组合、兼容契约、文件名、下载地址、大小与 SHA-256。从 0.8.0 起不再兼容 0.7.x 的旧发布协议。
-- Docker 环境镜像独立使用 `3.0.0` 与 `latest` 标签；任一通道的 Core 或 Web 组件更新都会重建镜像，并以 OCI label 记录实际组件版本。
-- Web 发布包使用逐文件 SHA-256 manifest 校验并原子切换。
+- Launcher 负责完整 Panel Release 的进程监督、健康检查、数据库快照、原子激活和失败恢复。
+- Core 与 Web 可以独立构建，但只能由 Panel Release 一起激活或回退；纯前端修复可以复用原 Core 组件。
+- Core 使用 `Core-vX.Y.Z` Tag，Web UI 使用 `web-vX.Y.Z` Tag，Panel 使用 `vX.Y.Z[-prerelease]` Tag；组件资产不可覆盖。
+- `main` 分支的 `release/channels/preview.json` 与 `release/channels/stable.json` 是唯一更新入口。切换通道不会自动安装；从 0.8.0 起不读取 0.7.x 的旧状态格式。
+- Docker 环境镜像独立使用 `3.0.1` 与 `latest` 标签，仅在容器基线需要变化时手动重建，不使用 preview 镜像标签。
+- 构建期 JSON manifest 在安装校验后丢弃；运行状态统一保存在 `data/system/runtime.db`。
+- 更新镜像时，Launcher 只会把更高的内置 Panel 版本加入正常激活队列；不会覆盖更高的在线更新版本，也不会隐式降级。
 - 内置 `/recovery` 恢复入口不依赖当前 Web UI 包。
 
 ## 快速开始
@@ -208,7 +208,7 @@ docker run -d \
   wyourname/niupanel:latest
 ```
 
-镜像使用多架构 Manifest，Docker 会自动选择 AMD64、ARM64 或 ARMv7 产物。Docker 从 `main/release/channels` 的指定通道读取并校验 Core/Web 组件，镜像保持 Docker 环境版本标签，例如 `wyourname/niupanel:3.0.0`，并同步更新 `latest`。Docker 镜像通过单独的 Actions 工作流从 `main` 的 Dockerfile 构建，并在 OCI label 中记录所含 Core 与 Web 版本。
+镜像使用多架构 Manifest，Docker 会自动选择 AMD64、ARM64 或 ARMv7 产物。Docker 从 `main/release/channels` 的指定通道读取并校验完整 Panel Release，镜像保持独立环境版本，例如 `wyourname/niupanel:3.0.1`，并同步更新 `latest`。
 
 启动后访问：
 

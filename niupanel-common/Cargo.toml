@@ -10,7 +10,6 @@ authors.workspace = true
 description = "Shared configuration, models, and infrastructure for NiuPanel"
 
 [dependencies]
-
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
@@ -37,11 +36,9 @@ strum = { version = "0.28.0", features = ["derive"] }
 strum_macros = "0.28.0"
 utoipa = { workspace = true }
 semver = { workspace = true }
-
-
-
-
-
 [features]
 default = []
 axum = ["dep:axum", "dep:tempfile"]
+
+[dev-dependencies]
+tempfile = { workspace = true }

@@ -1,41 +1,21 @@
 use super::*;
 
 #[derive(Debug, Serialize, JsonSchema)]
-pub struct CoreReleaseOutput {
+pub struct PanelReleaseOutput {
     pub version: String,
     pub active: bool,
     pub previous: bool,
-    pub api_contract: u32,
-    pub schema_epoch: u32,
-    pub schema_revision: u32,
-    pub target: String,
+    pub rollback_available: bool,
     pub installed_at: String,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
-pub struct CoreReleaseListOutput {
+pub struct PanelReleaseListOutput {
     pub launcher_managed: bool,
     pub active_version: String,
     pub previous_version: Option<String>,
     pub pending_version: Option<String>,
-    pub items: Vec<CoreReleaseOutput>,
-}
-
-#[derive(Debug, Serialize, JsonSchema)]
-pub struct WebReleaseOutput {
-    pub version: String,
-    pub active: bool,
-    pub previous: bool,
-    pub managed: bool,
-    pub compatible: bool,
-    pub compatibility_error: Option<String>,
-}
-
-#[derive(Debug, Serialize, JsonSchema)]
-pub struct WebReleaseListOutput {
-    pub active_version: String,
-    pub previous_version: Option<String>,
-    pub items: Vec<WebReleaseOutput>,
+    pub items: Vec<PanelReleaseOutput>,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
