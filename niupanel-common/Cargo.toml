@@ -12,30 +12,19 @@ description = "Shared configuration, models, and infrastructure for NiuPanel"
 [dependencies]
 
 serde = { workspace = true }
-
 serde_json = { workspace = true }
-
 thiserror = { workspace = true }
-
 axum = { workspace = true, optional = true }
-
+tempfile = { workspace = true, optional = true }
 tracing = { workspace = true }
-
 tracing-subscriber = { workspace = true }
-
 tracing-appender = { workspace = true }
-
 sea-orm = { workspace = true }
-
 anyhow = { workspace = true }
 nanoid = { workspace = true }
-
 envy = { workspace = true }
-
 dotenvy = { workspace = true }
-
 http = { workspace = true }
-
 reqwest = { workspace = true }
 tokio = { workspace = true }
 futures = { workspace = true }
@@ -43,11 +32,8 @@ which = { workspace = true }
 home = "0.5.12"
 sha2 = "0.11.0"
 hex = "0.4.3"
-
 time = { workspace = true }
-
 strum = { version = "0.28.0", features = ["derive"] }
-
 strum_macros = "0.28.0"
 utoipa = { workspace = true }
 semver = { workspace = true }
@@ -57,7 +43,5 @@ semver = { workspace = true }
 
 
 [features]
-
 default = []
-
-axum = ["dep:axum"]
+axum = ["dep:axum", "dep:tempfile"]

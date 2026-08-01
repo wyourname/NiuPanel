@@ -113,7 +113,11 @@ pub async fn auth_middleware(
 fn bearer_token(headers: &HeaderMap) -> Option<&str> {
     let auth_header = headers.get(header::AUTHORIZATION)?;
     let auth_str = auth_header.to_str().ok()?;
-    let token = auth_str.trim_start_matches("Bearer ").trim();
+    let (scheme, token) = auth_str.split_once(' ')?;
+    if !scheme.eq_ignore_ascii_case("Bearer") {
+        return None;
+    }
+    let token = token.trim();
     (!token.is_empty()).then_some(token)
 }
 
@@ -123,6 +127,7 @@ fn api_key_token(headers: &HeaderMap) -> Option<&str> {
         .and_then(|value| value.to_str().ok())
         .map(str::trim)
         .filter(|value| !value.is_empty())
+        .or_else(|| bearer_token(headers))
 }
 
 use crate::common::state::CachedApiKey;
@@ -136,7 +141,9 @@ pub async fn token_auth_middleware(
 ) -> Response {
     let token = match api_key_token(req.headers()) {
         Some(token) => token.to_string(),
-        None => return AppError::Auth("Missing X-API-Key header".to_string()).into_response(),
+        None => {
+            return AppError::Auth("Missing X-API-Key or Bearer token".to_string()).into_response();
+        }
     };
 
     if sdk_token::is_internal_sdk_token(&token) {
@@ -337,5 +344,46 @@ impl PermissionExt for Router<AppState> {
         self.route_layer(axum::middleware::from_fn(
             move |user, req, next| async move { require_permission(perm, user, req, next).await },
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::http::HeaderValue;
+
+    #[test]
+    fn api_key_token_prefers_x_api_key() {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-api-key", HeaderValue::from_static("canonical-key"));
+        headers.insert(
+            header::AUTHORIZATION,
+            HeaderValue::from_static("Bearer legacy-key"),
+        );
+
+        assert_eq!(api_key_token(&headers), Some("canonical-key"));
+    }
+
+    #[test]
+    fn api_key_token_accepts_legacy_bearer_header() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::AUTHORIZATION,
+            HeaderValue::from_static("bearer legacy-key"),
+        );
+
+        assert_eq!(api_key_token(&headers), Some("legacy-key"));
+    }
+
+    #[test]
+    fn bearer_token_rejects_other_authorization_schemes() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::AUTHORIZATION,
+            HeaderValue::from_static("Basic credentials"),
+        );
+
+        assert_eq!(bearer_token(&headers), None);
+        assert_eq!(api_key_token(&headers), None);
     }
 }

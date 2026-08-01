@@ -157,7 +157,7 @@
               class="!rounded-md"
               @click="emit('cancel-update')"
             >
-              取消下载
+              取消传输
             </el-button>
           </div>
         </div>

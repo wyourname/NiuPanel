@@ -148,7 +148,7 @@ cd NiuPanel
 - MCP 工具覆盖系统状态、任务、日志、变量、环境、文件、后台作业、Git、分享和 Webhook。
 - 每个工具直接复用任务、文件、环境等现有业务权限，不额外维护 MCP 专属权限。
 - 工具调用写入系统审计日志。
-- Host allowlist 用于降低 DNS rebinding 风险。
+- MCP Host 校验默认关闭，可通过 `MCP_ALLOWED_HOSTS` 显式启用 allowlist 以降低 DNS rebinding 风险。
 - NiuPanel 是 MCP Server，不负责安装或连接外部 MCP Server。
 
 ### API、Webhook 与开发者能力
@@ -187,7 +187,9 @@ cd NiuPanel
 - Launcher 负责 Core 进程监督、候选版本健康检查和失败自动回退。
 - Core 更新前保存 SQLite 主文件、WAL 和 SHM 快照。
 - Core 与 Web UI 分别安装、激活、检查更新和回滚。
-- 正式 GitHub Release 使用 Core 版本作为应用版本，`niupanel-release.json` 绑定 Core 与 Web 的完整校验信息；Docker 环境镜像独立发布，并以 OCI label 记录所含 Core 版本。
+- 应用版本和 Tag 统一使用 `X.Y.Z` / `vX.Y.Z`，不再添加 `-beta.1` 等后缀。新 Tag 首先创建 GitHub Pre-release，测试通过后将同一个 Release 原地提升为正式版，不重建或替换资产。
+- 本地构建、GitHub Release、内置 Core/Web 更新与 Docker 构建统一消费 schema 2 的 `niupanel-release.json`；它绑定 Git SHA、组件兼容契约、文件名、架构、大小和 SHA-256。preview/stable 只由 GitHub Release 状态决定。
+- Docker 环境镜像独立发布，但只能消费已提升为稳定版且通过上述 manifest 校验的 Core/Web 组合，并以 OCI label 记录所含组件版本。
 - Web 发布包使用逐文件 SHA-256 manifest 校验并原子切换。
 - 内置 `/recovery` 恢复入口不依赖当前 Web UI 包。
 
@@ -206,7 +208,7 @@ docker run -d \
   wyourname/niupanel:latest
 ```
 
-镜像使用多架构 Manifest，Docker 会自动选择 AMD64、ARM64 或 ARMv7 产物。Docker 只发布稳定 Core 版本，使用 Docker 环境版本标签，例如 `wyourname/niupanel:3.0.0`；`latest` 是稳定版滚动别名。Docker 镜像通过单独的 Actions 工作流从 `main` 构建，并在 OCI label 中记录所含 Core 版本和构建源码提交。
+镜像使用多架构 Manifest，Docker 会自动选择 AMD64、ARM64 或 ARMv7 产物。Docker 只消费已经从 Pre-release 提升为正式版、且由 `niupanel-release.json` 验证过的应用发布，使用 Docker 环境版本标签，例如 `wyourname/niupanel:3.0.0`；`latest` 是稳定版滚动别名。Docker 镜像通过单独的 Actions 工作流从 `main` 构建，并在 OCI label 中记录所含 Core 与 Web 版本。
 
 启动后访问：
 
@@ -226,7 +228,8 @@ DATABASE_URL=sqlite://data/database/niupanel.db?mode=rwc
 SESSION_KEY=<每个实例独立的随机值>
 # 远程插件市场包的签名校验；管理员直接上传不需要手工填写签名
 PLUGIN_SIGNATURE_REQUIRED=true
-MCP_ALLOWED_HOSTS=localhost,127.0.0.1,::1
+# 可选：显式启用 MCP Host allowlist
+# MCP_ALLOWED_HOSTS=panel.example.com,localhost,127.0.0.1,::1
 TRUSTED_PROXIES=127.0.0.1,::1
 SESSION_COOKIE_SECURE=true
 ```

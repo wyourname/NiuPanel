@@ -38,10 +38,21 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
-          case "$RELEASE_TAG" in
-            v*) ;;
-            *) echo 'release_tag must start with v, for example v0.8.0' >&2; exit 1 ;;
-          esac
+          if ! [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo 'release_tag must use a plain numeric version, for example v0.8.1' >&2
+            exit 1
+          fi
+          RELEASE_STATE=$(gh release view "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --json isDraft,isPrerelease)
+          if [[ "$(jq -r '.isDraft' <<<"$RELEASE_STATE")" != 'false' ]]; then
+            echo "$RELEASE_TAG is still a draft" >&2
+            exit 1
+          fi
+          if [[ "$(jq -r '.isPrerelease' <<<"$RELEASE_STATE")" != 'false' ]]; then
+            echo "$RELEASE_TAG is still a Pre-release; promote it before publishing Docker" >&2
+            exit 1
+          fi
 
           mkdir -p release-assets
           gh release download "$RELEASE_TAG" \
@@ -53,57 +64,14 @@ jobs:
             --pattern niupanel_linux_armv7.tar.gz \
             --pattern 'niupanel_web_*.tar.gz'
 
-          RELEASE_METADATA=$(node --input-type=module - "$RELEASE_TAG" <<'NODE'
-          import { createHash } from 'node:crypto'
-          import { readdirSync, readFileSync } from 'node:fs'
-
-          const [releaseTag] = process.argv.slice(2)
-          const manifest = JSON.parse(readFileSync('release-assets/niupanel-release.json', 'utf8'))
-          const expectedVersion = releaseTag.replace(/^v/, '')
-          if (manifest.release_version !== expectedVersion) {
-            throw new Error(`Expected Core ${expectedVersion}, got ${manifest.release_version}`)
-          }
-
-          const assets = {
-            x86_64: 'niupanel_linux_x86_64.tar.gz',
-            aarch64: 'niupanel_linux_aarch64.tar.gz',
-            armv7: 'niupanel_linux_armv7.tar.gz'
-          }
-          for (const [arch, filename] of Object.entries(assets)) {
-            const expected = manifest.components?.core?.assets?.[arch]?.sha256
-            const actual = createHash('sha256').update(readFileSync(`release-assets/${filename}`)).digest('hex')
-            if (!expected || actual !== expected) {
-              throw new Error(`${filename} checksum does not match niupanel-release.json`)
-            }
-          }
-          const web = manifest.components?.web
-          const webName = web?.asset?.name
-          if (!webName || !/^niupanel_web_.+\.tar\.gz$/.test(webName)) {
-            throw new Error('niupanel-release.json does not contain a valid Web asset')
-          }
-          const webAssets = readdirSync('release-assets').filter((name) =>
-            /^niupanel_web_.+\.tar\.gz$/.test(name)
-          )
-          if (webAssets.length !== 1 || webAssets[0] !== webName) {
-            throw new Error(`Expected exactly one downloaded Web asset: ${webName}`)
-          }
-          const webChecksum = createHash('sha256')
-            .update(readFileSync(`release-assets/${webName}`))
-            .digest('hex')
-          if (webChecksum !== web.asset.sha256) {
-            throw new Error(`${webName} checksum does not match niupanel-release.json`)
-          }
-          process.stdout.write(`${manifest.components.core.version}\n${web.version}\n${webName}\n`)
-          NODE
-          )
-          mapfile -t RELEASE_FIELDS <<<"$RELEASE_METADATA"
-          CORE_VERSION="${RELEASE_FIELDS[0]}"
-          WEB_VERSION="${RELEASE_FIELDS[1]}"
-          WEB_ARCHIVE="${RELEASE_FIELDS[2]}"
-          if [[ "$CORE_VERSION" == *-* ]]; then
-            echo "Docker images only publish stable Core releases; $CORE_VERSION is a pre-release" >&2
-            exit 1
-          fi
+          node scripts/verify-release-bundle.mjs \
+            release-assets/niupanel-release.json \
+            release-assets \
+            --expected-version "$RELEASE_TAG" \
+            --require-all-core-assets > release-metadata.json
+          CORE_VERSION=$(node -p "require('./release-metadata.json').core_version")
+          WEB_VERSION=$(node -p "require('./release-metadata.json').web_version")
+          WEB_ARCHIVE=$(node -p "require('./release-metadata.json').web_asset")
           echo "core_version=$CORE_VERSION" >> "$GITHUB_OUTPUT"
           echo "web_version=$WEB_VERSION" >> "$GITHUB_OUTPUT"
           echo "web_archive=$WEB_ARCHIVE" >> "$GITHUB_OUTPUT"

@@ -1,28 +1,31 @@
 <template>
   <div class="w-full h-full flex flex-col space-y-4">
-    <McpAccessPanel />
+    <McpAccessPanel
+      :error="mcpError"
+      :info="mcpInfo"
+      :keys="keys"
+      :loading="mcpLoading"
+      @create-key="openCreate"
+      @view-keys="showKeyHistory = true"
+      @view-tools="showToolCatalog = true"
+    />
 
-    <div class="flex min-h-8 shrink-0 items-center justify-between gap-3 px-1">
-      <span class="text-[11px] font-bold text-muted">
-        {{ keys.length }} 个密钥
-      </span>
-      <el-button
-        type="primary"
-        class="!h-8 !rounded-lg !px-3 !text-[12px] font-bold"
-        @click="openCreate"
-      >
-        <div class="i-ep-plus mr-1 text-sm"></div>
-        创建新密钥
-      </el-button>
-    </div>
-
-    <ApiKeyList
+    <ApiKeyHistoryDialog
+      v-model:visible="showKeyHistory"
       :is-mobile="appStore.isMobile"
       :keys="keys"
       :loading="loading"
-      :on-refresh="loadKeys"
+      :mcp-tools="mcpInfo?.tools ?? []"
+      :on-refresh="loadAccessData"
       @delete="handleDelete"
       @edit="handleEdit"
+    />
+
+    <McpToolCatalogDialog
+      v-model:visible="showToolCatalog"
+      :error="mcpError"
+      :info="mcpInfo"
+      :loading="mcpLoading"
     />
 
     <ApiKeyPermissionDialog
@@ -34,6 +37,7 @@
       :is-mobile="appStore.isMobile"
       :is-group-all-selected="isGroupAllSelected"
       :is-group-indeterminate="isGroupIndeterminate"
+      :mcp-tools="mcpInfo?.tools ?? []"
       :submitting="submitting"
       @group-select-all="handleGroupSelectAll"
       @submit="handleSubmit"
@@ -60,12 +64,15 @@ import {
   deleteApiKey,
   type ApiKey,
 } from "@/api/keys";
+import { getMcpInfo } from "@/api/mcp";
 import { useAppStore } from "@/stores/app";
+import type { McpInfo } from "@/types";
 import { useHaptics } from "@/composables/useHaptics";
-import ApiKeyList from "./components/ApiKeyList.vue";
+import ApiKeyHistoryDialog from "./components/ApiKeyHistoryDialog.vue";
 import ApiKeyPermissionDialog from "./components/ApiKeyPermissionDialog.vue";
 import ApiKeySuccessDialog from "./components/ApiKeySuccessDialog.vue";
 import McpAccessPanel from "./components/McpAccessPanel.vue";
+import McpToolCatalogDialog from "./components/McpToolCatalogDialog.vue";
 import {
   parsePerms,
   type ApiKeyFormState,
@@ -77,7 +84,12 @@ const haptics = useHaptics();
 const { toClipboard } = useClipboard();
 const keys = ref<ApiKey[]>([]);
 const loading = ref(false);
+const mcpError = ref("");
+const mcpInfo = ref<McpInfo | null>(null);
+const mcpLoading = ref(true);
 const showDialog = ref(false);
+const showKeyHistory = ref(false);
+const showToolCatalog = ref(false);
 const submitting = ref(false);
 const showSuccess = ref(false);
 const newToken = ref("");
@@ -109,6 +121,23 @@ const loadKeys = async () => {
   }
 };
 
+const loadMcpInfo = async () => {
+  mcpLoading.value = true;
+  mcpError.value = "";
+  try {
+    const response = await getMcpInfo();
+    mcpInfo.value = response.data;
+  } catch {
+    mcpError.value = "无法读取 MCP 服务信息";
+  } finally {
+    mcpLoading.value = false;
+  }
+};
+
+const loadAccessData = async () => {
+  await Promise.all([loadKeys(), loadMcpInfo()]);
+};
+
 const openCreate = () => {
   isEdit.value = false;
   editingId.value = null;
@@ -118,13 +147,13 @@ const openCreate = () => {
     "overview:read",
     "task:list",
     "task:read",
-    "task:run",
   ];
   activeGroup.value = "all";
   showDialog.value = true;
 };
 
 const handleEdit = (row: ApiKey) => {
+  showKeyHistory.value = false;
   isEdit.value = true;
   editingId.value = row.id;
   form.name = row.name;
@@ -192,5 +221,5 @@ const copyToken = async () => {
   }
 };
 
-onMounted(loadKeys);
+onMounted(loadAccessData);
 </script>

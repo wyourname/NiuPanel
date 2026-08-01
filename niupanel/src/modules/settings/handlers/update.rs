@@ -4,11 +4,12 @@ use niupanel_common::error::{AppError, Result};
 use niupanel_common::models::update::ReleaseInfo;
 use niupanel_common::models::update::UpdateStatus;
 use niupanel_common::response::ApiResponse;
+use niupanel_common::upload::{TempUploadOptions, stream_field_to_temp_file};
 use niupanel_core::settings::SYSTEM_UPDATE_CHANNEL;
 
 use crate::modules::settings::models::UpdateChannelRequest;
 
-const MAX_LOCAL_UPDATE_UPLOAD_SIZE: usize = 512 * 1024 * 1024;
+const MAX_LOCAL_UPDATE_UPLOAD_SIZE: u64 = 512 * 1024 * 1024;
 
 #[utoipa::path(
     get,
@@ -110,25 +111,21 @@ pub async fn upload_update(
         ));
     };
 
-    let mut data = Vec::new();
-    while let Some(chunk) = field
-        .chunk()
-        .await
-        .map_err(|e| AppError::Generic(e.to_string()))?
-    {
-        if data.len().saturating_add(chunk.len()) > MAX_LOCAL_UPDATE_UPLOAD_SIZE {
-            return Err(AppError::FileSizeLimitExceeded(
-                "Local update package cannot exceed 512 MB".to_string(),
-            ));
-        }
-        data.extend_from_slice(&chunk);
-    }
-    if data.is_empty() {
+    let upload = stream_field_to_temp_file(
+        &mut field,
+        TempUploadOptions::new(&std::env::temp_dir(), "niupanel-local-update-")
+            .with_max_size(MAX_LOCAL_UPDATE_UPLOAD_SIZE),
+    )
+    .await?;
+    if upload.size == 0 {
         return Err(AppError::ValidationError(
             "Update file cannot be empty".to_string(),
         ));
     }
 
-    state.update_service.execute_local_update(data).await?;
+    state
+        .update_service
+        .execute_local_update(upload.path)
+        .await?;
     Ok(ApiResponse::success(()))
 }

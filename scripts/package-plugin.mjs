@@ -22,7 +22,8 @@ Usage:
 Options:
   --out <dir>           Output directory for <plugin-id>.tgz (default: dist/plugins)
   --market <file>       Create or update a plugin market index JSON file
-  --download-url <url>  download_url written to market index (default: ./<plugin-id>.tgz)
+  --platform <id>       Platform asset ID (default: current host, such as linux-x64)
+  --asset-url <url>     Asset file URL written to market index (default: ./<plugin-id>-v<version>-<platform>.tgz)
   --sign-key <pem>      Ed25519 private key PEM used to sign the package bytes
   --build-ui            Run pnpm run build in ./ui before validation when ui/package.json exists
   --index-name <name>   Market index name when creating a new file
@@ -50,10 +51,11 @@ if (options.buildUi) {
 }
 await validateManifest(pluginDir, manifest);
 
-const fileName = `${manifest.id}.tgz`;
+const platform = options.platform ?? currentPluginPlatform();
+const fileName = `${manifest.id}-v${manifest.version}-${platform}.tgz`;
 const outDir = path.resolve(options.out ?? "dist/plugins");
 const packagePath = path.join(outDir, fileName);
-const downloadUrl = options.downloadUrl ?? `./${fileName}`;
+const assetUrl = options.assetUrl ?? `./${fileName}`;
 
 if (options.dryRun) {
   console.log(
@@ -80,7 +82,15 @@ const signature = options.signKey ? await signPackage(packagePath, options.signK
 let marketPath = null;
 if (options.market) {
   marketPath = path.resolve(options.market);
-  await updateMarketIndex(marketPath, manifest, downloadUrl, checksum, signature, options);
+  await updateMarketIndex(
+    marketPath,
+    manifest,
+    platform,
+    assetUrl,
+    checksum,
+    signature,
+    options,
+  );
 }
 
 console.log(
@@ -89,6 +99,7 @@ console.log(
       ok: true,
       id: manifest.id,
       version: manifest.version,
+      platform,
       capabilities: manifest.capabilities,
       package: packagePath,
       checksum_sha256: checksum,
@@ -114,8 +125,10 @@ function parseOptions(values) {
       parsed.out = requireValue(values, ++index, arg);
     } else if (arg === "--market") {
       parsed.market = requireValue(values, ++index, arg);
-    } else if (arg === "--download-url") {
-      parsed.downloadUrl = requireValue(values, ++index, arg);
+    } else if (arg === "--platform") {
+      parsed.platform = requireValue(values, ++index, arg);
+    } else if (arg === "--asset-url") {
+      parsed.assetUrl = requireValue(values, ++index, arg);
     } else if (arg === "--sign-key") {
       parsed.signKey = requireValue(values, ++index, arg);
     } else if (arg === "--index-name") {
@@ -421,7 +434,8 @@ async function signPackage(packagePath, privateKeyPath) {
 async function updateMarketIndex(
   file,
   manifest,
-  downloadUrl,
+  platform,
+  assetUrl,
   checksum,
   signature,
   options,
@@ -439,16 +453,21 @@ async function updateMarketIndex(
   }
   if (index.schema_version !== 1) fail("market index schema_version must be 1");
   if (!Array.isArray(index.plugins)) fail("market index plugins must be an array");
+  if (index.plugins.some((plugin) => !Array.isArray(plugin.assets))) {
+    fail("market index must use platform assets; download_url entries are not supported");
+  }
 
+  const asset = {
+    platform,
+    file: assetUrl,
+    checksum_sha256: checksum,
+    signature_ed25519: signature?.signature_ed25519 ?? null,
+  };
   const entry = {
     id: manifest.id,
     name: manifest.name,
     version: manifest.version,
     description: manifest.description,
-    download_url: downloadUrl,
-    checksum_sha256: checksum,
-    signature_ed25519: signature?.signature_ed25519 ?? null,
-    public_key_ed25519: signature?.public_key_ed25519 ?? null,
     permissions: manifest.ui?.permissions ?? [],
     homepage: null,
     repository: null,
@@ -456,9 +475,24 @@ async function updateMarketIndex(
 
   const existing = index.plugins.findIndex((plugin) => plugin.id === manifest.id);
   if (existing >= 0) {
-    index.plugins[existing] = { ...index.plugins[existing], ...entry };
+    const assets = index.plugins[existing].assets.filter(
+      (item) => item.platform !== platform,
+    );
+    assets.push(asset);
+    index.plugins[existing] = { ...index.plugins[existing], ...entry, assets };
   } else {
-    index.plugins.push(entry);
+    index.plugins.push({ ...entry, assets: [asset] });
+  }
+  if (signature) {
+    const existingKey = index.signing?.public_key_ed25519;
+    if (existingKey && existingKey !== signature.public_key_ed25519) {
+      fail("market index signing key does not match --sign-key");
+    }
+    index.signing = {
+      algorithm: "ed25519",
+      trusted_key: signature.trusted_key,
+      public_key_ed25519: signature.public_key_ed25519,
+    };
   }
   index.plugins.sort((a, b) => a.id.localeCompare(b.id));
 
@@ -466,6 +500,19 @@ async function updateMarketIndex(
   const temp = `${file}.${process.pid}.tmp`;
   await writeFile(temp, `${JSON.stringify(index, null, 2)}\n`);
   await rename(temp, file);
+}
+
+function currentPluginPlatform() {
+  const architectures = {
+    x64: "x64",
+    arm64: "arm64",
+    arm: "arm32",
+  };
+  const architecture = architectures[process.arch];
+  if (process.platform !== "linux" || !architecture) {
+    fail("cannot infer a supported plugin platform; pass --platform explicitly");
+  }
+  return `linux-${architecture}`;
 }
 
 function fail(message) {

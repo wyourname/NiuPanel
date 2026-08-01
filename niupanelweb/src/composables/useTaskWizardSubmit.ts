@@ -2,6 +2,7 @@ import { ref, type ComputedRef, type Ref } from "vue";
 import { ElMessage } from "element-plus";
 import * as fileApi from "../api/file_manager";
 import * as taskApi from "../api/tasks";
+import { createUploadFormData } from "../api/upload";
 import {
   resolveUploadDirectory,
   type TaskVariableItem,
@@ -42,8 +43,7 @@ export function useTaskWizardSubmit({
       return;
     }
 
-    const formData = new FormData();
-    formData.append("file", uploadedFile.value);
+    const formData = createUploadFormData([["file", uploadedFile.value]]);
 
     const dir = resolveUploadDirectory(
       uploadedFile.value.name,

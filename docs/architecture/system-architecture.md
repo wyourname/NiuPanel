@@ -25,7 +25,7 @@ Core 与 Web 分别发布版本，并共享以下兼容字段：
 
 同一 `schema_epoch` 内只允许 expand-first 迁移：新增表、可空字段、兼容索引和双读双写。删除字段、重命名字段、改变含义等破坏性变更必须延后到新的 epoch。生产回退不执行 `migration down`。
 
-正式应用发布使用 Core 版本作为 Git Tag，Web、Launcher 与 Docker 分别保留独立组件版本。应用 CI 生成 `niupanel-release.json`，记录 Git SHA、Core 三架构包、Web 包及全部 SHA-256。Docker 由独立工作流从已经发布并经该 manifest 校验的 Core 包构建；Docker 正式标签使用环境版本，并通过 OCI label 记录所含 Core 版本和构建源码提交。Tag 必须与 Core 版本一致；Core/Launcher 通过 `launcher_protocol` 和 `RELEASE_PROTOCOL_VERSION` 验证兼容性，Web 通过 `api_contract` 和 `core.min/max` 加入同一发布。
+正式应用发布使用 Core 版本作为 Git Tag，且统一采用 `vX.Y.Z` 纯数字形式。新 Tag 只构建一次并先创建 GitHub Pre-release；测试通过后将同一个 Release 提升为正式版，不重建或替换资产。Web、Launcher 与 Docker 分别保留独立组件版本。应用 CI 生成 schema 2 的 `niupanel-release.json`，记录 Git SHA、Core 三架构包、Web 包、兼容契约、大小及全部 SHA-256；该文件不保存通道，preview/stable 以 GitHub Release 状态为准。Docker 由独立工作流从已经提升为正式版并经该 manifest 校验的资产构建；Docker 正式标签使用环境版本，并通过 OCI label 记录所含 Core/Web 版本。Core/Launcher 通过 `launcher_protocol` 和 `RELEASE_PROTOCOL_VERSION` 验证兼容性，Web 通过 `api_contract` 和 `core.min/max` 加入同一发布。
 
 ## Core 更新与回退
 
@@ -72,13 +72,14 @@ NiuPanel 在 `/mcp` 提供 Streamable HTTP MCP Server，统一使用 `X-API-Key`
 - “MCP 工具预设”只是现有权限组合，不引入 MCP 专属权限体系。
 - 只暴露明确注册的面板工具，不从插件或外部 MCP 动态导入工具。
 - 工具调用写入统一审计日志。
-- Host allowlist 防止 DNS rebinding，公网部署必须使用 HTTPS。
+- MCP Host 校验默认关闭，可通过 `MCP_ALLOWED_HOSTS` 显式启用 allowlist；公网部署必须使用 HTTPS。
 
 ## 发布验证
 
 - Core、launcher、Web 分别通过构建和契约测试。
-- Release 同时发布三个按架构区分的 Core 包、一个与架构无关的 Web 包和 `niupanel-release.json`。CI 拒绝 Core/Web 混装归档，避免 Web 单独升级时被旧 Core 包覆盖。
-- Docker 环境版本独立维护。维护者从已发布的 Core Tag 手动触发 Docker 工作流；该工作流先按 `niupanel-release.json` 校验三架构 Core 包和唯一的 Web 包，再推送环境版本标签和 `latest`。
+- Release 同时发布三个按架构区分的 Core 包、一个与架构无关的 Web 包和 schema 2 的 `niupanel-release.json`。CI 拒绝 Core/Web 混装归档，避免 Web 单独升级时被旧 Core 包覆盖；本地 `build.sh` 也生成并验证同一契约。
+- 内置 Core/Web 更新先选择 GitHub Release 状态对应的 stable/preview Release，再强制读取 `niupanel-release.json`，精确校验版本、架构、文件名、大小和 SHA-256 后才下载或安装组件。
+- Docker 环境版本独立维护。维护者从已提升为稳定版的应用 Tag 手动触发 Docker 工作流；该工作流先按同一份 `niupanel-release.json` 校验三架构 Core 包和唯一的 Web 包，再推送环境版本标签和 `latest`。
 - Docker 由 launcher 作为 PID 1 启动，并持久化整个 `/app/data`。
 - 发布检查应覆盖候选启动失败自动回退、Web 安装/切换/回退和 MCP 鉴权。
 - 最近至少保留 3 个 Web 版本；Core 版本和数据库快照按事务保留策略清理，不允许删除 active、previous 或回退链依赖的快照。

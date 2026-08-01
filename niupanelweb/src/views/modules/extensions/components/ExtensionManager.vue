@@ -326,9 +326,9 @@
               <h2 class="m-0 text-[13px] font-bold text-default">{{ entry.name }}</h2>
               <span
                 class="rounded px-1.5 py-0.5 text-[9px] font-bold"
-                :class="entry.signature_ed25519 ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-300' : 'bg-amber-500/10 text-amber-600 dark:text-amber-300'"
+                :class="marketEntryIsSigned(entry) ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-300' : 'bg-amber-500/10 text-amber-600 dark:text-amber-300'"
               >
-                {{ entry.signature_ed25519 ? "已签名" : "未签名" }}
+                {{ marketEntryIsSigned(entry) ? "已签名" : "未签名" }}
               </span>
             </div>
             <p class="mt-1 truncate text-[10px] text-muted">{{ entry.description || entry.id }}</p>
@@ -484,7 +484,7 @@ const {
   searchQuery, statusFilter, loading, busyPlugin, installedPluginRecords, pluginHealth, marketSourcesDialogVisible, market,
   installDialog, historyDialog, allPlugins, capabilityLabel, visibleCapabilities, normalizedSearch, visiblePlugins, marketVisiblePlugins,
   marketVisibleUpdates, enabledCount, appCount, themeCount, themeSwatches, healthByPlugin, pluginHealthReport, pluginIcon,
-  marketIcon, healthText, healthTone, formatTime, loadPlugins, loadMarketSources, loadAll, addMarketSource,
+  marketIcon, marketEntryIsSigned, healthText, healthTone, formatTime, loadPlugins, loadMarketSources, loadAll, addMarketSource,
   removeMarketSource, saveMarketSources, loadMarket, checkMarketUpdates, installedVersion, impactSummary, confirmPreview, openInstall,
   openUpdate, handleInstallFile, uploadForm, submitInstallDialog, togglePlugin, removePlugin, handlePluginCommand, openHistory,
   rollbackVersion, installFromMarket, openPluginApp,

@@ -482,8 +482,20 @@ impl NodeEnvironment {
     pub fn inject_shared_dependency_env(env: &mut HashMap<String, String>, version: &str) {
         let node_modules = Self::shared_node_modules_for_version(version);
         let bin_dir = Self::shared_bin_for_version(version);
-        prepend_path_like(env, "NODE_PATH", node_modules);
-        prepend_path_like(env, "PATH", bin_dir);
+        Self::inject_dependency_paths(env, &node_modules, &bin_dir);
+    }
+
+    /// Adds a Node.js dependency root and its executable directory to a child-process environment.
+    ///
+    /// Keeping this path merge independent from the configured runtime layout lets all script
+    /// executors reuse the same resolution behavior and makes it testable without global config.
+    pub fn inject_dependency_paths(
+        env: &mut HashMap<String, String>,
+        node_modules: &Path,
+        bin_dir: &Path,
+    ) {
+        prepend_path_like(env, "NODE_PATH", node_modules.to_path_buf());
+        prepend_path_like(env, "PATH", bin_dir.to_path_buf());
     }
 
     async fn resolved_version(&self) -> Result<String> {

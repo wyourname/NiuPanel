@@ -108,13 +108,13 @@ Git 工具不会返回仓库访问令牌或代理地址。Share 工具不会返�
 
 ## Host 校验
 
-MCP Streamable HTTP 启用 Host allowlist，默认允许 `localhost`、`127.0.0.1` 和 `::1`。通过域名或反向代理访问时设置：
+MCP Streamable HTTP 默认不校验 Host，可直接通过本机地址、域名、反向代理或端口映射访问。需要降低 DNS rebinding 风险时，可显式启用 Host allowlist：
 
 ```bash
 MCP_ALLOWED_HOSTS=panel.example.com,localhost,127.0.0.1
 ```
 
-仅在明确理解 DNS rebinding 风险时将该列表设置为空。
+未设置或删除 `MCP_ALLOWED_HOSTS` 时保持默认开放。allowlist 中只填写 Host 或 `Host:port`，不要包含协议和路径。
 
 ## 运维边界
 

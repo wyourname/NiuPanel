@@ -9,6 +9,8 @@ pub const SCHEMA_EPOCH: u32 = 1;
 pub const SCHEMA_REVISION: u32 = 30;
 pub const WEB_RELEASE_MANIFEST_FILE: &str = "release-manifest.json";
 pub const CORE_RELEASE_MANIFEST_FILE: &str = "core-release.json";
+pub const RELEASE_BUNDLE_MANIFEST_FILE: &str = "niupanel-release.json";
+pub const RELEASE_BUNDLE_SCHEMA_VERSION: u32 = 2;
 pub const CORE_STATE_FILE: &str = "core/state.json";
 pub const CORE_TRANSACTIONS_DIR: &str = "core/transactions";
 pub const RELEASE_PROTOCOL_VERSION: u32 = 1;
@@ -44,6 +46,55 @@ pub struct CoreReleaseManifest {
     pub binary_sha256: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub built_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
+pub struct ReleaseAssetManifest {
+    pub name: String,
+    pub sha256: String,
+    pub size: u64,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
+pub struct CoreReleaseAssetManifest {
+    pub name: String,
+    pub target: String,
+    pub sha256: String,
+    pub size: u64,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
+pub struct ReleaseCoreComponent {
+    pub version: String,
+    pub launcher_protocol: u32,
+    pub api_contract: u32,
+    pub schema_epoch: u32,
+    pub schema_revision: u32,
+    pub assets: BTreeMap<String, CoreReleaseAssetManifest>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
+pub struct ReleaseWebComponent {
+    pub version: String,
+    pub api_contract: u32,
+    pub core: ComponentCompatibility,
+    pub asset: ReleaseAssetManifest,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
+pub struct ReleaseBundleComponents {
+    pub core: ReleaseCoreComponent,
+    pub web: ReleaseWebComponent,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
+pub struct ReleaseBundleManifest {
+    pub schema_version: u32,
+    pub release_version: String,
+    pub git_sha: String,
+    pub generated_at: String,
+    pub api_contract: u32,
+    pub components: ReleaseBundleComponents,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]

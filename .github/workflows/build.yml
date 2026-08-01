@@ -1,15 +1,23 @@
 name: Publish NiuPanel Release
 
-# 应用发布由 v* Tag 或手动触发。手动从 main 构建正式 Release，
-# 从 dev 构建 Pre-release；Docker 镜像始终由 docker.yml 独立按需构建。
+# v* Tag 只构建一次并创建 Pre-release。测试完成后，手动选择
+# promote-stable 将同一个 GitHub Release 提升为正式版，不重建或替换资产。
 on:
   push:
     tags:
       - 'v*'
   workflow_dispatch:
     inputs:
+      operation:
+        description: '发布预览版，或将已测试的同一 Release 提升为正式版'
+        required: true
+        default: publish-prerelease
+        type: choice
+        options:
+          - publish-prerelease
+          - promote-stable
       release_tag:
-        description: '要创建的应用 Release Tag；main 使用 v0.8.0，dev 使用 v0.8.1-beta.1'
+        description: '纯数字应用版本 Tag，例如 v0.8.1'
         required: true
         type: string
 
@@ -23,7 +31,7 @@ jobs:
     outputs:
       release_version: ${{ steps.metadata.outputs.release_version }}
       release_tag: ${{ steps.metadata.outputs.release_tag }}
-      prerelease: ${{ steps.metadata.outputs.prerelease }}
+      operation: ${{ steps.metadata.outputs.operation }}
       core_version: ${{ steps.metadata.outputs.core_version }}
       web_version: ${{ steps.metadata.outputs.web_version }}
       source_sha: ${{ steps.metadata.outputs.source_sha }}
@@ -35,52 +43,41 @@ jobs:
       - name: Verify and export release metadata
         id: metadata
         env:
+          OPERATION_INPUT: ${{ inputs.operation }}
           RELEASE_TAG_INPUT: ${{ inputs.release_tag }}
         run: |
+          if [[ "$GITHUB_EVENT_NAME" == 'workflow_dispatch' ]]; then
+            OPERATION="$OPERATION_INPUT"
+            RELEASE_TAG="$RELEASE_TAG_INPUT"
+          else
+            OPERATION=publish-prerelease
+            RELEASE_TAG="$GITHUB_REF_NAME"
+          fi
+          if [[ "$OPERATION" != 'publish-prerelease' && "$OPERATION" != 'promote-stable' ]]; then
+            echo "Unsupported release operation: $OPERATION" >&2
+            exit 1
+          fi
+          if ! [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo 'release_tag must use a plain numeric version, for example v0.8.1' >&2
+            exit 1
+          fi
+          RELEASE_VERSION="${RELEASE_TAG#v}"
+          SOURCE_SHA=$(git rev-parse --verify "refs/tags/$RELEASE_TAG^{commit}")
+          git checkout --detach "$SOURCE_SHA"
           CORE_VERSION=$(sed -n '/^\[package\]/,/^\[/{s/^version = "\([^"]*\)"/\1/p}' niupanel/Cargo.toml | head -n 1)
           WEB_VERSION=$(node -p "require('./niupanelweb/package.json').version")
-          if [[ "$GITHUB_EVENT_NAME" == 'workflow_dispatch' ]]; then
-            RELEASE_TAG="$RELEASE_TAG_INPUT"
-            case "$GITHUB_REF_NAME" in
-              main) IS_PRERELEASE=false ;;
-              dev) IS_PRERELEASE=true ;;
-              *)
-                echo "Manual releases must run from main (stable) or dev (pre-release), got $GITHUB_REF_NAME" >&2
-                exit 1
-                ;;
-            esac
-          else
-            RELEASE_TAG="$GITHUB_REF_NAME"
-            if [[ "$RELEASE_TAG" == *-* ]]; then
-              IS_PRERELEASE=true
-            else
-              IS_PRERELEASE=false
-            fi
-          fi
-          case "$RELEASE_TAG" in
-            v*) ;;
-            *) echo 'release_tag must start with v, for example v0.8.0' >&2; exit 1 ;;
-          esac
-          RELEASE_VERSION="${RELEASE_TAG#v}"
-          if [[ "$IS_PRERELEASE" == true && "$RELEASE_VERSION" != *-* ]]; then
-            echo "Pre-release tags must include a prerelease suffix, for example v0.8.1-beta.1" >&2
-            exit 1
-          fi
-          if [[ "$IS_PRERELEASE" == false && "$RELEASE_VERSION" == *-* ]]; then
-            echo "Stable releases cannot use a prerelease suffix" >&2
-            exit 1
-          fi
           node scripts/verify-version-contract.mjs "$RELEASE_TAG"
           echo "release_tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
           echo "release_version=$RELEASE_VERSION" >> "$GITHUB_OUTPUT"
-          echo "prerelease=$IS_PRERELEASE" >> "$GITHUB_OUTPUT"
+          echo "operation=$OPERATION" >> "$GITHUB_OUTPUT"
           echo "core_version=$CORE_VERSION" >> "$GITHUB_OUTPUT"
           echo "web_version=$WEB_VERSION" >> "$GITHUB_OUTPUT"
-          echo "source_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "source_sha=$SOURCE_SHA" >> "$GITHUB_OUTPUT"
 
   build-web:
     name: Build Web release
     needs: version-contract
+    if: needs.version-contract.outputs.operation == 'publish-prerelease'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -119,6 +116,7 @@ jobs:
   build:
     name: Build Core (${{ matrix.arch }})
     needs: version-contract
+    if: needs.version-contract.outputs.operation == 'publish-prerelease'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -181,8 +179,9 @@ jobs:
           retention-days: 1
 
   release:
-    name: Create GitHub Release
+    name: Publish GitHub Pre-release
     needs: [version-contract, build, build-web]
+    if: needs.version-contract.outputs.operation == 'publish-prerelease'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -196,13 +195,28 @@ jobs:
         with:
           path: artifacts
 
-      - name: Generate release manifest
+      - name: Assemble and verify release bundle
+        env:
+          NIUPANEL_REQUIRE_ALL_CORE_ASSETS: '1'
         run: |
+          mkdir -p release-assets
+          cp artifacts/niupanel_linux_x86_64/niupanel_linux_x86_64.tar.gz release-assets/
+          cp artifacts/niupanel_linux_aarch64/niupanel_linux_aarch64.tar.gz release-assets/
+          cp artifacts/niupanel_linux_armv7/niupanel_linux_armv7.tar.gz release-assets/
+          web_assets=(artifacts/niupanel_web/niupanel_web_*.tar.gz)
+          test "${#web_assets[@]}" -eq 1
+          cp "${web_assets[0]}" release-assets/
           node scripts/generate-release-manifest.mjs \
-            artifacts \
+            release-assets \
             "${{ needs.version-contract.outputs.release_version }}" \
-            "${{ github.sha }}" \
-            niupanel-release.json
+            "${{ needs.version-contract.outputs.source_sha }}" \
+            release-assets/niupanel-release.json
+          node scripts/verify-release-bundle.mjs \
+            release-assets/niupanel-release.json \
+            release-assets \
+            --expected-version "${{ needs.version-contract.outputs.release_version }}" \
+            --expected-git-sha "${{ needs.version-contract.outputs.source_sha }}" \
+            --require-all-core-assets
 
       - name: Publish release
         env:
@@ -212,20 +226,19 @@ jobs:
           RELEASE_TAG: ${{ needs.version-contract.outputs.release_tag }}
           RELEASE_VERSION: ${{ needs.version-contract.outputs.release_version }}
           SOURCE_SHA: ${{ needs.version-contract.outputs.source_sha }}
-          IS_PRERELEASE: ${{ needs.version-contract.outputs.prerelease }}
         run: |
           set -euo pipefail
-          web_assets=(artifacts/niupanel_web/niupanel_web_*.tar.gz)
-          test -f "${web_assets[0]}"
-          assets=(
-            artifacts/niupanel_linux_x86_64/niupanel_linux_x86_64.tar.gz
-            artifacts/niupanel_linux_aarch64/niupanel_linux_aarch64.tar.gz
-            artifacts/niupanel_linux_armv7/niupanel_linux_armv7.tar.gz
-            "${web_assets[0]}"
-            niupanel-release.json
-          )
+          assets=(release-assets/*)
 
           if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            IS_PRERELEASE=$(gh release view "$RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --json isPrerelease \
+              --jq '.isPrerelease')
+            if [[ "$IS_PRERELEASE" != 'true' ]]; then
+              echo "$RELEASE_TAG is already stable; published assets are immutable" >&2
+              exit 1
+            fi
             gh release edit "$RELEASE_TAG" \
               --repo "$GITHUB_REPOSITORY" \
               --title "NiuPanel $RELEASE_VERSION"
@@ -241,8 +254,61 @@ jobs:
             --target "$SOURCE_SHA"
             --title "NiuPanel $RELEASE_VERSION"
             --generate-notes
+            --prerelease
           )
-          if [[ "$IS_PRERELEASE" == 'true' ]]; then
-            release_args+=(--prerelease)
-          fi
           gh release create "${release_args[@]}" "${assets[@]}"
+
+  promote-stable:
+    name: Promote tested Release to stable
+    needs: version-contract
+    if: needs.version-contract.outputs.operation == 'promote-stable'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout released source
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.version-contract.outputs.source_sha }}
+          fetch-depth: 0
+
+      - name: Verify immutable release bundle and promote
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || github.token }}
+          RELEASE_TAG: ${{ needs.version-contract.outputs.release_tag }}
+          RELEASE_VERSION: ${{ needs.version-contract.outputs.release_version }}
+          SOURCE_SHA: ${{ needs.version-contract.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          RELEASE_STATE=$(gh release view "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --json isDraft,isPrerelease,targetCommitish)
+          if [[ "$(jq -r '.isDraft' <<<"$RELEASE_STATE")" != 'false' ]]; then
+            echo "$RELEASE_TAG is still a draft" >&2
+            exit 1
+          fi
+          if [[ "$(jq -r '.isPrerelease' <<<"$RELEASE_STATE")" != 'true' ]]; then
+            echo "$RELEASE_TAG is not a Pre-release awaiting promotion" >&2
+            exit 1
+          fi
+          if [[ "$(jq -r '.targetCommitish' <<<"$RELEASE_STATE")" != "$SOURCE_SHA" ]]; then
+            echo "$RELEASE_TAG does not point to the expected source commit" >&2
+            exit 1
+          fi
+
+          mkdir -p release-assets
+          gh release download "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --dir release-assets \
+            --pattern niupanel-release.json \
+            --pattern 'niupanel_linux_*.tar.gz' \
+            --pattern 'niupanel_web_*.tar.gz'
+          node scripts/verify-release-bundle.mjs \
+            release-assets/niupanel-release.json \
+            release-assets \
+            --expected-version "$RELEASE_VERSION" \
+            --expected-git-sha "$SOURCE_SHA" \
+            --require-all-core-assets
+
+          gh release edit "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --prerelease=false \
+            --latest

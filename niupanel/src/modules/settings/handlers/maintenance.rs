@@ -12,9 +12,9 @@ use axum::{
 use niupanel_common::constants::defaults;
 use niupanel_common::error::{AppError, Result};
 use niupanel_common::response::ApiResponse;
+use niupanel_common::upload::{TempUploadOptions, stream_field_to_temp_file};
 use niupanel_core::audit::service::AuditService;
 use tokio::fs;
-use tokio::io::AsyncWriteExt;
 use tower::ServiceExt;
 use tower_http::services::ServeFile;
 
@@ -186,60 +186,16 @@ pub async fn restore_backup(
     else {
         return Err(AppError::ValidationError("未提供备份文件".to_string()));
     };
-    let temp_tar_path = restore_dir.join(format!("upload_restore_{}.tar.gz", nanoid::nanoid!(12)));
-    let mut output = fs::OpenOptions::new()
-        .create_new(true)
-        .write(true)
-        .open(&temp_tar_path)
-        .await?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        if let Err(err) =
-            fs::set_permissions(&temp_tar_path, std::fs::Permissions::from_mode(0o600)).await
-        {
-            drop(output);
-            let _ = fs::remove_file(&temp_tar_path).await;
-            return Err(AppError::Io(err));
-        }
-    }
-
-    let mut uploaded = 0_u64;
-    loop {
-        let chunk = match field.chunk().await {
-            Ok(Some(chunk)) => chunk,
-            Ok(None) => break,
-            Err(err) => {
-                drop(output);
-                let _ = fs::remove_file(&temp_tar_path).await;
-                return Err(AppError::Generic(err.to_string()));
-            }
-        };
-        uploaded = uploaded.saturating_add(chunk.len() as u64);
-        if uploaded > MAX_BACKUP_UPLOAD_SIZE {
-            drop(output);
-            let _ = fs::remove_file(&temp_tar_path).await;
-            return Err(AppError::FileSizeLimitExceeded(
-                "上传的备份文件不能超过 512 MB".to_string(),
-            ));
-        }
-        if let Err(err) = output.write_all(&chunk).await {
-            drop(output);
-            let _ = fs::remove_file(&temp_tar_path).await;
-            return Err(AppError::Io(err));
-        }
-    }
-    if uploaded == 0 {
-        drop(output);
-        let _ = fs::remove_file(&temp_tar_path).await;
+    let upload = stream_field_to_temp_file(
+        &mut field,
+        TempUploadOptions::new(restore_dir, "niupanel-restore-")
+            .with_max_size(MAX_BACKUP_UPLOAD_SIZE),
+    )
+    .await?;
+    if upload.size == 0 {
         return Err(AppError::ValidationError("备份文件不能为空".to_string()));
     }
-    if let Err(err) = output.sync_all().await {
-        drop(output);
-        let _ = fs::remove_file(&temp_tar_path).await;
-        return Err(AppError::Io(err));
-    }
-    drop(output);
+    let temp_tar_path = upload.into_persisted_path()?;
 
     if let Err(err) =
         service::start_restore_task(state.db.clone(), temp_tar_path.clone(), true).await

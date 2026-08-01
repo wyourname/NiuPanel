@@ -51,7 +51,7 @@ impl Executor for ShellStrategy {
         sdk_env::inject_python_sdk_path(&mut final_env);
         sdk_env::inject_node_sdk_path(&mut final_env);
         sdk_env::inject_node_sdk_preload(&mut final_env);
-        sdk_env::inject_node_runtime_path(&mut final_env).await;
+        sdk_env::inject_default_node_runtime_environment(&mut final_env).await;
 
         cmd.envs(&final_env);
         cmd

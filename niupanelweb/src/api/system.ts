@@ -1,4 +1,3 @@
-import type { AxiosProgressEvent } from 'axios'
 import type {
   ApiResponse,
   CoreReleaseList,
@@ -9,6 +8,7 @@ import type {
   WebUpdateInfo
 } from '@/types'
 import request from '@/utils/request'
+import { uploadMultipart, type UploadRequestOptions } from './upload'
 
 export const getSystemMeta = (): Promise<ApiResponse<SystemVersionInfo>> => {
   return request.get('/system/meta')
@@ -34,13 +34,11 @@ export const getWebReleases = (): Promise<ApiResponse<WebReleaseList>> => {
 export const uploadWebRelease = (
   formData: FormData,
   activate = true,
-  onUploadProgress?: (event: AxiosProgressEvent) => void
+  options: UploadRequestOptions = {}
 ): Promise<ApiResponse<WebReleaseMutation>> => {
-  return request.post('/system/web/releases/upload', formData, {
-    params: { activate },
-    headers: { 'Content-Type': 'multipart/form-data' },
-    timeout: 300000,
-    onUploadProgress
+  return uploadMultipart('/system/web/releases/upload', formData, {
+    ...options,
+    params: { activate }
   })
 }
 

@@ -188,7 +188,7 @@ impl Executor for PythonStrategy {
             final_env.insert("PATH".to_string(), new_path.to_string_lossy().to_string());
         }
 
-        sdk_env::inject_node_runtime_path(&mut final_env).await;
+        sdk_env::inject_default_node_runtime_environment(&mut final_env).await;
 
         c.envs(&final_env);
         c

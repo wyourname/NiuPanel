@@ -1,6 +1,8 @@
 import { onMounted, onScopeDispose, ref, watch } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import * as settingsApi from "@/api/settings";
+import { createUploadFormData } from "@/api/upload";
+import { useUploadTransfer } from "@/composables/useUploadTransfer";
 import type {
   BackupOptions,
   LogCleanupReport,
@@ -30,6 +32,11 @@ export function useSystemMaintenance() {
   const cleanupDays = ref(DEFAULT_LOG_RETENTION_DAYS);
   const logCleanupReport = ref<LogCleanupReport | null>(null);
   const restoreInputRef = ref<HTMLInputElement | null>(null);
+  const {
+    cancel: cancelRestoreUpload,
+    run: runRestoreUpload,
+    uploading: uploadingRestore,
+  } = useUploadTransfer();
 
   const backupOptions = ref<BackupOptions>({
     tasks: true,
@@ -158,18 +165,46 @@ export function useSystemMaintenance() {
           type: "warning",
         },
       );
+    } catch {
+      target.value = "";
+      return;
+    }
 
-      restoring.value = true;
+    restoring.value = true;
+    maintenanceProgress.value = createMaintenanceStatus(
+      "正在上传备份包...",
+      "processing",
+    );
+    const formData = createUploadFormData([["file", file]]);
+    try {
+      const result = await runRestoreUpload(
+        (options) => settingsApi.restoreSystem(formData, options),
+        {
+          initialTotalBytes: file.size,
+          onProgress: (progress) => {
+            maintenanceProgress.value = createMaintenanceStatus(
+              "正在上传备份包...",
+              "processing",
+            );
+            maintenanceProgress.value.progress = progress.percentage;
+          },
+        },
+      );
+      if (result.cancelled) {
+        restoring.value = false;
+        maintenanceProgress.value = createMaintenanceStatus("备份包上传已取消");
+        ElMessage.info("备份包上传已取消");
+        return;
+      }
       maintenanceProgress.value = createMaintenanceStatus(
-        "正在上传并准备恢复...",
+        "上传完成，正在准备恢复...",
         "processing",
       );
-      const formData = new FormData();
-      formData.append("file", file);
-      await settingsApi.restoreSystem(formData);
+      maintenanceProgress.value.progress = 100;
       startPolling("restore");
-    } catch {
+    } catch (error) {
       restoring.value = false;
+      ElMessage.error(error instanceof Error ? error.message : "备份包上传失败");
     } finally {
       target.value = "";
     }
@@ -252,11 +287,14 @@ export function useSystemMaintenance() {
     }
   });
 
-  onScopeDispose(clearPolling);
+  onScopeDispose(() => {
+    clearPolling();
+  });
 
   return {
     backingUp,
     backupOptions,
+    cancelRestoreUpload,
     cleaningLogs,
     cleanupDays,
     handleBackup,
@@ -269,5 +307,6 @@ export function useSystemMaintenance() {
     restoring,
     restoreInputRef,
     triggerRestore,
+    uploadingRestore,
   };
 }

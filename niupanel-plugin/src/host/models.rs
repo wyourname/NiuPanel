@@ -125,29 +125,59 @@ pub struct PluginMarketIndex {
     #[serde(default)]
     pub description: Option<String>,
     #[serde(default)]
+    pub signing: Option<PluginMarketSigning>,
+    #[serde(default)]
     pub plugins: Vec<PluginMarketEntry>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
+pub struct PluginMarketSigning {
+    #[serde(default = "default_plugin_market_signing_algorithm")]
+    pub algorithm: String,
+    #[serde(default)]
+    pub trusted_key: Option<String>,
+    #[serde(default)]
+    pub public_key_ed25519: Option<String>,
+}
+
+fn default_plugin_market_signing_algorithm() -> String {
+    "ed25519".to_string()
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
 pub struct PluginMarketEntry {
     pub id: String,
+    #[serde(default)]
     pub name: String,
     pub version: String,
     #[serde(default)]
     pub description: String,
-    pub download_url: String,
     #[serde(default)]
-    pub checksum_sha256: Option<String>,
-    #[serde(default)]
-    pub signature_ed25519: Option<String>,
-    #[serde(default)]
-    pub public_key_ed25519: Option<String>,
+    pub assets: Vec<PluginMarketAsset>,
     #[serde(default)]
     pub permissions: Vec<String>,
     #[serde(default)]
     pub homepage: Option<String>,
     #[serde(default)]
     pub repository: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
+pub struct PluginMarketAsset {
+    pub platform: String,
+    #[serde(default)]
+    pub os: Option<String>,
+    #[serde(default)]
+    pub arch: Option<String>,
+    #[serde(default)]
+    pub libc: Option<String>,
+    #[serde(default)]
+    pub target: Option<String>,
+    pub file: String,
+    #[serde(default)]
+    pub checksum_sha256: Option<String>,
+    #[serde(default)]
+    pub signature_ed25519: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, ToSchema)]

@@ -1,5 +1,13 @@
 use super::*;
 
+struct MarketPluginPackage {
+    entry: PluginMarketEntry,
+    asset: PluginMarketAsset,
+    public_key_ed25519: Option<String>,
+    file_name: String,
+    bytes: Vec<u8>,
+}
+
 #[utoipa::path(
     get,
     path = "/api/v1/plugins/market",
@@ -91,17 +99,19 @@ pub async fn preview_plugin_from_market(
     State(state): State<AppState>,
     Json(payload): Json<PluginMarketInstallRequest>,
 ) -> Result<ApiResponse<PluginImpactPreview>> {
-    let (entry, file_name, bytes) = load_market_plugin_package(&state, &payload).await?;
-    let installed = unified_plugin_service().get_plugin(&entry.id).is_ok();
+    let package = load_market_plugin_package(&state, &payload).await?;
+    let installed = unified_plugin_service()
+        .get_plugin(&package.entry.id)
+        .is_ok();
     let operation = if installed { "update" } else { "install" };
     let compatibility = ManifestCompatibility::PluginJsonOnly;
-    let current_id = installed.then_some(entry.id.as_str());
+    let current_id = installed.then_some(package.entry.id.as_str());
     Ok(ApiResponse::success(lifecycle::preview_package_bytes(
-        &file_name,
-        &bytes,
-        entry.checksum_sha256.as_deref(),
-        entry.signature_ed25519.as_deref(),
-        entry.public_key_ed25519.as_deref(),
+        &package.file_name,
+        &package.bytes,
+        package.asset.checksum_sha256.as_deref(),
+        package.asset.signature_ed25519.as_deref(),
+        package.public_key_ed25519.as_deref(),
         compatibility,
         "Plugin",
         |source_path| preview_plugin_impact(operation, PLUGIN_CONTEXT, source_path, current_id),
@@ -122,19 +132,19 @@ pub async fn install_plugin_from_market(
     State(state): State<AppState>,
     Json(payload): Json<PluginMarketInstallRequest>,
 ) -> Result<ApiResponse<PluginRecord>> {
-    let (entry, file_name, bytes) = load_market_plugin_package(&state, &payload).await?;
+    let package = load_market_plugin_package(&state, &payload).await?;
     let enable = payload.enable.unwrap_or(true);
     let service = unified_plugin_service();
-    let record = if service.get_plugin(&entry.id).is_ok() {
-        let plugin_id = entry.id.clone();
+    let record = if service.get_plugin(&package.entry.id).is_ok() {
+        let plugin_id = package.entry.id.clone();
         let update_service = service.clone();
         lifecycle::update_package_bytes_with_preflight(
-            entry.id.clone(),
-            &file_name,
-            &bytes,
-            entry.checksum_sha256.as_deref(),
-            entry.signature_ed25519.as_deref(),
-            entry.public_key_ed25519.as_deref(),
+            package.entry.id.clone(),
+            &package.file_name,
+            &package.bytes,
+            package.asset.checksum_sha256.as_deref(),
+            package.asset.signature_ed25519.as_deref(),
+            package.public_key_ed25519.as_deref(),
             ManifestCompatibility::PluginJsonOnly,
             "Plugin",
             move |source_path| {
@@ -153,12 +163,12 @@ pub async fn install_plugin_from_market(
     } else {
         let install_service = service.clone();
         lifecycle::install_package_bytes_with_preflight(
-            &file_name,
-            &bytes,
+            &package.file_name,
+            &package.bytes,
             enable,
-            entry.checksum_sha256.as_deref(),
-            entry.signature_ed25519.as_deref(),
-            entry.public_key_ed25519.as_deref(),
+            package.asset.checksum_sha256.as_deref(),
+            package.asset.signature_ed25519.as_deref(),
+            package.public_key_ed25519.as_deref(),
             ManifestCompatibility::PluginJsonOnly,
             "Plugin",
             move |source_path| {
@@ -170,10 +180,10 @@ pub async fn install_plugin_from_market(
     Ok(ApiResponse::success(record))
 }
 
-pub(super) async fn load_market_plugin_package(
+async fn load_market_plugin_package(
     state: &AppState,
     payload: &PluginMarketInstallRequest,
-) -> Result<(PluginMarketEntry, String, Vec<u8>)> {
+) -> Result<MarketPluginPackage> {
     let index = fetch_plugin_market_index(state, &payload.index_url).await?;
     let entry = index
         .plugins
@@ -181,10 +191,18 @@ pub(super) async fn load_market_plugin_package(
         .find(|entry| entry.id == payload.plugin_id)
         .cloned()
         .ok_or_else(|| AppError::NotFound("Plugin market entry not found".to_string()))?;
-    let download_url = resolve_market_download_url(&payload.index_url, &entry.download_url)?;
+    let asset = select_market_asset(&entry)?.clone();
+    let download_url = resolve_market_download_url(&payload.index_url, &asset.file)?;
     let bytes = download_plugin_market_package(state, download_url.as_str()).await?;
     let file_name = market_package_file_name(&download_url);
-    Ok((entry, file_name, bytes))
+    let public_key_ed25519 = index.signing.and_then(|signing| signing.public_key_ed25519);
+    Ok(MarketPluginPackage {
+        entry,
+        asset,
+        public_key_ed25519,
+        file_name,
+        bytes,
+    })
 }
 
 pub(super) async fn fetch_plugin_market_index(
@@ -212,9 +230,22 @@ pub(super) async fn fetch_plugin_market_index(
             "Plugin market index exceeds 2MB".to_string(),
         ));
     }
-    let mut index: PluginMarketIndex = serde_json::from_slice(&bytes)?;
+    let mut index = decode_plugin_market_index(&bytes)?;
     validate_plugin_market_index(&mut index)?;
     Ok(index)
+}
+
+fn decode_plugin_market_index(bytes: &[u8]) -> Result<PluginMarketIndex> {
+    serde_json::from_slice(bytes).map_err(AppError::Json)
+}
+
+fn current_plugin_market_platform() -> Option<&'static str> {
+    match (std::env::consts::OS, std::env::consts::ARCH) {
+        ("linux", "x86_64") => Some("linux-x64"),
+        ("linux", "aarch64") => Some("linux-arm64"),
+        ("linux", "arm") => Some("linux-arm32"),
+        _ => None,
+    }
 }
 
 pub(super) async fn load_market_sources(state: &AppState) -> Result<Vec<PluginMarketSource>> {
@@ -375,7 +406,17 @@ pub(super) fn validate_plugin_market_index(index: &mut PluginMarketIndex) -> Res
             "Plugin market name is required".to_string(),
         ));
     }
-    for entry in &index.plugins {
+    if let Some(signing) = &index.signing {
+        if signing.algorithm != "ed25519" {
+            return Err(AppError::ValidationError(
+                "Plugin market signing algorithm must be ed25519".to_string(),
+            ));
+        }
+    }
+    for entry in &mut index.plugins {
+        if entry.name.trim().is_empty() {
+            entry.name = entry.id.clone();
+        }
         validate_market_entry(entry)?;
     }
     index
@@ -385,16 +426,40 @@ pub(super) fn validate_plugin_market_index(index: &mut PluginMarketIndex) -> Res
 }
 
 pub(super) fn validate_market_entry(entry: &PluginMarketEntry) -> Result<()> {
-    if entry.id.trim().is_empty()
-        || entry.name.trim().is_empty()
-        || entry.version.trim().is_empty()
-        || entry.download_url.trim().is_empty()
-    {
+    if entry.id.trim().is_empty() || entry.version.trim().is_empty() || entry.assets.is_empty() {
         return Err(AppError::ValidationError(
-            "Plugin market entries require id, name, version and download_url".to_string(),
+            "Plugin market entries require id, version and platform assets".to_string(),
         ));
     }
+    for asset in &entry.assets {
+        if asset.platform.trim().is_empty() || asset.file.trim().is_empty() {
+            return Err(AppError::ValidationError(format!(
+                "Plugin market entry '{}' has an invalid platform asset",
+                entry.id
+            )));
+        }
+    }
     Ok(())
+}
+
+pub(super) fn select_market_asset(entry: &PluginMarketEntry) -> Result<&PluginMarketAsset> {
+    let platform = current_plugin_market_platform().ok_or_else(|| {
+        AppError::ValidationError(format!(
+            "Platform plugin market is unsupported on {}-{}",
+            std::env::consts::OS,
+            std::env::consts::ARCH,
+        ))
+    })?;
+    entry
+        .assets
+        .iter()
+        .find(|asset| asset.platform == platform)
+        .ok_or_else(|| {
+            AppError::ValidationError(format!(
+                "Plugin market entry '{}' has no package for platform '{platform}'",
+                entry.id
+            ))
+        })
 }
 
 pub(super) fn resolve_market_download_url(
@@ -431,4 +496,79 @@ pub(super) fn market_package_file_name(url: &reqwest::Url) -> String {
         .filter(|segment| !segment.trim().is_empty())
         .map(str::to_string)
         .unwrap_or_else(|| "plugin-package.tgz".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn platform_asset_market_index_is_the_only_supported_schema() {
+        let platform = current_plugin_market_platform().expect("test host is supported");
+        let mut index = decode_plugin_market_index(
+            format!(
+                r#"{{
+                    "schema_version": 1,
+                    "name": "Private plugins",
+                    "signing": {{ "public_key_ed25519": "test-public-key" }},
+                    "plugins": [{{
+                        "id": "private-loader",
+                        "version": "0.1.0",
+                        "assets": [{{
+                            "platform": "{platform}",
+                            "file": "./private-loader.tgz",
+                            "checksum_sha256": "abc",
+                            "signature_ed25519": "signature"
+                        }}]
+                    }}]
+                }}"#,
+            )
+            .as_bytes(),
+        )
+        .expect("platform asset index deserializes");
+        validate_plugin_market_index(&mut index).expect("platform asset index validates");
+
+        assert_eq!(index.plugins.len(), 1);
+        assert_eq!(index.plugins[0].name, "private-loader");
+        assert_eq!(index.plugins[0].assets[0].file, "./private-loader.tgz");
+        assert_eq!(
+            index
+                .signing
+                .as_ref()
+                .and_then(|signing| signing.public_key_ed25519.as_deref()),
+            Some("test-public-key")
+        );
+    }
+
+    #[test]
+    fn legacy_download_url_market_entries_are_rejected() {
+        let mut index = decode_plugin_market_index(
+            br#"{
+                "schema_version": 1,
+                "name": "Legacy",
+                "plugins": [{
+                    "id": "legacy-plugin",
+                    "name": "Legacy Plugin",
+                    "version": "0.1.0",
+                    "download_url": "./legacy-plugin.tgz"
+                }]
+            }"#,
+        )
+        .expect("legacy JSON still has valid JSON syntax");
+
+        assert!(validate_plugin_market_index(&mut index).is_err());
+    }
+
+    #[test]
+    fn checked_in_platform_market_index_is_accepted() {
+        let mut index = decode_plugin_market_index(include_bytes!(
+            "../../../../../plugins/niupanel-private-plugins.json"
+        ))
+        .expect("private plugin market index parses");
+        validate_plugin_market_index(&mut index).expect("private plugin market index validates");
+
+        let asset = select_market_asset(&index.plugins[0]).expect("host asset is present");
+        assert_eq!(asset.platform, current_plugin_market_platform().unwrap());
+        assert!(!asset.file.is_empty());
+    }
 }

@@ -3,11 +3,14 @@ use niupanel_common::download::{DownloadEvent, DownloadOptions, download_with_re
 use niupanel_common::error::{AppError, Result};
 use niupanel_common::models::update::{ReleaseInfo, UpdateState, UpdateStatus, WebReleaseInfo};
 use niupanel_common::version::{
-    CORE_RELEASE_MANIFEST_FILE, CoreActivationReason, CoreReleaseDescriptor, CoreReleaseManifest,
-    PendingCoreActivation, read_core_runtime_state, write_core_runtime_state,
+    CORE_RELEASE_MANIFEST_FILE, CoreActivationReason, CoreReleaseAssetManifest,
+    CoreReleaseDescriptor, CoreReleaseManifest, PendingCoreActivation,
+    RELEASE_BUNDLE_MANIFEST_FILE, RELEASE_BUNDLE_SCHEMA_VERSION, ReleaseAssetManifest,
+    ReleaseBundleManifest, read_core_runtime_state, write_core_runtime_state,
 };
 use reqwest::header::{HeaderMap, HeaderValue, USER_AGENT};
 use sea_orm::DatabaseConnection;
+use semver::Version;
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::io::Read;
@@ -23,6 +26,7 @@ const UPDATE_USER_AGENT: &str = "NiuPanel-Updater/1.0";
 const RELEASE_META_TIMEOUT_SECS: u64 = 30;
 const RELEASE_DOWNLOAD_TIMEOUT_SECS: u64 = 60 * 30;
 const UPDATE_DOWNLOAD_RETRIES: u8 = 5;
+const RELEASE_MANIFEST_MAX_SIZE: u64 = 1024 * 1024;
 
 #[derive(serde::Deserialize, Debug, Clone)]
 struct GithubReleaseAsset {
@@ -44,6 +48,12 @@ struct GithubRelease {
     prerelease: bool,
     #[serde(default)]
     assets: Vec<GithubReleaseAsset>,
+}
+
+#[derive(Debug, Clone)]
+struct ResolvedRelease {
+    github: GithubRelease,
+    manifest: ReleaseBundleManifest,
 }
 
 #[derive(Clone)]
@@ -81,7 +91,7 @@ impl UpdateService {
     pub async fn check_update(&self) -> Result<ReleaseInfo> {
         let current_version = self.app_version.clone();
         let channel = self.update_channel().await;
-        let release = match self.fetch_target_release(&channel).await {
+        let release = match self.fetch_release_contract(&channel).await {
             Ok(release) => release,
             Err(e) => {
                 tracing::error!("Failed to check update: {}", e);
@@ -98,52 +108,56 @@ impl UpdateService {
             }
         };
 
-        let asset_size = self
-            .find_matching_asset(&release)
-            .map(|asset| asset.size)
+        let asset_size = release
+            .core_asset_for_current_target()
+            .map(|(asset, _)| asset.size)
             .unwrap_or(0);
 
         Ok(ReleaseInfo {
-            tag_name: release.tag_name.clone(),
-            html_url: release.html_url,
-            body: release.body,
+            tag_name: release.github.tag_name.clone(),
+            html_url: release.github.html_url,
+            body: release.github.body,
             current_version: current_version.clone(),
             channel,
-            prerelease: release.prerelease,
-            update_available: compare_versions(&release.tag_name, &current_version),
+            prerelease: release.github.prerelease,
+            update_available: compare_versions(&release.manifest.release_version, &current_version),
             size: asset_size,
         })
     }
 
     pub async fn check_web_update(&self, current_version: &str) -> Result<WebReleaseInfo> {
         let channel = self.update_channel().await;
-        let release = self.fetch_target_release(&channel).await?;
-        let (asset, version) = find_web_release_asset(&release)?;
+        let release = self.fetch_release_contract(&channel).await?;
+        let asset_size = release.web_asset()?.0.size;
+        let version = release.manifest.components.web.version.clone();
         Ok(WebReleaseInfo {
             version: version.clone(),
             current_version: current_version.to_string(),
-            release_tag: release.tag_name,
-            html_url: release.html_url,
-            body: release.body,
+            release_tag: release.github.tag_name,
+            html_url: release.github.html_url,
+            body: release.github.body,
             channel,
-            prerelease: release.prerelease,
+            prerelease: release.github.prerelease,
             update_available: compare_versions(&version, current_version),
-            size: asset.size,
+            size: asset_size,
         })
     }
 
     pub async fn download_web_update(&self, current_version: &str) -> Result<DownloadedWebRelease> {
         let channel = self.update_channel().await;
-        let release = self.fetch_target_release(&channel).await?;
-        let (asset, version) = find_web_release_asset(&release)?;
+        let release = self.fetch_release_contract(&channel).await?;
+        let (asset, contract_asset) = release.web_asset()?;
+        let asset = asset.clone();
+        let contract_asset = contract_asset.clone();
+        let version = release.manifest.components.web.version.clone();
         let info = WebReleaseInfo {
             version: version.clone(),
             current_version: current_version.to_string(),
-            release_tag: release.tag_name,
-            html_url: release.html_url,
-            body: release.body,
+            release_tag: release.github.tag_name,
+            html_url: release.github.html_url,
+            body: release.github.body,
             channel,
-            prerelease: release.prerelease,
+            prerelease: release.github.prerelease,
             update_available: compare_versions(&version, current_version),
             size: asset.size,
         };
@@ -153,7 +167,12 @@ impl UpdateService {
             .map_err(AppError::Io)?;
         let package_path = temp_dir.path().join(&asset.name);
         download_component_asset(self, &asset, &package_path).await?;
-        verify_asset_digest(&asset, &package_path)?;
+        verify_downloaded_asset(
+            &asset,
+            &contract_asset.sha256,
+            contract_asset.size,
+            &package_path,
+        )?;
         Ok(DownloadedWebRelease {
             info,
             package_path,
@@ -220,7 +239,7 @@ impl UpdateService {
         Ok(())
     }
 
-    pub async fn execute_local_update(&self, bytes: Vec<u8>) -> Result<()> {
+    pub async fn execute_local_update(&self, package_path: tempfile::TempPath) -> Result<()> {
         let mut status_guard = self
             .update_status
             .write()
@@ -254,7 +273,8 @@ impl UpdateService {
 
         let self_clone = self.clone();
         tokio::spawn(async move {
-            if let Err(e) = perform_local_update_task(self_clone.clone(), token, bytes).await {
+            if let Err(e) = perform_local_update_task(self_clone.clone(), token, package_path).await
+            {
                 match e {
                     AppError::Cancelled => {
                         niupanel_common::info!("Local update task was cancelled.");
@@ -330,6 +350,64 @@ impl UpdateService {
         } else {
             self.fetch_latest_stable_release().await
         }
+    }
+
+    async fn fetch_release_contract(&self, channel: &str) -> Result<ResolvedRelease> {
+        let github = self.fetch_target_release(channel).await?;
+        let manifest = self.fetch_release_manifest(&github).await?;
+        validate_release_contract(&github, &manifest)?;
+        Ok(ResolvedRelease { github, manifest })
+    }
+
+    async fn fetch_release_manifest(
+        &self,
+        release: &GithubRelease,
+    ) -> Result<ReleaseBundleManifest> {
+        let asset = release
+            .assets
+            .iter()
+            .find(|asset| asset.name == RELEASE_BUNDLE_MANIFEST_FILE)
+            .ok_or_else(|| {
+                AppError::ValidationError(format!(
+                    "GitHub Release {} 缺少 {}",
+                    release.tag_name, RELEASE_BUNDLE_MANIFEST_FILE
+                ))
+            })?;
+        if asset.size == 0 || asset.size > RELEASE_MANIFEST_MAX_SIZE {
+            return Err(AppError::ValidationError(format!(
+                "{} 大小不合法",
+                RELEASE_BUNDLE_MANIFEST_FILE
+            )));
+        }
+
+        let proxy_url: String = SettingsManager::get(&self.db, SYSTEM_GITHUB_PROXY)
+            .await
+            .unwrap_or_default();
+        let target_url = build_target_url(&proxy_url, &asset.browser_download_url);
+        let response = self
+            .http_client
+            .get(target_url)
+            .header(USER_AGENT, UPDATE_USER_AGENT)
+            .timeout(std::time::Duration::from_secs(RELEASE_META_TIMEOUT_SECS))
+            .send()
+            .await
+            .map_err(AppError::Reqwest)?;
+        if !response.status().is_success() {
+            return Err(AppError::ExternalApi(format!(
+                "Failed to download {}: HTTP {}",
+                RELEASE_BUNDLE_MANIFEST_FILE,
+                response.status()
+            )));
+        }
+        let bytes = response.bytes().await.map_err(AppError::Reqwest)?;
+        if bytes.len() as u64 != asset.size {
+            return Err(AppError::ValidationError(format!(
+                "{} 大小与 GitHub Release 记录不一致",
+                RELEASE_BUNDLE_MANIFEST_FILE
+            )));
+        }
+        verify_bytes_digest(asset, &bytes)?;
+        serde_json::from_slice(&bytes).map_err(AppError::Json)
     }
 
     async fn fetch_latest_stable_release(&self) -> Result<GithubRelease> {
@@ -410,42 +488,205 @@ impl UpdateService {
             "stable".to_string()
         }
     }
+}
 
-    fn find_matching_asset<'a>(
+impl ResolvedRelease {
+    fn github_asset(&self, name: &str) -> Result<&GithubReleaseAsset> {
+        let mut matches = self.github.assets.iter().filter(|asset| asset.name == name);
+        let asset = matches.next().ok_or_else(|| {
+            AppError::ValidationError(format!(
+                "GitHub Release {} 缺少 manifest 指定的资产 {}",
+                self.github.tag_name, name
+            ))
+        })?;
+        if matches.next().is_some() {
+            return Err(AppError::ValidationError(format!(
+                "GitHub Release {} 包含重复资产 {}",
+                self.github.tag_name, name
+            )));
+        }
+        Ok(asset)
+    }
+
+    fn core_asset_for_current_target(
         &self,
-        release: &'a GithubRelease,
-    ) -> Result<&'a GithubReleaseAsset> {
-        let arch = std::env::consts::ARCH;
-        let os = std::env::consts::OS;
-
-        release
+    ) -> Result<(&GithubReleaseAsset, &CoreReleaseAssetManifest)> {
+        let architecture = match std::env::consts::ARCH {
+            "arm" => "armv7",
+            value => value,
+        };
+        let contract = self
+            .manifest
+            .components
+            .core
             .assets
-            .iter()
-            .find(|asset| asset_matches_current_target(asset, os, arch))
-            .ok_or(AppError::ExternalApi(format!(
-                "No matching asset found for {}/{}",
-                os, arch
-            )))
+            .get(architecture)
+            .ok_or_else(|| {
+                AppError::ExternalApi(format!(
+                    "Release {} 不支持当前架构 {}",
+                    self.github.tag_name, architecture
+                ))
+            })?;
+        Ok((self.github_asset(&contract.name)?, contract))
+    }
+
+    fn web_asset(&self) -> Result<(&GithubReleaseAsset, &ReleaseAssetManifest)> {
+        let contract = &self.manifest.components.web.asset;
+        Ok((self.github_asset(&contract.name)?, contract))
     }
 }
 
-fn find_web_release_asset(release: &GithubRelease) -> Result<(GithubReleaseAsset, String)> {
-    release
-        .assets
-        .iter()
-        .filter_map(|asset| {
-            asset
-                .name
-                .strip_prefix("niupanel_web_")
-                .and_then(|name| name.strip_suffix(".tar.gz"))
-                .filter(|version| !version.is_empty())
-                .map(|version| (asset.clone(), version.to_string()))
-        })
-        .max_by(|left, right| parse_version(&left.1).cmp(&parse_version(&right.1)))
-        .ok_or_else(|| AppError::NotFound("该发布版本没有独立 Web UI 包".to_string()))
+fn parse_plain_version(value: &str, label: &str) -> Result<Version> {
+    let version = Version::parse(value)
+        .map_err(|error| AppError::ValidationError(format!("{label} 不是有效版本号: {error}")))?;
+    if !version.pre.is_empty() || !version.build.is_empty() {
+        return Err(AppError::ValidationError(format!(
+            "{label} 必须使用纯数字版本号，不能包含预发布或构建后缀"
+        )));
+    }
+    Ok(version)
 }
 
-fn verify_asset_digest(asset: &GithubReleaseAsset, package_path: &Path) -> Result<()> {
+fn validate_asset_descriptor(name: &str, sha256: &str, size: u64) -> Result<()> {
+    if name.is_empty()
+        || Path::new(name).file_name().and_then(|value| value.to_str()) != Some(name)
+        || size == 0
+        || sha256.len() != 64
+        || !sha256.chars().all(|value| value.is_ascii_hexdigit())
+    {
+        return Err(AppError::ValidationError(format!(
+            "Release manifest 中的资产 {} 描述不合法",
+            name
+        )));
+    }
+    Ok(())
+}
+
+fn validate_release_contract(
+    release: &GithubRelease,
+    manifest: &ReleaseBundleManifest,
+) -> Result<()> {
+    if manifest.schema_version != RELEASE_BUNDLE_SCHEMA_VERSION {
+        return Err(AppError::ValidationError(format!(
+            "不支持的 Release manifest schema {}",
+            manifest.schema_version
+        )));
+    }
+    let release_version = parse_plain_version(&manifest.release_version, "Release 版本")?;
+    if release.tag_name != format!("v{}", manifest.release_version) {
+        return Err(AppError::ValidationError(format!(
+            "GitHub Tag {} 与 Release manifest 版本 {} 不一致",
+            release.tag_name, manifest.release_version
+        )));
+    }
+    if manifest.git_sha.len() != 40
+        || !manifest
+            .git_sha
+            .chars()
+            .all(|value| value.is_ascii_hexdigit())
+    {
+        return Err(AppError::ValidationError(
+            "Release manifest 的 git_sha 不合法".to_string(),
+        ));
+    }
+
+    let core = &manifest.components.core;
+    let web = &manifest.components.web;
+    if core.version != manifest.release_version {
+        return Err(AppError::ValidationError(format!(
+            "Core {} 与 Release {} 版本不一致",
+            core.version, manifest.release_version
+        )));
+    }
+    if manifest.api_contract != core.api_contract || web.api_contract != core.api_contract {
+        return Err(AppError::ValidationError(
+            "Release、Core 与 Web 的 API contract 不一致".to_string(),
+        ));
+    }
+    for architecture in ["x86_64", "aarch64", "armv7"] {
+        if !core.assets.contains_key(architecture) {
+            return Err(AppError::ValidationError(format!(
+                "Release manifest 缺少 {architecture} Core 资产"
+            )));
+        }
+    }
+
+    let mut asset_names = Vec::new();
+    for (architecture, asset) in &core.assets {
+        validate_asset_descriptor(&asset.name, &asset.sha256, asset.size)?;
+        let expected_prefix = if architecture == "armv7" {
+            "armv7"
+        } else {
+            architecture.as_str()
+        };
+        if !asset.target.starts_with(&format!("{expected_prefix}-")) {
+            return Err(AppError::ValidationError(format!(
+                "Core 资产 {} 的 target {} 与架构 {} 不一致",
+                asset.name, asset.target, architecture
+            )));
+        }
+        let github_asset = release
+            .assets
+            .iter()
+            .find(|value| value.name == asset.name)
+            .ok_or_else(|| {
+                AppError::ValidationError(format!(
+                    "GitHub Release 缺少 manifest 指定的资产 {}",
+                    asset.name
+                ))
+            })?;
+        if github_asset.size != asset.size {
+            return Err(AppError::ValidationError(format!(
+                "资产 {} 的大小与 Release manifest 不一致",
+                asset.name
+            )));
+        }
+        asset_names.push(asset.name.as_str());
+    }
+
+    validate_asset_descriptor(&web.asset.name, &web.asset.sha256, web.asset.size)?;
+    if asset_names.contains(&web.asset.name.as_str()) {
+        return Err(AppError::ValidationError(
+            "Core 与 Web 不能引用同一个 Release 资产".to_string(),
+        ));
+    }
+    let github_web_asset = release
+        .assets
+        .iter()
+        .find(|value| value.name == web.asset.name)
+        .ok_or_else(|| {
+            AppError::ValidationError(format!(
+                "GitHub Release 缺少 manifest 指定的资产 {}",
+                web.asset.name
+            ))
+        })?;
+    if github_web_asset.size != web.asset.size {
+        return Err(AppError::ValidationError(format!(
+            "资产 {} 的大小与 Release manifest 不一致",
+            web.asset.name
+        )));
+    }
+
+    let minimum = parse_plain_version(&web.core.min, "Web 最低 Core 版本")?;
+    if release_version < minimum {
+        return Err(AppError::ValidationError(format!(
+            "Release Core {} 低于 Web 最低要求 {}",
+            core.version, web.core.min
+        )));
+    }
+    if let Some(maximum) = web.core.max.as_deref() {
+        let maximum = parse_plain_version(maximum, "Web 最高 Core 版本")?;
+        if release_version > maximum {
+            return Err(AppError::ValidationError(format!(
+                "Release Core {} 高于 Web 最高支持版本 {}",
+                core.version, maximum
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn verify_bytes_digest(asset: &GithubReleaseAsset, bytes: &[u8]) -> Result<()> {
     let Some(expected) = asset
         .digest
         .as_deref()
@@ -453,7 +694,7 @@ fn verify_asset_digest(asset: &GithubReleaseAsset, package_path: &Path) -> Resul
     else {
         return Ok(());
     };
-    let actual = file_sha256(package_path)?;
+    let actual = hex::encode(Sha256::digest(bytes));
     if actual.eq_ignore_ascii_case(expected) {
         Ok(())
     } else {
@@ -462,6 +703,40 @@ fn verify_asset_digest(asset: &GithubReleaseAsset, package_path: &Path) -> Resul
             asset.name
         )))
     }
+}
+
+fn verify_downloaded_asset(
+    asset: &GithubReleaseAsset,
+    expected_sha256: &str,
+    expected_size: u64,
+    package_path: &Path,
+) -> Result<()> {
+    let actual_size = fs::metadata(package_path).map_err(AppError::Io)?.len();
+    if actual_size != expected_size || actual_size != asset.size {
+        return Err(AppError::ValidationError(format!(
+            "下载文件 {} 大小与 Release manifest 不一致",
+            asset.name
+        )));
+    }
+    let actual = file_sha256(package_path)?;
+    if !actual.eq_ignore_ascii_case(expected_sha256) {
+        return Err(AppError::ValidationError(format!(
+            "下载文件 {} 的 SHA-256 与 Release manifest 不一致",
+            asset.name
+        )));
+    }
+    if let Some(expected) = asset
+        .digest
+        .as_deref()
+        .and_then(|value| value.strip_prefix("sha256:"))
+        && !actual.eq_ignore_ascii_case(expected)
+    {
+        return Err(AppError::ValidationError(format!(
+            "下载文件 {} 的 SHA-256 与 GitHub Release 记录不一致",
+            asset.name
+        )));
+    }
+    Ok(())
 }
 
 async fn download_component_asset(
@@ -603,7 +878,7 @@ async fn perform_update_task(service: UpdateService, token: CancellationToken) -
     }
 
     let channel = service.update_channel().await;
-    let release = service.fetch_target_release(&channel).await?;
+    let release = service.fetch_release_contract(&channel).await?;
     if token.is_cancelled() {
         return Err(AppError::Cancelled);
     }
@@ -614,7 +889,9 @@ async fn perform_update_task(service: UpdateService, token: CancellationToken) -
         guard.progress = 0;
     }
 
-    let asset = service.find_matching_asset(&release)?.clone();
+    let (asset, contract_asset) = release.core_asset_for_current_target()?;
+    let asset = asset.clone();
+    let contract_asset = contract_asset.clone();
     let temp_dir = tempfile::Builder::new()
         .prefix("niupanel_update_download_")
         .tempdir()
@@ -622,13 +899,19 @@ async fn perform_update_task(service: UpdateService, token: CancellationToken) -
     let package_path = temp_dir.path().join(&asset.name);
 
     download_release_asset(&service, &token, &asset, &package_path).await?;
+    verify_downloaded_asset(
+        &asset,
+        &contract_asset.sha256,
+        contract_asset.size,
+        &package_path,
+    )?;
     install_update_archive(service, temp_dir, package_path).await
 }
 
 async fn perform_local_update_task(
     service: UpdateService,
     token: CancellationToken,
-    bytes: Vec<u8>,
+    package_path: tempfile::TempPath,
 ) -> Result<()> {
     if token.is_cancelled() {
         return Err(AppError::Cancelled);
@@ -637,11 +920,9 @@ async fn perform_local_update_task(
         .prefix("niupanel_local_update_")
         .tempdir()
         .map_err(AppError::Io)?;
-    let package_path = temp_dir.path().join("local_update.tar.gz");
-    tokio::fs::write(&package_path, bytes)
-        .await
-        .map_err(AppError::Io)?;
-    install_update_archive(service, temp_dir, package_path).await
+    let result = install_update_archive(service, temp_dir, package_path.to_path_buf()).await;
+    drop(package_path);
+    result
 }
 
 async fn install_update_archive(
@@ -945,19 +1226,6 @@ fn build_target_url(proxy_url: &str, original_url: &str) -> String {
     format!("{}{}", proxy_url, original_url)
 }
 
-fn asset_matches_current_target(asset: &GithubReleaseAsset, os: &str, arch: &str) -> bool {
-    let name = asset.name.to_lowercase();
-    if !name.contains(os) {
-        return false;
-    }
-
-    match arch {
-        "aarch64" => name.contains("aarch64"),
-        "x86_64" => name.contains("amd64") || name.contains("x86_64"),
-        _ => name.contains(arch),
-    }
-}
-
 async fn download_release_asset(
     service: &UpdateService,
     token: &CancellationToken,
@@ -1042,38 +1310,107 @@ mod tests {
         assert!(!compare_versions("v1.2.3-beta.1", "v1.2.3"));
     }
 
-    #[test]
-    fn selects_highest_web_asset_from_release() {
-        let release = GithubRelease {
+    fn release_fixture(prerelease: bool) -> ResolvedRelease {
+        let mut core_assets = std::collections::BTreeMap::new();
+        for (architecture, target) in [
+            ("x86_64", "x86_64-unknown-linux-musl"),
+            ("aarch64", "aarch64-unknown-linux-musl"),
+            ("armv7", "armv7-unknown-linux-musleabihf"),
+        ] {
+            core_assets.insert(
+                architecture.to_string(),
+                CoreReleaseAssetManifest {
+                    name: format!("niupanel_linux_{architecture}.tar.gz"),
+                    target: target.to_string(),
+                    sha256: "a".repeat(64),
+                    size: 1,
+                },
+            );
+        }
+        let github = GithubRelease {
             tag_name: "v0.8.1".into(),
             html_url: "https://example.com/release".into(),
             body: String::new(),
             draft: false,
-            prerelease: false,
-            assets: vec![
-                GithubReleaseAsset {
-                    name: "niupanel_linux_x86_64.tar.gz".into(),
-                    browser_download_url: "https://example.com/core".into(),
-                    size: 1,
+            prerelease,
+            assets: core_assets
+                .values()
+                .map(|asset| GithubReleaseAsset {
+                    name: asset.name.clone(),
+                    browser_download_url: format!("https://example.com/{}", asset.name),
+                    size: asset.size,
                     digest: None,
-                },
-                GithubReleaseAsset {
-                    name: "niupanel_web_2.0.0.tar.gz".into(),
-                    browser_download_url: "https://example.com/web-2.0.0".into(),
-                    size: 2,
-                    digest: None,
-                },
-                GithubReleaseAsset {
-                    name: "niupanel_web_2.1.0.tar.gz".into(),
-                    browser_download_url: "https://example.com/web-2.1.0".into(),
-                    size: 3,
-                    digest: None,
-                },
-            ],
+                })
+                .chain([
+                    GithubReleaseAsset {
+                        name: "niupanel_web_2.0.0.tar.gz".into(),
+                        browser_download_url: "https://example.com/web-2.0.0".into(),
+                        size: 2,
+                        digest: None,
+                    },
+                    GithubReleaseAsset {
+                        name: "niupanel_web_9.9.9.tar.gz".into(),
+                        browser_download_url: "https://example.com/unindexed-web".into(),
+                        size: 9,
+                        digest: None,
+                    },
+                ])
+                .collect(),
         };
-        let (asset, version) = find_web_release_asset(&release).unwrap();
-        assert_eq!(version, "2.1.0");
-        assert_eq!(asset.size, 3);
+        let manifest = ReleaseBundleManifest {
+            schema_version: RELEASE_BUNDLE_SCHEMA_VERSION,
+            release_version: "0.8.1".into(),
+            git_sha: "b".repeat(40),
+            generated_at: "2026-08-01T00:00:00Z".into(),
+            api_contract: 1,
+            components: niupanel_common::version::ReleaseBundleComponents {
+                core: niupanel_common::version::ReleaseCoreComponent {
+                    version: "0.8.1".into(),
+                    launcher_protocol: 1,
+                    api_contract: 1,
+                    schema_epoch: 1,
+                    schema_revision: 30,
+                    assets: core_assets,
+                },
+                web: niupanel_common::version::ReleaseWebComponent {
+                    version: "2.0.0".into(),
+                    api_contract: 1,
+                    core: niupanel_common::version::ComponentCompatibility {
+                        min: "0.8.1".into(),
+                        max: None,
+                    },
+                    asset: ReleaseAssetManifest {
+                        name: "niupanel_web_2.0.0.tar.gz".into(),
+                        sha256: "c".repeat(64),
+                        size: 2,
+                    },
+                },
+            },
+        };
+        ResolvedRelease { github, manifest }
+    }
+
+    #[test]
+    fn release_contract_uses_manifest_selected_web_asset() {
+        let release = release_fixture(true);
+
+        validate_release_contract(&release.github, &release.manifest).unwrap();
+        let (asset, contract) = release.web_asset().unwrap();
+
+        assert_eq!(asset.name, "niupanel_web_2.0.0.tar.gz");
+        assert_eq!(contract.name, asset.name);
+        assert!(release.github.prerelease);
+    }
+
+    #[test]
+    fn release_contract_rejects_version_suffixes() {
+        let mut release = release_fixture(true);
+        release.github.tag_name = "v0.8.1-beta.1".into();
+        release.manifest.release_version = "0.8.1-beta.1".into();
+
+        let error = validate_release_contract(&release.github, &release.manifest).unwrap_err();
+
+        assert!(error.to_string().contains("纯数字版本号"));
     }
 
     #[test]

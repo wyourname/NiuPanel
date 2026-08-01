@@ -48,7 +48,9 @@ pub struct Config {
     pub plugin_signature_required: bool,
     #[serde(default)]
     pub trusted_plugin_public_keys: Vec<String>,
-    #[serde(default = "default_mcp_allowed_hosts")]
+    // Empty means Host validation is disabled. Deployments can opt in by
+    // setting MCP_ALLOWED_HOSTS to a comma-separated allowlist.
+    #[serde(default)]
     pub mcp_allowed_hosts: Vec<String>,
 
     #[serde(default = "default_log_level")]
@@ -140,10 +142,6 @@ fn default_system_dir() -> PathBuf {
 
 fn default_bundled_web_dir() -> PathBuf {
     "web".into()
-}
-
-fn default_mcp_allowed_hosts() -> Vec<String> {
-    vec!["localhost".into(), "127.0.0.1".into(), "::1".into()]
 }
 
 fn default_plugin_signature_required() -> bool {
@@ -245,5 +243,17 @@ impl Config {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mcp_host_allowlist_is_disabled_by_default() {
+        let config: Config = serde_json::from_str("{}").unwrap();
+
+        assert!(config.mcp_allowed_hosts.is_empty());
     }
 }

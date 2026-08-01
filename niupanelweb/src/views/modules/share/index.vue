@@ -94,25 +94,25 @@
       </div>
     </div>
 
-    <!-- Modals -->
-    <MarketSourceDialog
-      v-model="marketSourceDialogVisible"
-      @update-scripts="fetchMarketScripts"
-    />
-
-    <ShareEditDialog
-      v-model="editDialogVisible"
-      :share="currentShare"
-      @success="fetchStationList"
-    />
-
-    <ShareImportDialog
-      ref="importDialogRef"
-      v-model="importDialogVisible"
-      :is-mobile="appStore.isMobile"
-      @success="handleImportSuccess"
-    />
   </div>
+
+  <MarketSourceDialog
+    v-model="marketSourceDialogVisible"
+    @update-scripts="fetchMarketScripts"
+  />
+
+  <ShareEditDialog
+    v-model="editDialogVisible"
+    :share="currentShare"
+    @success="fetchStationList"
+  />
+
+  <ShareImportDialog
+    ref="importDialogRef"
+    v-model="importDialogVisible"
+    :is-mobile="appStore.isMobile"
+    @success="handleImportSuccess"
+  />
 </template>
 
 <script setup lang="ts">

@@ -8,7 +8,7 @@
         :class="badgeClass"
       >{{ count }}</span>
     </header>
-    <div class="min-h-0 flex-1 overflow-y-auto no-scrollbar">
+    <div class="min-h-0 flex-1" :class="contentClass || 'overflow-y-auto no-scrollbar'">
       <slot />
     </div>
   </section>
@@ -21,6 +21,7 @@ const props = defineProps<{
   title: string;
   count?: number;
   tone?: "default" | "warning";
+  contentClass?: string;
 }>();
 
 const badgeClass = computed(() =>

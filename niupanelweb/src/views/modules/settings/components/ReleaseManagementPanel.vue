@@ -129,8 +129,22 @@
         @change="uploadWeb"
       />
 
-      <div v-if="uploadingWeb" class="mt-3 text-[11px] text-secondary">
-        正在上传并校验 UI 包 {{ webUploadProgress }}%
+      <div
+        v-if="uploadingWeb"
+        class="mt-3 flex items-center gap-3 rounded-md border border-primary/15 bg-primary/[0.04] px-3 py-2"
+        role="status"
+        aria-live="polite"
+      >
+        <div class="min-w-0 flex-1">
+          <div class="mb-1 flex items-center justify-between gap-3 text-[10px] font-semibold text-secondary">
+            <span>正在上传并校验 UI 包</span>
+            <span class="font-mono">{{ webUploadProgress }}%</span>
+          </div>
+          <el-progress :percentage="webUploadProgress" :show-text="false" :stroke-width="5" />
+        </div>
+        <el-button size="small" plain type="danger" @click="cancelWebUpload">
+          取消
+        </el-button>
       </div>
 
       <div class="mt-3 overflow-hidden rounded-md border border-light">
@@ -193,12 +207,14 @@ import {
   rollbackWebRelease,
   uploadWebRelease,
 } from "@/api/system";
+import { createUploadFormData } from "@/api/upload";
 import type {
   CoreReleaseList,
   CoreReleaseRecord,
   WebReleaseList,
   WebUpdateInfo,
 } from "@/types";
+import { useUploadTransfer } from "@/composables/useUploadTransfer";
 import { formatFileSize } from "@/utils/format";
 
 const core = ref<CoreReleaseList>();
@@ -207,12 +223,16 @@ const loading = ref(false);
 const activatingCore = ref("");
 const activatingWeb = ref("");
 const rollingBackWeb = ref(false);
-const uploadingWeb = ref(false);
-const webUploadProgress = ref(0);
 const webFileInput = ref<HTMLInputElement>();
 const checkingWebUpdate = ref(false);
 const installingWebUpdate = ref(false);
 const webUpdateInfo = ref<WebUpdateInfo>();
+const {
+  cancel: cancelWebUpload,
+  progress: webUploadProgress,
+  run: runWebUpload,
+  uploading: uploadingWeb,
+} = useUploadTransfer();
 
 const errorMessage = (error: unknown, fallback: string) =>
   error instanceof Error ? error.message : fallback;
@@ -292,21 +312,20 @@ const uploadWeb = async (event: Event) => {
   const input = event.target as HTMLInputElement;
   const file = input.files?.[0];
   if (!file) return;
-  uploadingWeb.value = true;
-  webUploadProgress.value = 0;
   try {
-    const form = new FormData();
-    form.append("file", file);
-    await uploadWebRelease(form, true, (progress) => {
-      if (progress.total) {
-        webUploadProgress.value = Math.round((progress.loaded / progress.total) * 100);
-      }
-    });
+    const form = createUploadFormData([["file", file]]);
+    const result = await runWebUpload(
+      (options) => uploadWebRelease(form, true, options),
+      { initialTotalBytes: file.size },
+    );
+    if (result.cancelled) {
+      ElMessage.info("Web UI 包上传已取消");
+      return;
+    }
     window.location.reload();
   } catch (error) {
     ElMessage.error(errorMessage(error, "Web UI 包安装失败"));
   } finally {
-    uploadingWeb.value = false;
     input.value = "";
   }
 };

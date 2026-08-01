@@ -1,4 +1,5 @@
 import request from "@/utils/request";
+import { uploadMultipart, type UploadRequestOptions } from "./upload";
 import { storageKey as makeStorageKey } from "@/utils/storage";
 import type {
   ApiResponse,
@@ -82,14 +83,16 @@ export const previewInstallPlugin = (
 
 export const uploadInstallPlugin = (
   data: FormData,
+  options: UploadRequestOptions = {},
 ): Promise<ApiResponse<PluginRecord>> => {
-  return request.post("/plugins/upload", data);
+  return uploadMultipart("/plugins/upload", data, options);
 };
 
 export const previewUploadInstallPlugin = (
   data: FormData,
+  options: UploadRequestOptions = {},
 ): Promise<ApiResponse<PluginImpactPreview>> => {
-  return request.post("/plugins/preview-upload", data);
+  return uploadMultipart("/plugins/preview-upload", data, options);
 };
 
 export const updatePlugin = (
@@ -109,17 +112,24 @@ export const previewUpdatePlugin = (
 export const uploadUpdatePlugin = (
   id: string,
   data: FormData,
+  options: UploadRequestOptions = {},
 ): Promise<ApiResponse<PluginRecord>> => {
-  return request.post(`/plugins/${encodeURIComponent(id)}/upload-update`, data);
+  return uploadMultipart(
+    `/plugins/${encodeURIComponent(id)}/upload-update`,
+    data,
+    options,
+  );
 };
 
 export const previewUploadUpdatePlugin = (
   id: string,
   data: FormData,
+  options: UploadRequestOptions = {},
 ): Promise<ApiResponse<PluginImpactPreview>> => {
-  return request.post(
+  return uploadMultipart(
     `/plugins/${encodeURIComponent(id)}/preview-upload-update`,
     data,
+    options,
   );
 };
 

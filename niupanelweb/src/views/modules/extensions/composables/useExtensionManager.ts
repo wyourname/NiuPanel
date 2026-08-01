@@ -2,6 +2,10 @@ import { computed, h, onMounted, reactive, ref } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { useRouter } from "vue-router";
 import {
+  createUploadFormData,
+  type UploadFormEntry,
+} from "@/api/upload";
+import {
   checkPluginMarketUpdates,
   disablePlugin,
   enablePlugin,
@@ -167,6 +171,8 @@ export function useExtensionManager() {
   const pluginIcon = (item: ManagedPlugin) =>
     item.record.manifest.ui?.routes?.[0]?.icon ?? marketIcon();
   const marketIcon = () => "i-carbon-application-web";
+  const marketEntryIsSigned = (entry: PluginMarketEntry) =>
+    entry.assets.some((asset) => Boolean(asset.signature_ed25519));
   const healthText = (report?: PluginHealthReport) => {
     if (!report) return "未知";
     if (!report.healthy) return "异常";
@@ -322,11 +328,14 @@ export function useExtensionManager() {
     installDialog.file = (event.target as HTMLInputElement).files?.[0] ?? null;
   };
   const uploadForm = () => {
-    const form = new FormData();
-    if (installDialog.file) form.append("file", installDialog.file);
-    form.append("enable", installDialog.enable ? "true" : "false");
-    if (installDialog.checksumSha256.trim()) form.append("checksum_sha256", installDialog.checksumSha256.trim());
-    return form;
+    const entries: UploadFormEntry[] = [
+      ["enable", installDialog.enable ? "true" : "false"],
+    ];
+    if (installDialog.file) entries.unshift(["file", installDialog.file]);
+    if (installDialog.checksumSha256.trim()) {
+      entries.push(["checksum_sha256", installDialog.checksumSha256.trim()]);
+    }
+    return createUploadFormData(entries);
   };
   const submitInstallDialog = async () => {
     if (installDialog.method === "path" && !installDialog.sourcePath.trim()) {
@@ -454,7 +463,7 @@ export function useExtensionManager() {
     searchQuery, statusFilter, loading, busyPlugin, installedPluginRecords, pluginHealth, marketSourcesDialogVisible, market,
     installDialog, historyDialog, allPlugins, capabilityLabel, visibleCapabilities, normalizedSearch, visiblePlugins, marketVisiblePlugins,
     marketVisibleUpdates, enabledCount, appCount, themeCount, themeSwatches, healthByPlugin, pluginHealthReport, pluginIcon,
-    marketIcon, healthText, healthTone, formatTime, loadPlugins, loadMarketSources, loadAll, addMarketSource,
+    marketIcon, marketEntryIsSigned, healthText, healthTone, formatTime, loadPlugins, loadMarketSources, loadAll, addMarketSource,
     removeMarketSource, saveMarketSources, loadMarket, checkMarketUpdates, installedVersion, impactSummary, confirmPreview, openInstall,
     openUpdate, handleInstallFile, uploadForm, submitInstallDialog, togglePlugin, removePlugin, handlePluginCommand, openHistory,
     rollbackVersion, installFromMarket, openPluginApp,

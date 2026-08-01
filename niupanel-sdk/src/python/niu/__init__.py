@@ -132,7 +132,7 @@ class NiuPanelSDK:
             "Content-Type": "application/json"
         }
         if self.api_key:
-            headers["Authorization"] = f"Bearer {self.api_key}"
+            headers["X-API-Key"] = self.api_key
         return headers
 
     def _handle_response(self, response: Any) -> Any:
@@ -181,12 +181,12 @@ class NiuPanelSDK:
         :param key: 变量键名
         :return: 变量模型列表 [dict, dict, ...]
         """
-        try:
-            params = {'key': key}
-            response = self.session.get(f"{self.base_url}/variables/by-key", params=params, headers=self._get_headers())
-            return self._handle_response(response)
-        except:
-            return []
+        params = {'key': key}
+        response = self.session.get(f"{self.base_url}/variables/by-key", params=params, headers=self._get_headers())
+        variables = self._handle_response(response)
+        if not isinstance(variables, list):
+            raise TypeError("NiuPanel API returned an invalid variable response")
+        return variables
 
     def get_variable_values(self, key: str) -> List[str]:
         """

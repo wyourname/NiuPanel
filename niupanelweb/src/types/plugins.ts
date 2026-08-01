@@ -42,7 +42,14 @@ export interface PluginMarketIndex {
   schema_version: number;
   name: string;
   description?: string | null;
+  signing?: PluginMarketSigning | null;
   plugins: PluginMarketEntry[];
+}
+
+export interface PluginMarketSigning {
+  algorithm: "ed25519";
+  trusted_key?: string | null;
+  public_key_ed25519?: string | null;
 }
 
 export interface PluginMarketEntry {
@@ -50,13 +57,21 @@ export interface PluginMarketEntry {
   name: string;
   version: string;
   description: string;
-  download_url: string;
-  checksum_sha256?: string | null;
-  signature_ed25519?: string | null;
-  public_key_ed25519?: string | null;
+  assets: PluginMarketAsset[];
   permissions: string[];
   homepage?: string | null;
   repository?: string | null;
+}
+
+export interface PluginMarketAsset {
+  platform: string;
+  os?: string | null;
+  arch?: string | null;
+  libc?: string | null;
+  target?: string | null;
+  file: string;
+  checksum_sha256?: string | null;
+  signature_ed25519?: string | null;
 }
 
 export interface PluginMarketInstallRequest {

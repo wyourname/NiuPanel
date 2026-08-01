@@ -31,7 +31,7 @@ where
     P: FnOnce(&Path) -> Result<()>,
 {
     let package = read_plugin_package_upload(multipart).await?;
-    let extracted = extract_plugin_package(&package.file_name, &package.bytes)?;
+    let extracted = extract_plugin_package_file(&package.file_name, package.upload.path.as_ref())?;
     let package_root = resolve_plugin_package_root(extracted.path(), compatibility, package_label)?;
     preflight(&package_root)?;
     Ok(ApiResponse::success(install(package_root, package.enable)?))
@@ -74,7 +74,7 @@ where
     P: FnOnce(&Path) -> Result<()>,
 {
     let package = read_plugin_package_upload(multipart).await?;
-    let extracted = extract_plugin_package(&package.file_name, &package.bytes)?;
+    let extracted = extract_plugin_package_file(&package.file_name, package.upload.path.as_ref())?;
     let package_root = resolve_plugin_package_root(extracted.path(), compatibility, package_label)?;
     preflight(&package_root)?;
     Ok(ApiResponse::success(update(id, package_root).await?))
@@ -90,7 +90,7 @@ where
     P: FnOnce(&Path) -> Result<R>,
 {
     let package = read_plugin_package_upload(multipart).await?;
-    let extracted = extract_plugin_package(&package.file_name, &package.bytes)?;
+    let extracted = extract_plugin_package_file(&package.file_name, package.upload.path.as_ref())?;
     let package_root = resolve_plugin_package_root(extracted.path(), compatibility, package_label)?;
     Ok(ApiResponse::success(preview(&package_root)?))
 }

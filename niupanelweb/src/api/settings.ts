@@ -1,5 +1,5 @@
 import request from '../utils/request'
-import type { AxiosProgressEvent } from 'axios'
+import { uploadMultipart, type UploadRequestOptions } from './upload'
 import type {
   ApiResponse,
   BackupOptions,
@@ -80,12 +80,11 @@ export const downloadBackup = (filename: string): Promise<Blob> => {
   })
 }
 
-export const restoreSystem = (formData: FormData): Promise<ApiResponse<void>> => {
-  return request.post('/settings/restore', formData, {
-    headers: {
-      'Content-Type': 'multipart/form-data'
-    }
-  })
+export const restoreSystem = (
+  formData: FormData,
+  options: UploadRequestOptions = {}
+): Promise<ApiResponse<void>> => {
+  return uploadMultipart('/settings/restore', formData, options)
 }
 
 export const cleanupLogs = (
@@ -118,12 +117,9 @@ export const cancelUpdate = (): Promise<ApiResponse<void>> => {
   return request.post('/settings/update/cancel')
 }
 
-export const uploadUpdate = (formData: FormData, onUploadProgress?: (progressEvent: AxiosProgressEvent) => void): Promise<ApiResponse<void>> => {
-  return request.post('/settings/update/upload', formData, {
-    headers: {
-      'Content-Type': 'multipart/form-data'
-    },
-    timeout: 300000, // 5 minutes timeout for large file
-    onUploadProgress
-  })
+export const uploadUpdate = (
+  formData: FormData,
+  options: UploadRequestOptions = {}
+): Promise<ApiResponse<void>> => {
+  return uploadMultipart('/settings/update/upload', formData, options)
 }

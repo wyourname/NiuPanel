@@ -1,10 +1,10 @@
 use super::lifecycle::{self, ManifestCompatibility};
 use super::models::{
     PluginApiProxyRequest, PluginAppRecord, PluginAppUi, PluginHealthCheck, PluginHealthReport,
-    PluginImpactPreview, PluginImpactRoute, PluginInstallRequest, PluginMarketEntry,
-    PluginMarketIndex, PluginMarketInstallRequest, PluginMarketQuery, PluginMarketSource,
-    PluginMarketSourcesUpdateRequest, PluginMarketUpdateRecord, PluginRouteConflict,
-    PluginThemeRecord, PluginUpdateRequest,
+    PluginImpactPreview, PluginImpactRoute, PluginInstallRequest, PluginMarketAsset,
+    PluginMarketEntry, PluginMarketIndex, PluginMarketInstallRequest, PluginMarketQuery,
+    PluginMarketSource, PluginMarketSourcesUpdateRequest, PluginMarketUpdateRecord,
+    PluginRouteConflict, PluginThemeRecord, PluginUpdateRequest,
 };
 use super::service::{PLUGIN_CONTEXT, plugin_service, plugin_services, unified_plugin_service};
 use crate::common::state::AppState;

@@ -29,9 +29,20 @@ if (migrationCount !== schemaRevision) {
 const coreVersion = packageVersion(coreCargo, 'niupanel')
 const launcherVersion = packageVersion(launcherCargo, 'niupanel-launcher')
 const releaseVersion = process.argv[2]?.replace(/^v/, '')
+const stableVersionPattern = /^\d+\.\d+\.\d+$/
+if (!stableVersionPattern.test(coreVersion)) {
+  throw new Error(
+    `Core package version must use a plain numeric version (for example 0.8.1), got ${coreVersion}`
+  )
+}
 if (releaseVersion && releaseVersion !== coreVersion) {
   throw new Error(
     `Release version ${releaseVersion} must match the Core package version ${coreVersion}`
+  )
+}
+if (releaseVersion && !stableVersionPattern.test(releaseVersion)) {
+  throw new Error(
+    `Release tags must use v<major>.<minor>.<patch> without prerelease suffixes, got ${process.argv[2]}`
   )
 }
 if (constant('RELEASE_PROTOCOL_VERSION') < 1 || constant('API_CONTRACT_VERSION') < 1) {

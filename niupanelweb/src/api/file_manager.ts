@@ -1,5 +1,6 @@
 import request from '../utils/request'
 import type { ApiResponse, FileItem, FileListQueryParams } from '@/types'
+import { uploadMultipart, type UploadRequestOptions } from './upload'
 
 const BASE_URL = '/files'
 
@@ -49,9 +50,13 @@ export const extractArchive = (path: string, destination_path?: string): Promise
   return request.post(`${BASE_URL}/extract`, { path, destination_path })
 }
 
-export const uploadFile = (path: string, formData: FormData): Promise<ApiResponse<void>> => {
+export const uploadFile = (
+  path: string,
+  formData: FormData,
+  options: UploadRequestOptions = {}
+): Promise<ApiResponse<void>> => {
   const url = path && path !== '/' ? `${BASE_URL}/upload/${path}` : `${BASE_URL}/upload`;
-  return request.post(url, formData)
+  return uploadMultipart(url, formData, { ...options, skipMessage: true })
 }
 
 export const downloadFile = (path: string): Promise<Blob> => {
@@ -61,7 +66,7 @@ export const downloadFile = (path: string): Promise<Blob> => {
 }
 
 export const downloadFromUrl = (url: string, path: string, filename?: string): Promise<ApiResponse<void>> => {
-  return request.post(`${BASE_URL}/download_url`, { url, path, filename })
+  return request.post(`${BASE_URL}/download_url`, { url, path, filename }, { timeout: 0 })
 }
 
 export const downloadBatch = (paths: string[]): Promise<Blob> => {

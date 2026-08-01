@@ -75,6 +75,7 @@ export function useFileOperations(fileTableRef: Ref<FileTableRef | null>) {
   })
 
   const {
+    cancelUpload,
     handleBatchDownload,
     handleDownload,
     extractArchive,
@@ -82,6 +83,11 @@ export function useFileOperations(fileTableRef: Ref<FileTableRef | null>) {
     imageUrl,
     performUpload,
     previewImage,
+    uploadLabel,
+    uploadLoadedBytes,
+    uploadProgress,
+    uploadTotalBytes,
+    uploading,
   } = useFileTransfers({
     currentPath,
     loading,
@@ -277,7 +283,8 @@ export function useFileOperations(fileTableRef: Ref<FileTableRef | null>) {
     deleteItem, batchDelete,
     handleCreateItem, handleRenameItem,
     showEditFileDialog, saveFileContent,
-    performUpload, handleDownload, handleBatchDownload, extractArchive, previewImage,
+    cancelUpload, performUpload, handleDownload, handleBatchDownload, extractArchive, previewImage,
+    uploadLabel, uploadLoadedBytes, uploadProgress, uploadTotalBytes, uploading,
     showRenameDialog,
     moveDialogVisible,
     movingFile,

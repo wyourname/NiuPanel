@@ -24,6 +24,15 @@
       @trigger-upload="triggerFileUpload"
     />
 
+    <FileUploadProgress
+      :label="uploadLabel"
+      :loaded-bytes="uploadLoadedBytes"
+      :percentage="uploadProgress"
+      :total-bytes="uploadTotalBytes"
+      :visible="uploading"
+      @cancel="cancelUpload"
+    />
+
     <FileBulkActions
       :count="selectedFiles.length"
       :is-all-selected="isAllVisibleSelected"
@@ -77,6 +86,15 @@
           @paste="pasteFromClipboard"
           @refresh="refreshCurrentPath"
           @trigger-upload="triggerFileUpload"
+        />
+
+        <FileUploadProgress
+          :label="uploadLabel"
+          :loaded-bytes="uploadLoadedBytes"
+          :percentage="uploadProgress"
+          :total-bytes="uploadTotalBytes"
+          :visible="uploading"
+          @cancel="cancelUpload"
         />
 
         <FileBulkActions
@@ -189,6 +207,7 @@ import FileEditorDialog from "./file/components/FileEditorDialog.vue";
 import FileImagePreviewDialog from "./file/components/FileImagePreviewDialog.vue";
 import FileMobileList from "./file/components/FileMobileList.vue";
 import FileToolbar from "./file/components/FileToolbar.vue";
+import FileUploadProgress from "./file/components/FileUploadProgress.vue";
 
 import type {
   FileItem,
@@ -227,6 +246,7 @@ const sortMode = ref<FileSortMode>(
 );
 
 const {
+  cancelUpload,
   loading,
   fileList,
   currentPath,
@@ -279,6 +299,11 @@ const {
   executeMove,
   copyDroppedFiles,
   handleDownloadFromUrl,
+  uploadLabel,
+  uploadLoadedBytes,
+  uploadProgress,
+  uploadTotalBytes,
+  uploading,
 } = useFileOperations(fileTableRef);
 
 const selectedFilePaths = computed(() =>

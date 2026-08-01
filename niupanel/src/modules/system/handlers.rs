@@ -11,6 +11,7 @@ use axum::http::{HeaderValue, StatusCode, header};
 use axum::response::{Html, IntoResponse, Response};
 use niupanel_common::error::{AppError, Result};
 use niupanel_common::response::ApiResponse;
+use niupanel_common::upload::{TempUploadOptions, stream_field_to_temp_file};
 use niupanel_common::version::{API_CONTRACT_VERSION, SCHEMA_EPOCH, SCHEMA_REVISION};
 use niupanel_core::audit::service::AuditService;
 use serde::Deserialize;
@@ -93,19 +94,22 @@ pub async fn upload_web_release(
         if field.name() != Some("file") {
             continue;
         }
-        let bytes = field
-            .bytes()
-            .await
-            .map_err(|error| AppError::ValidationError(error.to_string()))?;
-        let temp = tempfile::Builder::new()
-            .prefix("niupanel-web-release-")
-            .suffix(".tar.gz")
-            .tempfile()
-            .map_err(AppError::Io)?;
-        std::fs::write(temp.path(), bytes).map_err(AppError::Io)?;
-        let path = temp.into_temp_path();
+        let mut field = field;
+        let upload = stream_field_to_temp_file(
+            &mut field,
+            TempUploadOptions::new(&std::env::temp_dir(), "niupanel-web-release-"),
+        )
+        .await?;
+        if upload.size == 0 {
+            return Err(AppError::ValidationError(
+                "Web release package cannot be empty".to_string(),
+            ));
+        }
+        let package_path = upload.path.to_path_buf();
+        let temp_path = upload.path;
         let mutation = tokio::task::spawn_blocking(move || {
-            web_releases::install_release(&path, options.activate)
+            let _temp_path = temp_path;
+            web_releases::install_release(&package_path, options.activate)
         })
         .await
         .map_err(|error| AppError::Internal(format!("Web release worker failed: {error}")))??;

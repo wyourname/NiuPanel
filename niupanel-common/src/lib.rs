@@ -9,6 +9,8 @@ pub mod metrics;
 pub mod models;
 pub mod response;
 pub mod tools;
+#[cfg(feature = "axum")]
+pub mod upload;
 pub mod variable;
 pub mod version;
 

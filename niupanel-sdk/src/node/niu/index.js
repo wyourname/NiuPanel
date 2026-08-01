@@ -62,7 +62,7 @@ class NiuPanelSDK {
                 "Content-Type": "application/json"
             };
             if (this.apiKey) {
-                headers.Authorization = `Bearer ${this.apiKey}`;
+                headers["X-API-Key"] = this.apiKey;
             }
 
             const options = {
@@ -136,12 +136,11 @@ class NiuPanelSDK {
      * @returns {Promise<Array>} 变量模型列表 [dict, dict, ...]
      */
     async getVariable(key) {
-        try {
-            const data = await this._request('GET', '/variables/by-key', null, { key });
-            return Array.isArray(data) ? data : [];
-        } catch (e) {
-            return [];
+        const data = await this._request('GET', '/variables/by-key', null, { key });
+        if (!Array.isArray(data)) {
+            throw new TypeError("NiuPanel API returned an invalid variable response");
         }
+        return data;
     }
 
     /**

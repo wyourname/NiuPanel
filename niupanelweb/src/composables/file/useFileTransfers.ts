@@ -1,6 +1,8 @@
 import { onScopeDispose, ref, type Ref } from "vue";
 import { ElMessage } from "element-plus";
 import * as fileManagerApi from "@/api/file_manager";
+import { createUploadFormData } from "@/api/upload";
+import { useUploadTransfer } from "@/composables/useUploadTransfer";
 import type { FileItem } from "./fileOperationTypes";
 
 type UseFileTransfersOptions = {
@@ -16,21 +18,45 @@ export function useFileTransfers({
 }: UseFileTransfersOptions) {
   const imagePreviewVisible = ref(false);
   const imageUrl = ref("");
+  const uploadLabel = ref("");
+  const {
+    cancel: cancelUpload,
+    loadedBytes: uploadLoadedBytes,
+    progress: uploadProgress,
+    run: runUpload,
+    totalBytes: uploadTotalBytes,
+    uploading,
+  } = useUploadTransfer();
 
   const performUpload = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
 
+    const selectedFiles = Array.from(files);
+    const selectedBytes = selectedFiles.reduce((total, file) => total + file.size, 0);
+    uploadLabel.value = selectedFiles.length === 1
+      ? selectedFiles[0].name
+      : `${selectedFiles.length} 个文件`;
     loading.value = true;
     try {
-      const formData = new FormData();
-      for (let i = 0; i < files.length; i++) {
-        formData.append("files", files[i]);
+      const formData = createUploadFormData(
+        selectedFiles.map((file) => ["files", file] as const),
+      );
+      const result = await runUpload(
+        (options) => fileManagerApi.uploadFile(currentPath.value, formData, options),
+        { initialTotalBytes: selectedBytes },
+      );
+      if (result.cancelled) {
+        ElMessage.info("上传已取消");
+        return;
       }
-      await fileManagerApi.uploadFile(currentPath.value, formData);
-      ElMessage.success(`成功上传 ${files.length} 个文件`);
+      ElMessage.success(`成功上传 ${selectedFiles.length} 个文件`);
       await loadContents(currentPath.value);
+    } catch (error) {
+      ElMessage.error(error instanceof Error ? error.message : "文件上传失败");
     } finally {
-      loading.value = false;
+      if (!uploading.value) {
+        loading.value = false;
+      }
     }
   };
 
@@ -98,6 +124,7 @@ export function useFileTransfers({
   });
 
   return {
+    cancelUpload,
     extractArchive,
     handleBatchDownload,
     handleDownload,
@@ -105,5 +132,10 @@ export function useFileTransfers({
     imageUrl,
     performUpload,
     previewImage,
+    uploadLabel,
+    uploadLoadedBytes,
+    uploadProgress,
+    uploadTotalBytes,
+    uploading,
   };
 }

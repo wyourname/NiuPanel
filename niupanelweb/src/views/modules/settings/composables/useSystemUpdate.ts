@@ -1,6 +1,8 @@
 import { computed, onMounted, onScopeDispose, ref } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import * as settingsApi from "@/api/settings";
+import { createUploadFormData } from "@/api/upload";
+import { useUploadTransfer } from "@/composables/useUploadTransfer";
 import type { SettingItem, UpdateChannel, UpdateInfo } from "@/types";
 
 const RELOAD_DELAY_MS = 5000;
@@ -24,15 +26,19 @@ export function useSystemUpdate() {
   const updateInfo = ref<UpdateInfo | null>(null);
   const updateDialogVisible = ref(false);
   const executingUpdate = ref(false);
-  const updateProgress = ref(0);
   const updateStatusMessage = ref("");
   const cancellingUpdate = ref(false);
   const currentState = ref("");
   const updateFailed = ref(false);
-  const uploadingUpdate = ref(false);
   const fileInputRef = ref<HTMLInputElement | null>(null);
   const updateChannel = ref<UpdateChannel>("stable");
   const updatingUpdateChannel = ref(false);
+  const {
+    cancel: cancelUpdateUpload,
+    progress: updateProgress,
+    run: runUpdateUpload,
+    uploading: uploadingUpdate,
+  } = useUploadTransfer();
 
   let updatePollTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -47,7 +53,8 @@ export function useSystemUpdate() {
   );
 
   const canCancel = computed(() => {
-    return executingUpdate.value && currentState.value === "Downloading";
+    return executingUpdate.value
+      && (uploadingUpdate.value || currentState.value === "Downloading");
   });
 
   const clearUpdatePollTimer = () => {
@@ -169,32 +176,38 @@ export function useSystemUpdate() {
     updateStatusMessage.value = "正在上传 Core 包...";
     updateProgress.value = 0;
     cancellingUpdate.value = false;
+    currentState.value = "Uploading";
 
     try {
-      const formData = new FormData();
-      formData.append("file", file);
-      uploadingUpdate.value = true;
-
-      await settingsApi.uploadUpdate(formData, (progressEvent) => {
-        if (progressEvent.total) {
-          const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
-          updateProgress.value = percentCompleted === 100 ? 99 : percentCompleted;
-        }
-      });
+      const formData = createUploadFormData([["file", file]]);
+      const result = await runUpdateUpload(
+        (options) => settingsApi.uploadUpdate(formData, options),
+        { initialTotalBytes: file.size },
+      );
+      if (result.cancelled) {
+        executingUpdate.value = false;
+        updateFailed.value = false;
+        updateProgress.value = 0;
+        updateStatusMessage.value = "Core 包上传已取消";
+        ElMessage.info("Core 包上传已取消");
+        return;
+      }
 
       startPollingUpdateStatus();
     } catch (error: unknown) {
       executingUpdate.value = false;
       updateFailed.value = true;
       updateStatusMessage.value = getErrorMessage(error, "上传 Core 包失败");
-    } finally {
-      uploadingUpdate.value = false;
     }
   };
 
   const handleCancelUpdate = async () => {
     cancellingUpdate.value = true;
     try {
+      if (uploadingUpdate.value) {
+        cancelUpdateUpload();
+        return;
+      }
       await settingsApi.cancelUpdate();
       ElMessage.info("正在请求取消...");
     } catch (error: unknown) {
@@ -246,7 +259,9 @@ export function useSystemUpdate() {
     void loadUpdateChannel();
   });
 
-  onScopeDispose(clearUpdatePollTimer);
+  onScopeDispose(() => {
+    clearUpdatePollTimer();
+  });
 
   return {
     canCancel,

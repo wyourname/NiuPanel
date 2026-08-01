@@ -1,4 +1,9 @@
 import request from '../utils/request'
+import {
+  createUploadFormData,
+  uploadMultipart,
+  type UploadRequestOptions
+} from './upload'
 import type { ApiResponse, PaginatedData } from '@/types'
 
 export interface TelegramBotConfig {
@@ -85,15 +90,16 @@ export const sendMessage = (chat_id: string, text: string): Promise<ApiResponse<
   return request.post('/bot/message', { chat_id, text })
 }
 
-export const sendFile = (chat_id: string, file: File): Promise<ApiResponse<void>> => {
-  const formData = new FormData()
-  formData.append('chat_id', chat_id)
-  formData.append('file', file)
-  return request.post('/bot/file', formData, {
-    headers: {
-      'Content-Type': 'multipart/form-data'
-    }
-  })
+export const sendFile = (
+  chat_id: string,
+  file: File,
+  options: UploadRequestOptions = {}
+): Promise<ApiResponse<void>> => {
+  const formData = createUploadFormData([
+    ['chat_id', chat_id],
+    ['file', file]
+  ])
+  return uploadMultipart('/bot/file', formData, options)
 }
 
 export const getBotMetrics = (): Promise<ApiResponse<TelegramBotMetrics>> => {

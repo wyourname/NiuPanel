@@ -9,6 +9,7 @@ use axum::{
 use niupanel_bot::telegram::TelegramBotConfig;
 use niupanel_common::error::{AppError, Result};
 use niupanel_common::response::ApiResponse;
+use niupanel_common::upload::{TempUploadOptions, stream_field_to_temp_file};
 use niupanel_core::audit::service::AuditService;
 use niupanel_core::event_bus::{SystemEvent, TelegramEvent};
 use niupanel_core::notification::service::NotificationService;
@@ -266,7 +267,7 @@ pub async fn send_file(
     let mut chat_id = String::new();
     let mut file_path = String::new();
 
-    while let Some(field) = multipart
+    while let Some(mut field) = multipart
         .next_field()
         .await
         .map_err(|e| AppError::Generic(e.to_string()))?
@@ -278,15 +279,13 @@ pub async fn send_file(
                 .await
                 .map_err(|e| AppError::Generic(e.to_string()))?;
         } else if name == "file" {
-            let filename = field.file_name().unwrap_or("upload").to_string();
-            let data = field
-                .bytes()
-                .await
-                .map_err(|e| AppError::Generic(e.to_string()))?;
-
             let temp_dir = std::env::temp_dir();
-            let path = temp_dir.join(&filename);
-            tokio::fs::write(&path, data).await.map_err(AppError::Io)?;
+            let upload = stream_field_to_temp_file(
+                &mut field,
+                TempUploadOptions::new(&temp_dir, "niupanel-telegram-upload-"),
+            )
+            .await?;
+            let path = upload.into_persisted_path()?;
             file_path = path.to_string_lossy().to_string();
         }
     }

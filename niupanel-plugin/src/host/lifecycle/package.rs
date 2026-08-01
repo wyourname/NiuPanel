@@ -2,7 +2,7 @@ use super::*;
 
 pub(super) struct UploadedPluginPackage {
     pub(super) file_name: String,
-    pub(super) bytes: Vec<u8>,
+    pub(super) upload: UploadedTempFile,
     pub(super) enable: bool,
 }
 
@@ -10,13 +10,13 @@ pub(super) async fn read_plugin_package_upload(
     mut multipart: Multipart,
 ) -> Result<UploadedPluginPackage> {
     let mut file_name = None;
-    let mut bytes = None;
+    let mut upload = None;
     let mut enable = true;
     let mut checksum_sha256 = None;
     let mut signature_ed25519 = None;
     let mut public_key_ed25519 = None;
 
-    while let Some(field) = multipart
+    while let Some(mut field) = multipart
         .next_field()
         .await
         .map_err(|err| AppError::ValidationError(err.to_string()))?
@@ -70,35 +70,56 @@ pub(super) async fn read_plugin_package_upload(
                 .file_name()
                 .map(str::to_string)
                 .unwrap_or_else(|| "plugin-package.tar.gz".to_string());
-            let data = field
-                .bytes()
-                .await
-                .map_err(|err| AppError::ValidationError(err.to_string()))?;
-            if data.len() > MAX_PLUGIN_PACKAGE_BYTES {
-                return Err(AppError::FileSizeLimitExceeded(
-                    "Plugin package exceeds 100MB".to_string(),
-                ));
-            }
+            let streamed = stream_field_to_temp_file(
+                &mut field,
+                TempUploadOptions::new(&std::env::temp_dir(), "niupanel-plugin-upload-")
+                    .with_max_size(MAX_PLUGIN_PACKAGE_BYTES as u64),
+            )
+            .await?;
             file_name = Some(current_file_name);
-            bytes = Some(data.to_vec());
+            upload = Some(streamed);
         }
     }
 
-    let bytes = bytes
+    let upload = upload
         .ok_or_else(|| AppError::ValidationError("Missing plugin package file".to_string()))?;
-    validate_admin_upload_integrity(
-        &bytes,
+    validate_admin_uploaded_file(
+        &upload,
         checksum_sha256.as_deref(),
         signature_ed25519.as_deref(),
         public_key_ed25519.as_deref(),
-    )?;
+    )
+    .await?;
 
     Ok(UploadedPluginPackage {
         file_name: file_name
             .ok_or_else(|| AppError::ValidationError("Missing plugin package file".to_string()))?,
-        bytes,
+        upload,
         enable,
     })
+}
+
+async fn validate_admin_uploaded_file(
+    upload: &UploadedTempFile,
+    checksum_sha256: Option<&str>,
+    signature_ed25519: Option<&str>,
+    public_key_ed25519: Option<&str>,
+) -> Result<()> {
+    if let Some(expected) = checksum_sha256 {
+        let expected = expected.trim().to_ascii_lowercase();
+        validate_sha256_hex(&expected)?;
+        if upload.sha256 != expected {
+            return Err(AppError::ValidationError(
+                "Plugin package checksum mismatch".to_string(),
+            ));
+        }
+    }
+    if signature_ed25519.is_none() && public_key_ed25519.is_none() {
+        return Ok(());
+    }
+    let upload_path: &Path = upload.path.as_ref();
+    let bytes = tokio::fs::read(upload_path).await.map_err(AppError::Io)?;
+    verify_configured_package_signature(&bytes, signature_ed25519, public_key_ed25519)
 }
 
 pub(super) fn validate_package_integrity(
@@ -115,6 +136,7 @@ pub(super) fn validate_package_integrity(
 /// local trust decision. Keep checksum validation and verify a signature when
 /// an API client supplies one, but do not require operators to paste signing
 /// metadata into the upload form.
+#[cfg(test)]
 pub(super) fn validate_admin_upload_integrity(
     bytes: &[u8],
     checksum_sha256: Option<&str>,
@@ -295,12 +317,30 @@ pub(super) fn extract_plugin_package(file_name: &str, bytes: &[u8]) -> Result<Te
     let temp_dir = tempfile::tempdir().map_err(AppError::Io)?;
     let lower = file_name.to_lowercase();
     if lower.ends_with(".zip") {
-        extract_zip(bytes, temp_dir.path())?;
+        extract_zip(Cursor::new(bytes), temp_dir.path())?;
     } else if lower.ends_with(".tar.gz") || lower.ends_with(".tgz") {
         let decoder = GzDecoder::new(Cursor::new(bytes));
         extract_tar(decoder, temp_dir.path())?;
     } else if lower.ends_with(".tar") {
         extract_tar(Cursor::new(bytes), temp_dir.path())?;
+    } else {
+        return Err(AppError::ValidationError(
+            "Unsupported plugin package format. Supported: .zip, .tar, .tar.gz, .tgz".to_string(),
+        ));
+    }
+    Ok(temp_dir)
+}
+
+pub(super) fn extract_plugin_package_file(file_name: &str, path: &Path) -> Result<TempDir> {
+    let temp_dir = tempfile::tempdir().map_err(AppError::Io)?;
+    let lower = file_name.to_lowercase();
+    let file = fs::File::open(path).map_err(AppError::Io)?;
+    if lower.ends_with(".zip") {
+        extract_zip(file, temp_dir.path())?;
+    } else if lower.ends_with(".tar.gz") || lower.ends_with(".tgz") {
+        extract_tar(GzDecoder::new(file), temp_dir.path())?;
+    } else if lower.ends_with(".tar") {
+        extract_tar(file, temp_dir.path())?;
     } else {
         return Err(AppError::ValidationError(
             "Unsupported plugin package format. Supported: .zip, .tar, .tar.gz, .tgz".to_string(),
@@ -377,8 +417,10 @@ where
     Ok(())
 }
 
-pub(super) fn extract_zip(bytes: &[u8], destination: &Path) -> Result<()> {
-    let reader = Cursor::new(bytes);
+pub(super) fn extract_zip<R>(reader: R, destination: &Path) -> Result<()>
+where
+    R: Read + Seek,
+{
     let mut archive = ZipArchive::new(reader)
         .map_err(|err| AppError::ValidationError(format!("Invalid zip package: {err}")))?;
     for index in 0..archive.len() {

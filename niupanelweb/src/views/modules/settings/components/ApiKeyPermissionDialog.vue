@@ -28,6 +28,7 @@
           :active-group="activeGroup"
           :is-group-all-selected="isGroupAllSelected"
           :is-group-indeterminate="isGroupIndeterminate"
+          :mcp-tools="mcpTools"
           :selected-perms="selectedPerms"
           @group-select-all="emit('group-select-all')"
           @toggle-perm="emit('toggle-perm', $event)"
@@ -51,6 +52,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import ResponsiveDialog from "@/components/common/ResponsiveDialog.vue";
+import type { McpToolInfo } from "@/types";
 import ApiKeyBasicFields from "./ApiKeyBasicFields.vue";
 import ApiKeyPermissionFooter from "./ApiKeyPermissionFooter.vue";
 import ApiKeyPermissionNav from "./ApiKeyPermissionNav.vue";
@@ -67,6 +69,7 @@ const props = defineProps<{
   isMobile: boolean;
   isGroupAllSelected: boolean;
   isGroupIndeterminate: boolean;
+  mcpTools: McpToolInfo[];
   selectedPerms: string[];
   submitting: boolean;
   visible: boolean;

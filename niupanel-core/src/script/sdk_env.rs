@@ -1,8 +1,7 @@
 use crate::script::interpreter::node::NodeEnvironment;
 use niupanel_common::config::Config;
 use std::collections::HashMap;
-use std::ffi::OsString;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 pub fn inject_python_sdk_path(env: &mut HashMap<String, String>) {
     let sdk_paths = config_paths(&Config::global().extra_python_path);
@@ -44,16 +43,7 @@ pub fn inject_node_sdk_preload(env: &mut HashMap<String, String>) {
         return;
     };
 
-    let preload_flag = format!("--require={}", preload_path.to_string_lossy());
-    let mut options = existing_node_options(env);
-    if !options.split_whitespace().any(|item| item == preload_flag) {
-        if !options.is_empty() {
-            options.push(' ');
-        }
-        options.push_str(&preload_flag);
-    }
-
-    env.insert("NODE_OPTIONS".to_string(), options);
+    append_node_option(env, format!("--require={}", preload_path.to_string_lossy()));
     ensure_node_memory_limit(env);
 }
 
@@ -68,29 +58,60 @@ pub fn ensure_node_memory_limit(env: &mut HashMap<String, String>) {
     }
 }
 
-pub async fn inject_node_runtime_path(env: &mut HashMap<String, String>) {
-    let Some(node_bin_dir) = NodeEnvironment::get_default_node_bin_dir().await else {
+/// 注入默认 Node.js 运行时及其版本共享的第三方依赖。
+///
+/// Python、Shell 等非 Node 执行器可以通过 `subprocess` 或子进程调用 `node`。
+/// 仅将 Node 二进制加入 `PATH` 会让该子进程找不到由 NiuPanel 管理的 npm
+/// 依赖，因此这里必须与 NodeStrategy 使用同一份 `PATH` 和 `NODE_PATH` 配置。
+pub async fn inject_default_node_runtime_environment(env: &mut HashMap<String, String>) {
+    let Ok(version) = NodeEnvironment::resolve_default_version().await else {
         return;
     };
 
-    let mut path_entries = Vec::new();
-    path_entries.push(node_bin_dir);
+    let node_modules = NodeEnvironment::shared_node_modules_for_version(&version);
+    let bin_dir = NodeEnvironment::shared_bin_for_version(&version);
+    inject_node_runtime_environment_for_paths(env, &node_modules, &bin_dir);
+    inject_node_shared_dependency_loader(env, &version, &node_modules);
+}
 
-    let existing = env
-        .get("PATH")
-        .cloned()
-        .map(OsString::from)
-        .or_else(|| std::env::var_os("PATH"));
-    if let Some(existing) = existing {
-        append_unique(
-            &mut path_entries,
-            std::env::split_paths(&existing).collect(),
-        );
-    }
+/// Makes bare ESM imports fall back to the managed dependency directory.
+///
+/// CommonJS already uses `NODE_PATH`, but Node's ESM resolver intentionally
+/// ignores it. The loader preserves normal local resolution and only handles
+/// missing bare package specifiers.
+pub fn inject_node_shared_dependency_loader(
+    env: &mut HashMap<String, String>,
+    version: &str,
+    node_modules: &Path,
+) {
+    let Some(sdk_path) =
+        first_config_path(&Config::global().extra_node_path).map(|path| path.join("niu"))
+    else {
+        return;
+    };
+    let loader_path = sdk_path.join("shared-dependencies-loader.mjs");
+    let register_path = sdk_path.join("shared-dependencies-register.mjs");
+    let option = if node_supports_module_register(version) && register_path.is_file() {
+        format!("--import={}", register_path.to_string_lossy())
+    } else if loader_path.is_file() {
+        format!("--experimental-loader={}", loader_path.to_string_lossy())
+    } else {
+        return;
+    };
 
-    if let Some(joined) = join_paths_lossy(&path_entries) {
-        env.insert("PATH".to_string(), joined);
-    }
+    env.insert(
+        "NIUPANEL_NODE_SHARED_MODULES".to_string(),
+        node_modules.to_string_lossy().to_string(),
+    );
+    append_node_option(env, option);
+}
+
+fn inject_node_runtime_environment_for_paths(
+    env: &mut HashMap<String, String>,
+    node_modules: &std::path::Path,
+    bin_dir: &std::path::Path,
+) {
+    NodeEnvironment::inject_dependency_paths(env, node_modules, bin_dir);
 }
 
 fn config_paths(value: &Option<String>) -> Vec<PathBuf> {
@@ -112,6 +133,28 @@ fn existing_node_options(env: &HashMap<String, String>) -> String {
         .unwrap_or_default()
 }
 
+fn append_node_option(env: &mut HashMap<String, String>, option: String) {
+    let mut options = existing_node_options(env);
+    if !options.split_whitespace().any(|item| item == option) {
+        if !options.is_empty() {
+            options.push(' ');
+        }
+        options.push_str(&option);
+    }
+    env.insert("NODE_OPTIONS".to_string(), options);
+}
+
+fn node_supports_module_register(version: &str) -> bool {
+    let mut parts = version
+        .trim()
+        .trim_start_matches('v')
+        .split('.')
+        .filter_map(|part| part.parse::<u32>().ok());
+    let major = parts.next().unwrap_or_default();
+    let minor = parts.next().unwrap_or_default();
+    major > 20 || (major == 20 && minor >= 6)
+}
+
 fn merge_path_like_env(prefixes: Vec<PathBuf>, existing: Option<&str>) -> Option<String> {
     let mut paths = prefixes;
     if let Some(existing) = existing {
@@ -131,5 +174,40 @@ fn append_unique(target: &mut Vec<PathBuf>, entries: Vec<PathBuf>) {
         if !target.contains(&entry) {
             target.push(entry);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn node_runtime_environment_exposes_binary_and_shared_dependencies() {
+        let node_modules = PathBuf::from("/managed/node/node_modules");
+        let bin_dir = node_modules.join(".bin");
+        let mut env = HashMap::new();
+        inject_node_runtime_environment_for_paths(&mut env, &node_modules, &bin_dir);
+
+        let path_entries = std::env::split_paths(
+            &env.get("PATH")
+                .expect("Node runtime should prepend its bin directory"),
+        )
+        .collect::<Vec<_>>();
+        let node_path_entries = std::env::split_paths(
+            &env.get("NODE_PATH")
+                .expect("Node runtime should expose shared node_modules"),
+        )
+        .collect::<Vec<_>>();
+
+        assert_eq!(path_entries.first(), Some(&bin_dir));
+        assert_eq!(node_path_entries.first(), Some(&node_modules));
+    }
+
+    #[test]
+    fn module_register_support_matches_supported_node_versions() {
+        assert!(node_supports_module_register("20.6.0"));
+        assert!(node_supports_module_register("22.11.0"));
+        assert!(!node_supports_module_register("20.5.1"));
+        assert!(!node_supports_module_register("18.20.4"));
     }
 }

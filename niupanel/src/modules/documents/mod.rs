@@ -310,6 +310,8 @@ pub struct ApiDocTasks;
         plugins::models::PluginMarketUpdateRecord,
         plugins::models::PluginMarketIndex,
         plugins::models::PluginMarketEntry,
+        plugins::models::PluginMarketAsset,
+        plugins::models::PluginMarketSigning,
         plugins::models::PluginApiProxyRequest,
         plugins::models::PluginAppRecord,
         plugins::models::PluginAppUi,

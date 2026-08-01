@@ -6,8 +6,7 @@ export type ApiPermissionGroupId =
   | "job"
   | "sys"
   | "compiler"
-  | "webhook"
-  | "mcp";
+  | "webhook";
 
 export type ApiPermissionNavGroupId = "all" | ApiPermissionGroupId;
 
@@ -40,10 +39,9 @@ export const navGroups: Array<{
   { id: "file", label: "文件中心", icon: "i-ep-document" },
   { id: "env", label: "运行环境", icon: "i-ep-cpu" },
   { id: "job", label: "作业记录", icon: "i-ep-monitor" },
-  { id: "sys", label: "分享审计", icon: "i-ep-share" },
+  { id: "sys", label: "系统与集成", icon: "i-ep-share" },
   { id: "compiler", label: "代码加密", icon: "i-ep-cpu" },
   { id: "webhook", label: "Webhook", icon: "i-ep-notification" },
-  { id: "mcp", label: "MCP 工具预设", icon: "i-carbon-network-4" },
 ];
 
 export const permissionGroups: Record<
@@ -115,7 +113,7 @@ export const permissionGroups: Record<
     ],
   },
   sys: {
-    title: "分享与审计 (System)",
+    title: "系统与集成 (System)",
     icon: "i-ep-share",
     color: "bg-rose-500",
     perms: [
@@ -123,6 +121,9 @@ export const permissionGroups: Record<
       { label: "系统概览", value: "overview:read" },
       { label: "查看审计日志", value: "audit:list" },
       { label: "审计全权", value: "audit:*" },
+      { label: "读取 Git 仓库", value: "git:read" },
+      { label: "同步 Git 仓库", value: "git:sync" },
+      { label: "管理所有 Git 仓库", value: "git:*" },
     ],
   },
   compiler: {
@@ -143,24 +144,6 @@ export const permissionGroups: Record<
       { label: "管理所有推送", value: "webhook:*" },
     ],
   },
-  mcp: {
-    title: "MCP 工具权限预设",
-    icon: "i-carbon-network-4",
-    color: "bg-emerald-600",
-    perms: [
-      { label: "系统状态与版本", value: "overview:read" },
-      { label: "全部任务工具", value: "task:*" },
-      { label: "全部变量工具", value: "var:*" },
-      { label: "全部文件工具", value: "file:*" },
-      { label: "全部运行环境工具", value: "env:*" },
-      { label: "全部作业工具", value: "job:*" },
-      { label: "读取审计记录", value: "audit:list" },
-      { label: "推送系统通知", value: "webhook:push" },
-      { label: "读取分享数据", value: "share:list" },
-      { label: "读取 Git 仓库", value: "git:read" },
-      { label: "同步 Git 仓库", value: "git:sync" },
-    ],
-  },
 };
 
 export const getPermissionGroup = (id: ApiPermissionNavGroupId) =>
@@ -174,6 +157,8 @@ export const parsePerms = (permissions?: string) =>
         .filter(
           (permission) =>
             Boolean(permission) &&
+            // Older releases stored these display-only aliases. The backend
+            // never accepts them as real permissions, so drop them on edit.
             permission !== "mcp:connect" &&
             permission !== "mcp:*",
         )

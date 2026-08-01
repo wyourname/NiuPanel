@@ -43,7 +43,7 @@
       </div>
 
       <div class="rounded-md border border-slate-900/8 bg-slate-950/[0.018] px-4 py-3 text-[12px] leading-relaxed text-secondary dark:border-white/8 dark:bg-white/[0.025]">
-        建议只给外部集成所需的最小权限；需要全量 SDK 管理时再启用最高权限。
+        MCP 与 HTTP API 共用这套权限。建议只给外部集成所需的最小权限；需要全量 SDK 管理时再启用最高权限。
       </div>
     </div>
 
@@ -123,6 +123,12 @@
               >
                 {{ perm.value }}
               </span>
+              <span
+                v-if="mcpToolCount(perm.value)"
+                class="mt-0.5 truncate text-[10px] text-emerald-700 dark:text-emerald-300"
+              >
+                MCP 可调用 {{ mcpToolCount(perm.value) }} 个工具
+              </span>
             </span>
           </el-checkbox>
         </div>
@@ -133,6 +139,8 @@
 
 <script setup lang="ts">
 import { computed } from "vue";
+import type { McpToolInfo } from "@/types";
+import { getMcpToolCountForPermission } from "../utils/mcpPermissions";
 import {
   getPermissionGroup,
   type ApiPermissionNavGroupId,
@@ -142,6 +150,7 @@ const props = defineProps<{
   activeGroup: ApiPermissionNavGroupId;
   isGroupAllSelected: boolean;
   isGroupIndeterminate: boolean;
+  mcpTools: McpToolInfo[];
   selectedPerms: string[];
 }>();
 
@@ -166,6 +175,9 @@ const currentGroupSelectedCount = computed(() => {
 
 const isPermissionSelected = (permission: string) =>
   props.selectedPerms.includes(permission);
+
+const mcpToolCount = (permission: string) =>
+  getMcpToolCountForPermission(permission, props.mcpTools);
 
 const handleSelectedPermsChange = (permissions: unknown) => {
   emit(

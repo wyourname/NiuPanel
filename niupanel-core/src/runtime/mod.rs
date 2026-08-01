@@ -122,6 +122,11 @@ impl RuntimeManager {
         sdk_env::inject_node_sdk_path(&mut final_env);
         sdk_env::inject_node_sdk_preload(&mut final_env);
         NodeEnvironment::inject_shared_dependency_env(&mut final_env, version);
+        sdk_env::inject_node_shared_dependency_loader(
+            &mut final_env,
+            version,
+            &NodeEnvironment::shared_node_modules_for_version(version),
+        );
         cmd.envs(&final_env);
         Ok(cmd)
     }

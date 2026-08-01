@@ -10,8 +10,13 @@ use chrono::Local;
 use niupanel_common::error::{AppError, Result};
 use niupanel_common::filesystem::{get_relative_path, resolve_path};
 use niupanel_common::info;
+use niupanel_common::upload::{
+    TempUploadOptions, UploadedTempFile, stream_chunks_to_temp_file, stream_field_to_temp_file,
+};
 use sha2::Digest;
+use std::path::{Path, PathBuf};
 use tokio::fs;
+use tokio::io::AsyncReadExt;
 
 pub struct FileManagerService;
 
@@ -161,7 +166,7 @@ impl FileManagerService {
             ));
         }
 
-        while let Some(field) = multipart
+        while let Some(mut field) = multipart
             .next_field()
             .await
             .map_err(|e| AppError::Generic(e.to_string()))?
@@ -177,43 +182,12 @@ impl FileManagerService {
                 ));
             }
 
-            let file_path = target_dir.join(&file_name);
-            let data = field
-                .bytes()
-                .await
-                .map_err(|e| AppError::Generic(e.to_string()))?;
-
-            if file_path.exists() && file_path.is_file() {
-                let existing_data = fs::read(&file_path).await.map_err(AppError::Io)?;
-
-                let mut hasher = sha2::Sha256::new();
-                sha2::Digest::update(&mut hasher, &existing_data);
-                let existing_hash = sha2::Digest::finalize(hasher);
-
-                let mut hasher = sha2::Sha256::new();
-                sha2::Digest::update(&mut hasher, &data);
-                let new_hash = sha2::Digest::finalize(hasher);
-
-                if existing_hash != new_hash {
-                    let timestamp = Local::now().format("%Y%m%d_%H%M%S").to_string();
-                    let backup_path = target_dir.join(format!("{}.bak_{}", file_name, timestamp));
-                    info!(
-                        "File content changed for {}, creating backup at {:?}",
-                        file_name, backup_path
-                    );
-                    fs::rename(&file_path, &backup_path)
-                        .await
-                        .map_err(AppError::Io)?;
-                } else {
-                    info!(
-                        "File content identical for {}, skipping overwrite/backup",
-                        file_name
-                    );
-                    continue;
-                }
-            }
-
-            fs::write(&file_path, &data).await.map_err(AppError::Io)?;
+            let upload = stream_field_to_temp_file(
+                &mut field,
+                TempUploadOptions::new(&target_dir, ".niupanel-upload-"),
+            )
+            .await?;
+            commit_uploaded_file(&target_dir, &file_name, upload).await?;
         }
 
         Ok(())
@@ -353,7 +327,6 @@ impl FileManagerService {
             ));
         }
 
-        let target_path = target_dir.join(&filename);
         let response = http_client
             .get(&url)
             .send()
@@ -366,13 +339,12 @@ impl FileManagerService {
             )));
         }
 
-        let content = response
-            .bytes()
-            .await
-            .map_err(|e| AppError::Generic(e.to_string()))?;
-        tokio::fs::write(&target_path, &content)
-            .await
-            .map_err(AppError::Io)?;
+        let upload = stream_chunks_to_temp_file(
+            response.bytes_stream(),
+            TempUploadOptions::new(&target_dir, ".niupanel-download-"),
+        )
+        .await?;
+        commit_uploaded_file(&target_dir, &filename, upload).await?;
         Ok(())
     }
 
@@ -432,6 +404,90 @@ impl FileManagerService {
     }
 }
 
+#[derive(Debug, PartialEq, Eq)]
+enum UploadCommit {
+    Created,
+    Unchanged,
+    Replaced { backup_path: PathBuf },
+}
+
+async fn commit_uploaded_file(
+    target_dir: &Path,
+    file_name: &str,
+    upload: UploadedTempFile,
+) -> Result<UploadCommit> {
+    let file_path = target_dir.join(file_name);
+    let mut backup_path = None;
+    match fs::metadata(&file_path).await {
+        Ok(metadata) if metadata.is_file() => {
+            let existing_hash = sha256_file(&file_path).await?;
+            if existing_hash == upload.sha256 {
+                info!(
+                    "File content identical for {}, skipping overwrite/backup",
+                    file_name
+                );
+                return Ok(UploadCommit::Unchanged);
+            }
+            let timestamp = Local::now().format("%Y%m%d_%H%M%S").to_string();
+            let candidate = target_dir.join(format!(
+                "{}.bak_{}_{}",
+                file_name,
+                timestamp,
+                nanoid::nanoid!(6)
+            ));
+            info!(
+                "File content changed for {}, creating backup at {:?}",
+                file_name, candidate
+            );
+            fs::rename(&file_path, &candidate)
+                .await
+                .map_err(AppError::Io)?;
+            backup_path = Some(candidate);
+        }
+        Ok(_) => {
+            return Err(AppError::ValidationError(format!(
+                "Cannot overwrite non-file target {file_name}"
+            )));
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(AppError::Io(error)),
+    }
+
+    let temp_path: &Path = upload.path.as_ref();
+    if let Err(replace_error) = fs::rename(temp_path, &file_path).await {
+        if let Some(backup_path) = backup_path.as_ref()
+            && let Err(restore_error) = fs::rename(backup_path, &file_path).await
+        {
+            return Err(AppError::Io(std::io::Error::new(
+                replace_error.kind(),
+                format!(
+                    "Failed to replace {file_name}: {replace_error}; backup restore also failed: {restore_error}"
+                ),
+            )));
+        }
+        return Err(AppError::Io(replace_error));
+    }
+
+    Ok(match backup_path {
+        Some(backup_path) => UploadCommit::Replaced { backup_path },
+        None => UploadCommit::Created,
+    })
+}
+
+async fn sha256_file(path: &std::path::Path) -> Result<String> {
+    let mut file = fs::File::open(path).await.map_err(AppError::Io)?;
+    let mut hasher = sha2::Sha256::new();
+    let mut buffer = vec![0_u8; 64 * 1024];
+    loop {
+        let read = file.read(&mut buffer).await.map_err(AppError::Io)?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+    Ok(hex::encode(hasher.finalize()))
+}
+
 async fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result<()> {
     if !dst.exists() {
         fs::create_dir_all(dst).await?;
@@ -461,4 +517,64 @@ pub fn no_cache_headers() -> http::HeaderMap {
     );
     headers.insert(http::header::EXPIRES, http::HeaderValue::from_static("0"));
     headers
+}
+
+#[cfg(test)]
+mod upload_tests {
+    use super::*;
+    use sha2::{Digest, Sha256};
+
+    fn temp_upload(directory: &Path, content: &[u8]) -> UploadedTempFile {
+        let file = tempfile::Builder::new()
+            .prefix(".commit-test-")
+            .tempfile_in(directory)
+            .unwrap();
+        std::fs::write(file.path(), content).unwrap();
+        UploadedTempFile {
+            path: file.into_temp_path(),
+            size: content.len() as u64,
+            sha256: hex::encode(Sha256::digest(content)),
+        }
+    }
+
+    #[tokio::test]
+    async fn identical_upload_skips_backup_and_overwrite() {
+        let directory = tempfile::tempdir().unwrap();
+        let target = directory.path().join("script.py");
+        std::fs::write(&target, b"same-content").unwrap();
+
+        let result = commit_uploaded_file(
+            directory.path(),
+            "script.py",
+            temp_upload(directory.path(), b"same-content"),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(result, UploadCommit::Unchanged);
+        assert_eq!(std::fs::read(&target).unwrap(), b"same-content");
+        assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 1);
+    }
+
+    #[tokio::test]
+    async fn changed_upload_backs_up_and_atomically_replaces_target() {
+        let directory = tempfile::tempdir().unwrap();
+        let target = directory.path().join("script.py");
+        std::fs::write(&target, b"old-content").unwrap();
+
+        let result = commit_uploaded_file(
+            directory.path(),
+            "script.py",
+            temp_upload(directory.path(), b"new-content"),
+        )
+        .await
+        .unwrap();
+
+        let UploadCommit::Replaced { backup_path } = result else {
+            panic!("expected replacement with backup");
+        };
+        assert_eq!(std::fs::read(&target).unwrap(), b"new-content");
+        assert_eq!(std::fs::read(backup_path).unwrap(), b"old-content");
+        assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 2);
+    }
 }

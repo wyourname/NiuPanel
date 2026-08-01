@@ -412,7 +412,6 @@ market index:
 node scripts/package-plugin.mjs examples/plugins/compiler/echo-compiler \
   --out dist/plugins \
   --market dist/plugins/index.json \
-  --download-url ./echo-compiler.tgz \
   --index-name "NiuPanel Private Plugin Market"
 ```
 
@@ -425,8 +424,7 @@ cd -
 node scripts/package-plugin.mjs examples/plugins/agents/app-template \
   --build-ui \
   --out dist/plugins \
-  --market dist/plugins/index.json \
-  --download-url ./agent-app-template.tgz
+  --market dist/plugins/index.json
 ```
 
 The package contains one top-level directory named after the plugin id. The
@@ -436,17 +434,17 @@ one relative path or glob per line to exclude private build sources from the
 package. For closed-source binary plugins, build the binary into `bin/`, set the
 manifest entry to a wrapper script such as `run.sh`, and ignore `backend/`.
 
-The generated market index has the shape consumed by `/api/v1/plugins/market`.
-`checksum_sha256` is filled automatically. To sign the package and write
-`signature_ed25519` plus `public_key_ed25519` into the market index, pass an
-Ed25519 private key:
+The generated market index uses the platform-asset schema consumed by
+`/api/v1/plugins/market`. Its package name includes the current platform, such
+as `my-plugin-v0.1.0-linux-x64.tgz`; use `--platform` when packaging for a
+different target. `checksum_sha256` is filled automatically. To sign packages,
+pass an Ed25519 private key:
 
 ```bash
 node scripts/generate-plugin-signing-key.mjs
 node scripts/package-plugin.mjs examples/plugins/compiler/echo-compiler \
   --out dist/plugins \
   --market dist/plugins/index.json \
-  --download-url ./echo-compiler.tgz \
   --sign-key plugin-ed25519.pem
 ```
 
@@ -652,17 +650,26 @@ server, object storage bucket, or Git raw endpoint.
   "schema_version": 1,
   "name": "Private NiuPanel Plugins",
   "description": "Internal plugin source",
+  "signing": {
+    "algorithm": "ed25519",
+    "trusted_key": "sha256:public-key-fingerprint",
+    "public_key_ed25519": "PEM, base64 raw Ed25519 public key, or hex raw Ed25519 public key"
+  },
   "plugins": [
     {
       "id": "my-plugin",
       "name": "My Plugin",
       "version": "0.1.0",
       "description": "Internal plugin",
-      "download_url": "./my-plugin.tgz",
-      "checksum_sha256": "64-character-sha256",
-      "signature_ed25519": "base64-detached-signature",
-      "public_key_ed25519": "PEM, base64 raw Ed25519 public key, or hex raw Ed25519 public key",
       "permissions": ["compiler:read", "compiler:run"],
+      "assets": [
+        {
+          "platform": "linux-x64",
+          "file": "./my-plugin-v0.1.0-linux-x64.tgz",
+          "checksum_sha256": "64-character-sha256",
+          "signature_ed25519": "base64-detached-signature"
+        }
+      ],
       "homepage": null,
       "repository": null
     }
@@ -670,9 +677,10 @@ server, object storage bucket, or Git raw endpoint.
 }
 ```
 
-Supported extension values are `app`, `agents`, and `compiler`. Use `app` for a
-general plugin application that does not implement a domain-specific runtime
-extension. `download_url` can be absolute or relative to the index URL.
+The root `signing` object carries the shared Ed25519 public key. Each asset
+must use a `platform` supported by the target server, such as `linux-x64`,
+`linux-arm64`, or `linux-arm32`; its `file` can be absolute or relative to the
+index URL. The legacy `download_url` entry format is not supported.
 
 Management APIs:
 

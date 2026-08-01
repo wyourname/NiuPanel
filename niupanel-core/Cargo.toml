@@ -27,6 +27,7 @@ flate2 = { workspace = true }
 walkdir = { workspace = true }
 tar = { workspace = true }
 tempfile = { workspace = true }
+semver = { workspace = true }
 tokio-util = { workspace = true }
 async-stream = { workspace = true }
 tokio-cron-scheduler = { workspace = true }

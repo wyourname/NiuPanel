@@ -1,6 +1,12 @@
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import {
+  createReadStream,
+  existsSync,
+  readdirSync,
+  statSync,
+  writeFileSync
+} from 'node:fs'
 import { join } from 'node:path'
 
 const [artifactsRoot, releaseVersionInput, gitSha, ...tail] = process.argv.slice(2)
@@ -33,8 +39,24 @@ if (
 }
 
 const releaseVersion = releaseVersionInput.replace(/^v/, '')
+if (!/^\d+\.\d+\.\d+$/.test(releaseVersion)) {
+  throw new Error(
+    `Release version must be a plain numeric version such as 0.8.1, got ${releaseVersionInput}`
+  )
+}
 const sha256 = (path) =>
-  createHash('sha256').update(readFileSync(path)).digest('hex')
+  new Promise((resolve, reject) => {
+    const hash = createHash('sha256')
+    const stream = createReadStream(path)
+    stream.on('error', reject)
+    stream.on('data', (chunk) => hash.update(chunk))
+    stream.on('end', () => resolve(hash.digest('hex')))
+  })
+
+const findArtifact = (artifact, name) => {
+  const candidates = [join(artifactsRoot, name), join(artifactsRoot, artifact, name)]
+  return candidates.find((candidate) => existsSync(candidate))
+}
 
 const archiveEntries = (archivePath) =>
   execFileSync('tar', ['-tzf', archivePath], {
@@ -126,9 +148,14 @@ const coreTargets = [
 
 const coreAssets = {}
 let canonicalCore
+const requireAllCoreAssets = process.env.NIUPANEL_REQUIRE_ALL_CORE_ASSETS === '1'
 for (const target of coreTargets) {
   const name = `${target.artifact}.tar.gz`
-  const path = join(artifactsRoot, target.artifact, name)
+  const path = findArtifact(target.artifact, name)
+  if (!path) {
+    if (requireAllCoreAssets) throw new Error(`Missing release asset ${name}`)
+    continue
+  }
   assertCoreArchiveBoundary(path)
   const manifest = archiveManifest(path, 'core-release.json')
   if (manifest.component !== 'core') {
@@ -139,7 +166,11 @@ for (const target of coreTargets) {
       `${name} contains Core ${manifest.version}, expected ${releaseVersion}`
     )
   }
-  if (manifest.target !== target.target) {
+  const architecturePrefix = target.target.split('-')[0]
+  if (
+    (requireAllCoreAssets && manifest.target !== target.target) ||
+    (!requireAllCoreAssets && !manifest.target.startsWith(`${architecturePrefix}-`))
+  ) {
     throw new Error(
       `${name} targets ${manifest.target}, expected ${target.target}`
     )
@@ -158,12 +189,16 @@ for (const target of coreTargets) {
   coreAssets[target.arch] = {
     name,
     target: manifest.target,
-    sha256: sha256(path),
+    sha256: await sha256(path),
     size: statSync(path).size
   }
 }
+if (!canonicalCore) {
+  throw new Error('No Core release assets were found')
+}
 
-const webDirectory = join(artifactsRoot, 'niupanel_web')
+const nestedWebDirectory = join(artifactsRoot, 'niupanel_web')
+const webDirectory = existsSync(nestedWebDirectory) ? nestedWebDirectory : artifactsRoot
 const webArchives = readdirSync(webDirectory).filter((name) =>
   /^niupanel_web_.+\.tar\.gz$/.test(name)
 )
@@ -219,9 +254,8 @@ const generatedAt = Number.isFinite(sourceDateEpoch)
   : new Date().toISOString()
 const core = canonicalCore.manifest
 const release = {
-  schema_version: 1,
+  schema_version: 2,
   release_version: releaseVersion,
-  channel: releaseVersion.includes('-') ? 'preview' : 'stable',
   git_sha: gitSha,
   generated_at: generatedAt,
   api_contract: core.api_contract,
@@ -240,7 +274,7 @@ const release = {
       core: webManifest.core,
       asset: {
         name: webArchiveName,
-        sha256: sha256(webArchivePath),
+        sha256: await sha256(webArchivePath),
         size: statSync(webArchivePath).size
       }
     }

@@ -22,64 +22,70 @@
 
         <!-- 小组件区 -->
         <div class="grid grid-cols-1 gap-5 lg:grid-cols-3">
-          <DesktopWidget title="正在运行" :count="runningTasks.length">
+          <DesktopWidget title="正在运行" :count="runningTasks.length" content-class="overflow-hidden">
             <div v-if="!runningTasks.length" class="flex h-full min-h-[96px] flex-col items-center justify-center text-center">
               <span class="i-ep-cpu text-[22px] text-muted opacity-60"></span>
               <p class="mt-2 text-[11px] text-muted">暂无后台任务</p>
             </div>
-            <div v-else class="flex flex-col gap-1">
-              <div
-                v-for="task in runningTasks"
-                :key="task.id"
-                class="group flex items-center gap-2.5 rounded-md px-2 py-2 transition-colors hover:bg-soft"
-              >
-                <span class="h-2 w-2 shrink-0 rounded-full bg-emerald-500"></span>
-                <button
-                  type="button"
-                  class="min-w-0 flex-1 cursor-pointer truncate text-left text-[13px] font-semibold text-default hover:text-primary"
-                  @click="openTaskLog(task)"
-                >{{ task.name }}</button>
-                <span class="shrink-0 font-mono text-[10px] tabular-nums text-muted">{{ cpuUsage(task) }} · {{ memoryUsage(task) }}</span>
-                <button
-                  type="button"
-                  class="h-7 w-7 shrink-0 cursor-pointer rounded-md danger-subtle opacity-0 flex-center transition-opacity group-hover:opacity-100"
-                  title="停止"
-                  @click="handleTaskAction('stop', task)"
+            <DesktopTaskPager v-else :items="runningTasks" label="正在运行的任务">
+              <template #item="{ task }">
+                <div
+                  class="group flex min-w-0 items-center gap-2 rounded-md px-2 py-1.5 transition-colors hover:bg-soft focus-within:bg-soft"
                 >
-                  <span class="i-ep-switch-button text-[12px]"></span>
-                </button>
-              </div>
-            </div>
+                  <span class="h-2 w-2 shrink-0 rounded-full bg-emerald-500"></span>
+                  <div class="min-w-0 flex-1">
+                    <button
+                      type="button"
+                      class="block w-full cursor-pointer truncate text-left text-[11px] font-semibold leading-4 text-default hover:text-primary focus-visible:outline-none"
+                      @click="openTaskLog(task)"
+                    >{{ task.name }}</button>
+                    <span class="block truncate font-mono text-[9px] leading-3 tabular-nums text-muted">{{ cpuUsage(task) }} · {{ memoryUsage(task) }}</span>
+                  </div>
+                  <button
+                    type="button"
+                    class="h-7 w-7 shrink-0 cursor-pointer rounded-md danger-subtle opacity-0 flex-center transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400/40"
+                    :aria-label="`停止任务 ${task.name}`"
+                    title="停止"
+                    @click="handleTaskAction('stop', task)"
+                  >
+                    <span class="i-ep-switch-button text-[12px]"></span>
+                  </button>
+                </div>
+              </template>
+            </DesktopTaskPager>
           </DesktopWidget>
 
-          <DesktopWidget title="需要处理" :count="attentionTasks.length" tone="warning">
+          <DesktopWidget title="需要处理" :count="attentionTasks.length" tone="warning" content-class="overflow-hidden">
             <div v-if="!attentionTasks.length" class="flex h-full min-h-[96px] flex-col items-center justify-center text-center">
               <span class="i-ep-circle-check text-[22px] text-emerald-500 opacity-70"></span>
               <p class="mt-2 text-[11px] text-muted">一切正常，没有失败任务</p>
             </div>
-            <div v-else class="flex flex-col gap-1">
-              <div
-                v-for="task in attentionTasks"
-                :key="task.id"
-                class="group flex items-center gap-2.5 rounded-md px-2 py-2 transition-colors hover:bg-soft"
-              >
-                <span class="h-2 w-2 shrink-0 rounded-full" :class="getStatusDotClass(task)"></span>
-                <button
-                  type="button"
-                  class="min-w-0 flex-1 cursor-pointer truncate text-left text-[13px] font-semibold text-default hover:text-primary"
-                  @click="openTaskLog(task)"
-                >{{ task.name }}</button>
-                <span class="shrink-0 text-[10px] font-semibold text-muted">{{ getStatusLabel(task.status) }}</span>
-                <button
-                  type="button"
-                  class="h-7 w-7 shrink-0 cursor-pointer rounded-md accent-subtle opacity-0 flex-center transition-opacity group-hover:opacity-100"
-                  title="重新运行"
-                  @click="handleTaskAction('run', task)"
+            <DesktopTaskPager v-else :items="attentionTasks" label="需要处理的任务">
+              <template #item="{ task }">
+                <div
+                  class="group flex min-w-0 items-center gap-2 rounded-md px-2 py-1.5 transition-colors hover:bg-soft focus-within:bg-soft"
                 >
-                  <span class="i-ep-refresh-right text-[12px]"></span>
-                </button>
-              </div>
-            </div>
+                  <span class="h-2 w-2 shrink-0 rounded-full" :class="getStatusDotClass(task)"></span>
+                  <div class="min-w-0 flex-1">
+                    <button
+                      type="button"
+                      class="block w-full cursor-pointer truncate text-left text-[11px] font-semibold leading-4 text-default hover:text-primary focus-visible:outline-none"
+                      @click="openTaskLog(task)"
+                    >{{ task.name }}</button>
+                    <span class="block truncate text-[9px] font-semibold leading-3 text-muted">{{ getStatusLabel(task.status) }}</span>
+                  </div>
+                  <button
+                    type="button"
+                    class="h-7 w-7 shrink-0 cursor-pointer rounded-md accent-subtle opacity-0 flex-center transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                    :aria-label="`重新运行任务 ${task.name}`"
+                    title="重新运行"
+                    @click="handleTaskAction('run', task)"
+                  >
+                    <span class="i-ep-refresh-right text-[12px]"></span>
+                  </button>
+                </div>
+              </template>
+            </DesktopTaskPager>
           </DesktopWidget>
 
           <!-- 插件小组件预留位 -->
@@ -134,6 +140,7 @@ import ContextMenu from "@/components/common/ContextMenu.vue";
 import type { ContextMenuItem, ContextMenuPosition } from "@/components/common/contextMenuTypes";
 import TaskQuickCreateDialog from "@/components/tasks/TaskQuickCreateDialog.vue";
 import DesktopTimeline from "@/components/workspace/DesktopTimeline.vue";
+import DesktopTaskPager from "@/components/workspace/DesktopTaskPager.vue";
 import DesktopWidget from "@/components/workspace/DesktopWidget.vue";
 import { isSupportedScriptFileName } from "@/composables/taskWizardHelpers";
 import { useTaskQuickCreate } from "@/composables/useTaskQuickCreate";

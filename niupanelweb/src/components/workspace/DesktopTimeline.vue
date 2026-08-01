@@ -89,7 +89,7 @@
 
         <!-- 悬停详情 -->
         <div
-          class="absolute bottom-[16px] z-30 hidden w-[264px] rounded-lg border border-light bg-card p-1.5 shadow-md group-hover:block"
+          class="absolute top-3 z-30 hidden w-[264px] rounded-lg border border-light bg-card p-1.5 shadow-md group-hover:block"
           :class="popoverAlignClass(cluster)"
         >
           <div class="px-2 pb-1 pt-1.5 font-mono text-[10px] font-bold tabular-nums text-muted">{{ fmtHM(cluster.time) }}</div>
