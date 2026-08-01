@@ -1,3 +1,5 @@
+# syntax=docker/dockerfile:1.7
+
 # 使用中科大的 Debian 基础镜像
 FROM debian:bookworm-slim
 
@@ -40,13 +42,10 @@ RUN set -ex; \
     # 清理缓存
     apt-get clean;
 
-# 2. 只复制当前目标架构的 Core 包，以及所有架构共用的 Web 包。
-# `packages/{amd64,arm64,arm}/niupanel.tar.gz` 由本地构建脚本或 CI 准备，
-# 避免把另外两个架构的归档写入镜像层；Web 保持独立，以匹配在线更新协议。
-COPY packages/${TARGETARCH}/niupanel.tar.gz /tmp/niupanel.tar.gz
-COPY packages/web/niupanel_web.tar.gz /tmp/niupanel_web.tar.gz
-
-RUN set -ex; \
+# 2. 归档仅通过 BuildKit 临时挂载解压，避免将压缩包及其解压内容重复写入镜像层。
+# `packages/{amd64,arm64,arm}/niupanel.tar.gz` 和 Web 包由本地构建脚本或 CI 准备。
+RUN --mount=type=bind,source=packages,target=/mnt/packages,readonly \
+    set -ex; \
     FILE_ARCH=""; \
     DETECTED_ARCH="${TARGETARCH:-$(dpkg --print-architecture)}"; \
     case "${DETECTED_ARCH}" in \
@@ -57,9 +56,9 @@ RUN set -ex; \
     esac; \
      \
     echo "Extracting application for: ${FILE_ARCH} ..."; \
-    tar -xzf /tmp/niupanel.tar.gz -C /app/; \
+    tar -xzf "/mnt/packages/${TARGETARCH}/niupanel.tar.gz" -C /app/; \
     mkdir -p /app/web; \
-    tar -xzf /tmp/niupanel_web.tar.gz -C /app/web/; \
+    tar -xzf /mnt/packages/web/niupanel_web.tar.gz -C /app/web/; \
     test -f /app/web/release-manifest.json; \
     chmod +x /app/niupanel /app/niupanel-launcher /app/tools/uv /app/tools/pnpm; \
     test ! -e /app/tools/fnm; \
@@ -68,8 +67,7 @@ RUN set -ex; \
         echo "Unexpected bundled pnpm version: $BUNDLED_PNPM_VERSION"; \
         exit 1; \
     fi; \
-    /app/tools/uv --version; \
-    rm -f /tmp/niupanel.tar.gz /tmp/niupanel_web.tar.gz
+    /app/tools/uv --version
 
 ARG NIUPANEL_ENVIRONMENT_VERSION=unknown
 ARG NIUPANEL_CORE_VERSION=unknown
