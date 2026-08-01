@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "channel": "preview",
-  "updated_at": "2026-08-01T09:59:09Z",
+  "updated_at": "2026-08-01T10:36:53.945Z",
   "core": {
     "version": "0.8.0",
     "tag": "core-v0.8.0",
@@ -16,22 +16,22 @@
         "name": "niupanel_linux_x86_64.tar.gz",
         "url": "https://github.com/wyourname/NiuPanel/releases/download/core-v0.8.0/niupanel_linux_x86_64.tar.gz",
         "target": "x86_64-unknown-linux-musl",
-        "sha256": "1d18c2f2349adc816b6cfa9ffaab82df64231a23a5663475c69378ef8a5d5579",
-        "size": 89117150
+        "sha256": "341bbfdd248bc3b26958a06a14abef092e795b63119ff9614e37f3eb565e62c8",
+        "size": 89117959
       },
       "aarch64": {
         "name": "niupanel_linux_aarch64.tar.gz",
         "url": "https://github.com/wyourname/NiuPanel/releases/download/core-v0.8.0/niupanel_linux_aarch64.tar.gz",
         "target": "aarch64-unknown-linux-musl",
-        "sha256": "7472017cf6b41f003a57fde12702024d41cbbac762b2f75743a458da517c82b0",
-        "size": 87235451
+        "sha256": "5129acc614e2fff83f0cb5d9dd881d9716ae1160151da26ecfa50de3d9e8bcaf",
+        "size": 87235984
       },
       "armv7": {
         "name": "niupanel_linux_armv7.tar.gz",
         "url": "https://github.com/wyourname/NiuPanel/releases/download/core-v0.8.0/niupanel_linux_armv7.tar.gz",
         "target": "armv7-unknown-linux-musleabihf",
-        "sha256": "bfe59f4b2b211e8eb2fbecd17956899460e88207aa59066388038ad50f287e20",
-        "size": 92568485
+        "sha256": "876975eab0d660f28facfd91b7f6d9a5c4624c69722540cfba4d3aecb258f341",
+        "size": 92568814
       }
     }
   },
