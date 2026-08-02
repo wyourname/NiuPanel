@@ -62,7 +62,11 @@ pub fn create_router(state: AppState) -> Router {
         ))
         .nest("/open/api", create_openapi_router(state.clone()))
         .fallback_service(
-            ServeDir::new(&web_root).not_found_service(ServeFile::new(web_root.join("index.html"))),
+            ServeDir::new(&web_root)
+                .precompressed_gzip()
+                .not_found_service(
+                    ServeFile::new(web_root.join("index.html")).precompressed_gzip(),
+                ),
         )
         .layer(DefaultBodyLimit::max(5 * 1024 * 1024))
         .layer(middleware::from_fn(web_cache_headers))

@@ -188,7 +188,7 @@ cd NiuPanel
 - Core 与 Web 可以独立构建，但只能由 Panel Release 一起激活或回退；纯前端修复可以复用原 Core 组件。
 - Core 使用 `Core-vX.Y.Z` Tag，Web UI 使用 `web-vX.Y.Z` Tag，Panel 使用 `vX.Y.Z[-prerelease]` Tag；组件资产不可覆盖。
 - `main` 分支的 `release/channels/preview.json` 与 `release/channels/stable.json` 是唯一更新入口。切换通道不会自动安装；从 0.8.0 起不读取 0.7.x 的旧状态格式。
-- Docker 环境镜像独立使用 `3.0.1` 与 `latest` 标签，仅在容器基线需要变化时手动重建，不使用 preview 镜像标签。
+- Docker 环境镜像独立使用 `3.0.2` 与 `latest` 标签，仅在容器基线需要变化时手动重建，不使用 preview 镜像标签。
 - 构建期 JSON manifest 在安装校验后丢弃；运行状态统一保存在 `data/system/runtime.db`。
 - 更新镜像时，Launcher 只会把更高的内置 Panel 版本加入正常激活队列；不会覆盖更高的在线更新版本，也不会隐式降级。
 - 内置 `/recovery` 恢复入口不依赖当前 Web UI 包。
@@ -208,7 +208,7 @@ docker run -d \
   wyourname/niupanel:latest
 ```
 
-镜像使用多架构 Manifest，Docker 会自动选择 AMD64、ARM64 或 ARMv7 产物。Docker 从 `main/release/channels` 的指定通道读取并校验完整 Panel Release，镜像保持独立环境版本，例如 `wyourname/niupanel:3.0.1`，并同步更新 `latest`。
+镜像使用多架构 Manifest，Docker 会自动选择 AMD64、ARM64 或 ARMv7 产物。Docker 从 `main/release/channels` 的指定通道读取并校验完整 Panel Release，镜像保持独立环境版本，例如 `wyourname/niupanel:3.0.2`，并同步更新 `latest`。
 
 启动后访问：
 
@@ -225,6 +225,8 @@ http://<服务器地址>:7788
 ```env
 SERVER_ADDR=0.0.0.0:7788
 DATABASE_URL=sqlite://data/database/niupanel.db?mode=rwc
+DATABASE_MAX_CONNECTIONS=1
+SQLITE_BUSY_TIMEOUT_MS=5000
 SESSION_KEY=<每个实例独立的随机值>
 # 远程插件市场包的签名校验；管理员直接上传不需要手工填写签名
 PLUGIN_SIGNATURE_REQUIRED=true
@@ -232,7 +234,10 @@ PLUGIN_SIGNATURE_REQUIRED=true
 # MCP_ALLOWED_HOSTS=panel.example.com,localhost,127.0.0.1,::1
 TRUSTED_PROXIES=127.0.0.1,::1
 SESSION_COOKIE_SECURE=true
+LOG_LEVEL=warn
 ```
+
+SQLite 默认使用 `WAL + FULL`，连接池保持为 `1`，适合低内存设备。仅在经过压测后再提高 `DATABASE_MAX_CONNECTIONS`；`SQLITE_BUSY_TIMEOUT_MS` 默认等待 `5000 ms`，用于减少短时写锁冲突。
 
 可以使用以下命令生成 Session Key：
 

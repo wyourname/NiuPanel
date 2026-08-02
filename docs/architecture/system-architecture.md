@@ -72,7 +72,7 @@ NiuPanel 在 `/mcp` 提供 Streamable HTTP MCP Server，统一使用 `X-API-Key`
 - Core、Launcher、Web 和 Panel 通道分别通过构建、契约与状态机测试。
 - Core 与 Web 各自发布不可变归档；Panel 发布只组合已经存在的组件，不重复打包二进制。
 - 内置更新只读取当前通道指向的 Panel Release，精确校验版本、架构、文件名、大小和 SHA-256 后才安装。
-- Docker 环境版本独立维护为 `3.0.1`。只有容器基线需要更新时才手动构建，推送 `3.0.1` 与 `latest`，不使用 preview 镜像标签，也不在界面展示组件组合。
+- Docker 环境版本独立维护为 `3.0.2`。只有容器基线需要更新时才手动构建，推送 `3.0.2` 与 `latest`，不使用 preview 镜像标签，也不在界面展示组件组合。
 - Docker 由 launcher 作为 PID 1 启动，并持久化整个 `/app/data`。
 - 容器启动时，Launcher 会比较镜像内置 Panel 与 `runtime.db` 的 active 版本：仅当内置版本更高时才通过同一 pending/快照/健康检查事务激活；版本相同保持不可变，版本更低绝不降级。
 - 发布检查应覆盖候选启动失败、Launcher 中断重试、数据库恢复、Panel 回退和 MCP 鉴权。

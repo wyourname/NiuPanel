@@ -10,7 +10,7 @@
       <el-input
         v-model="form.username"
         placeholder="用户名"
-        prefix-icon="User"
+        :prefix-icon="User"
         clearable
         class="!h-12"
       />
@@ -21,7 +21,7 @@
         v-model="form.password"
         type="password"
         placeholder="密码"
-        prefix-icon="Lock"
+        :prefix-icon="Lock"
         show-password
         clearable
         class="!h-12"
@@ -33,7 +33,7 @@
         v-model="form.confirm_password"
         type="password"
         placeholder="确认密码"
-        prefix-icon="Check"
+        :prefix-icon="Check"
         show-password
         clearable
         class="!h-12"
@@ -64,14 +64,14 @@
             <el-input
               v-model="form.mail_host"
               placeholder="SMTP 服务器 (如 smtp.qq.com)"
-              prefix-icon="Connection"
+              :prefix-icon="Connection"
             />
           </el-form-item>
           <el-form-item prop="mail_username" class="!mb-0">
             <el-input
               v-model="form.mail_username"
               placeholder="SMTP 用户名 (兼找回邮箱)"
-              prefix-icon="Message"
+              :prefix-icon="Message"
             />
           </el-form-item>
           <el-form-item prop="mail_password" class="!mb-0">
@@ -80,7 +80,7 @@
               type="password"
               show-password
               placeholder="SMTP 授权码"
-              prefix-icon="Key"
+              :prefix-icon="Key"
             />
           </el-form-item>
           <div class="text-center text-[10px] text-muted">
@@ -116,6 +116,7 @@
 
 <script setup lang="ts">
 import { ref } from "vue";
+import { Check, Connection, Key, Lock, Message, User } from "@element-plus/icons-vue";
 import type { FormInstance, FormRules } from "element-plus";
 import type { LoginForm } from "../composables/useLoginForm";
 

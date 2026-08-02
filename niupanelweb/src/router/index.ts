@@ -1,28 +1,13 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useUserStore } from '../stores/user'
 import { usePluginAppsStore } from '../stores/pluginApps'
-import MainLayout from '../layout/MainLayout.vue'
-import Login from '../views/Login.vue'
-import Onboarding from '../views/Onboarding.vue'
 import request from '../utils/request'
-
-// Modules
-import Overview from '../views/modules/overview/index.vue'
-import Tasks from '../views/modules/Tasks.vue'
-import Variables from '../views/modules/Variables.vue'
-import File from '../views/modules/File.vue'
-import Environment from '../views/modules/Environment.vue'
-import Share from '../views/modules/share/index.vue'
-import Extensions from '../views/modules/extensions/index.vue'
-import AgentsGateway from '../views/modules/AgentsGateway.vue'
-import Settings from '../views/modules/settings/index.vue'
-import Terminal from '../views/modules/terminal/index.vue'
-import Git from '../views/modules/git/index.vue'
-import More from '../views/modules/more/index.vue'
-import Webhook from '../views/modules/webhook/index.vue'
-import Telegram from '../views/modules/telegram/index.vue'
-import PluginHostView from '../views/plugins/PluginHostView.vue'
 import type { ApiResponse } from '@/types'
+import { workspaceAppLoaders } from '@/workspace/components'
+
+const MainLayout = () => import('../layout/MainLayout.vue')
+const Login = () => import('../views/Login.vue')
+const Onboarding = () => import('../views/Onboarding.vue')
 
 const routes = [
   {
@@ -42,29 +27,29 @@ const routes = [
     component: MainLayout,
     redirect: '/tasks',
     children: [
-      { path: 'overview', name: 'overview', component: Overview, meta: { title: '系统概览' } },
-      { path: 'tasks', name: 'tasks', component: Tasks, meta: { title: '任务列表' } },
-      { path: 'variables', name: 'variables', component: Variables, meta: { title: '环境变量' } },
-      { path: 'files', name: 'files', component: File, meta: { title: '文件管理' } },
-      { path: 'environments', name: 'environments', component: Environment, meta: { title: '环境管理' } },
-      { path: 'share', name: 'share', component: Share, meta: { title: '分享中心' } },
-      { path: 'extensions', name: 'extensions', component: Extensions, meta: { title: '扩展中心' } },
-      { path: 'settings', name: 'settings', component: Settings, meta: { title: '系统设置' } },
-      { path: 'terminal', name: 'terminal', component: Terminal, meta: { title: '系统终端' } },
-      { path: 'git', name: 'git', component: Git, meta: { title: 'Git 管理' } },
-      { path: 'more', name: 'more', component: More, meta: { title: '更多功能' } },
-      { path: 'webhook', name: 'webhook', component: Webhook, meta: { title: 'Webhook' } },
-      { path: 'telegram', name: 'telegram', component: Telegram, meta: { title: '电报机器人' } },
+      { path: 'overview', name: 'overview', component: workspaceAppLoaders.overview, meta: { title: '系统概览' } },
+      { path: 'tasks', name: 'tasks', component: workspaceAppLoaders.tasks, meta: { title: '任务列表' } },
+      { path: 'variables', name: 'variables', component: workspaceAppLoaders.variables, meta: { title: '环境变量' } },
+      { path: 'files', name: 'files', component: workspaceAppLoaders.files, meta: { title: '文件管理' } },
+      { path: 'environments', name: 'environments', component: workspaceAppLoaders.environments, meta: { title: '环境管理' } },
+      { path: 'share', name: 'share', component: workspaceAppLoaders.share, meta: { title: '分享中心' } },
+      { path: 'extensions', name: 'extensions', component: workspaceAppLoaders.extensions, meta: { title: '扩展中心' } },
+      { path: 'settings', name: 'settings', component: workspaceAppLoaders.settings, meta: { title: '系统设置' } },
+      { path: 'terminal', name: 'terminal', component: workspaceAppLoaders.terminal, meta: { title: '系统终端' } },
+      { path: 'git', name: 'git', component: workspaceAppLoaders.git, meta: { title: 'Git 管理' } },
+      { path: 'more', name: 'more', component: workspaceAppLoaders.more, meta: { title: '更多功能' } },
+      { path: 'webhook', name: 'webhook', component: () => import('../views/modules/webhook/index.vue'), meta: { title: 'Webhook' } },
+      { path: 'telegram', name: 'telegram', component: workspaceAppLoaders.telegram, meta: { title: '电报机器人' } },
       {
         path: 'plugins/agents/:pathMatch(.*)*',
         name: 'plugin-agents',
-        component: AgentsGateway,
+        component: () => import('../views/modules/AgentsGateway.vue'),
         meta: { title: '智能代理' }
       },
       {
         path: 'plugins/:pluginId/:pathMatch(.*)*',
         name: 'plugin-app',
-        component: PluginHostView,
+        component: () => import('../views/plugins/PluginHostView.vue'),
         meta: { title: '插件应用' }
       }
     ]

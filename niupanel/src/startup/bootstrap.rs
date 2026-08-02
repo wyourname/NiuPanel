@@ -3,14 +3,72 @@ use migration::{Migrator, MigratorTrait};
 use niupanel_common::config::Config;
 use niupanel_common::{info, warn};
 use niupanel_core::settings::{SYSTEM_SESSION_KEY, SettingsManager};
-use sea_orm::{Database, DatabaseConnection};
+use sea_orm::sqlx::sqlite::{SqliteJournalMode, SqliteSynchronous};
+use sea_orm::{ConnectOptions, Database, DatabaseConnection};
 use std::path::{Path, PathBuf};
+use std::time::Duration;
+
+const DEFAULT_DATABASE_MAX_CONNECTIONS: u64 = 1;
+const DEFAULT_SQLITE_BUSY_TIMEOUT_MS: u64 = 5_000;
 
 pub async fn connect_database(database_url: &str) -> Result<DatabaseConnection> {
     info!("Connecting to database...");
-    let db = Database::connect(database_url).await?;
+    let mut options = ConnectOptions::new(database_url.to_owned());
+
+    if database_url.starts_with("sqlite:") {
+        let max_connections = env_number(
+            "DATABASE_MAX_CONNECTIONS",
+            DEFAULT_DATABASE_MAX_CONNECTIONS,
+            1,
+            32,
+        ) as u32;
+        let busy_timeout_ms = env_number(
+            "SQLITE_BUSY_TIMEOUT_MS",
+            DEFAULT_SQLITE_BUSY_TIMEOUT_MS,
+            1,
+            120_000,
+        );
+        let use_wal = sqlite_database_path(database_url).is_some();
+
+        options
+            .max_connections(max_connections)
+            .min_connections(1)
+            .sqlx_logging(false)
+            .map_sqlx_sqlite_opts(move |sqlite| {
+                let sqlite = sqlite
+                    .foreign_keys(true)
+                    .synchronous(SqliteSynchronous::Full)
+                    .busy_timeout(Duration::from_millis(busy_timeout_ms));
+                if use_wal {
+                    sqlite.journal_mode(SqliteJournalMode::Wal)
+                } else {
+                    sqlite
+                }
+            });
+    }
+
+    let db = Database::connect(options).await?;
     harden_sqlite_permissions(database_url)?;
     Ok(db)
+}
+
+fn env_number(name: &str, default: u64, min: u64, max: u64) -> u64 {
+    let Ok(raw) = std::env::var(name) else {
+        return default;
+    };
+
+    match parse_bounded_number(&raw, min, max) {
+        Some(value) => value,
+        None => {
+            warn!("Ignoring invalid {name}={raw:?}; using {default}");
+            default
+        }
+    }
+}
+
+fn parse_bounded_number(raw: &str, min: u64, max: u64) -> Option<u64> {
+    let value = raw.trim().parse::<u64>().ok()?;
+    (min..=max).contains(&value).then_some(value)
 }
 
 fn sqlite_database_path(database_url: &str) -> Option<PathBuf> {
@@ -91,6 +149,7 @@ pub fn set_global_config(config: Config) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sea_orm::{ConnectionTrait, DbBackend, Statement};
 
     #[test]
     fn extracts_only_file_backed_sqlite_paths() {
@@ -107,5 +166,57 @@ mod tests {
         assert!(!is_secure_session_key(""));
         assert!(!is_secure_session_key("replace-with-a-random-session-key"));
         assert!(is_secure_session_key(&"x".repeat(64)));
+    }
+
+    #[test]
+    fn accepts_only_bounded_database_tuning_values() {
+        assert_eq!(parse_bounded_number("1", 1, 32), Some(1));
+        assert_eq!(parse_bounded_number(" 16 ", 1, 32), Some(16));
+        assert_eq!(parse_bounded_number("0", 1, 32), None);
+        assert_eq!(parse_bounded_number("33", 1, 32), None);
+        assert_eq!(parse_bounded_number("invalid", 1, 32), None);
+    }
+
+    #[tokio::test]
+    async fn file_sqlite_uses_durable_wal_settings() {
+        let temp = tempfile::tempdir().unwrap();
+        let database_path = temp.path().join("runtime.db");
+        let database_url = format!("sqlite://{}?mode=rwc", database_path.display());
+        let db = connect_database(&database_url).await.unwrap();
+
+        let journal_mode = db
+            .query_one_raw(Statement::from_string(
+                DbBackend::Sqlite,
+                "PRAGMA journal_mode".to_string(),
+            ))
+            .await
+            .unwrap()
+            .unwrap()
+            .try_get_by_index::<String>(0)
+            .unwrap();
+        let synchronous = db
+            .query_one_raw(Statement::from_string(
+                DbBackend::Sqlite,
+                "PRAGMA synchronous".to_string(),
+            ))
+            .await
+            .unwrap()
+            .unwrap()
+            .try_get_by_index::<i64>(0)
+            .unwrap();
+        let foreign_keys = db
+            .query_one_raw(Statement::from_string(
+                DbBackend::Sqlite,
+                "PRAGMA foreign_keys".to_string(),
+            ))
+            .await
+            .unwrap()
+            .unwrap()
+            .try_get_by_index::<i64>(0)
+            .unwrap();
+
+        assert_eq!(journal_mode, "wal");
+        assert_eq!(synchronous, 2);
+        assert_eq!(foreign_keys, 1);
     }
 }

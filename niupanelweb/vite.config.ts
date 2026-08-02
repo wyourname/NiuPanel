@@ -1,15 +1,14 @@
 import type { ClientRequest, IncomingMessage } from 'node:http'
 import { createHash } from 'node:crypto'
+import { gzipSync } from 'node:zlib'
 import { readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
 import { relative, resolve } from 'node:path'
 import { fileURLToPath, URL } from 'node:url'
 import { defineConfig, type Plugin, type ResolvedConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import UnoCSS from 'unocss/vite'
-import monacoEditorPlugin from 'vite-plugin-monaco-editor'
-
-const isCjs = typeof module !== 'undefined' && module.exports
-const monacoEditor = (monacoEditorPlugin as any).default || monacoEditorPlugin
+import Components from 'unplugin-vue-components/vite'
+import { ElementPlusResolver } from 'unplugin-vue-components/resolvers'
 const apiProxyTarget = process.env.VITE_API_PROXY_TARGET || 'http://127.0.0.1:7788'
 const frontendPackage = JSON.parse(
   readFileSync(fileURLToPath(new URL('./package.json', import.meta.url)), 'utf8')
@@ -51,6 +50,40 @@ const webReleaseManifestPlugin = (): Plugin => {
       const outputRoot = resolve(process.cwd(), resolvedConfig.build.outDir)
       const manifestPath = resolve(outputRoot, 'release-manifest.json')
       const files: Record<string, string> = {}
+      const compressibleExtensions = new Set([
+        '.css',
+        '.html',
+        '.js',
+        '.json',
+        '.map',
+        '.svg',
+        '.ttf',
+        '.txt',
+        '.wasm',
+        '.xml',
+      ])
+
+      const generateGzipFiles = (directory: string) => {
+        for (const name of readdirSync(directory)) {
+          const path = resolve(directory, name)
+          const stats = statSync(path)
+          if (stats.isDirectory()) {
+            generateGzipFiles(path)
+            continue
+          }
+          if (
+            path.endsWith('.gz') ||
+            path === manifestPath ||
+            stats.size < 1024 ||
+            !compressibleExtensions.has(name.slice(name.lastIndexOf('.')))
+          ) {
+            continue
+          }
+          writeFileSync(`${path}.gz`, gzipSync(readFileSync(path), { level: 9 }))
+        }
+      }
+
+      generateGzipFiles(outputRoot)
 
       const collectFiles = (directory: string) => {
         for (const name of readdirSync(directory)) {
@@ -95,8 +128,10 @@ export default defineConfig({
   plugins: [
     vue(),
     UnoCSS(),
-    monacoEditor({
-      languages: ['javascript', 'typescript', 'python', 'shell', 'json', 'html', 'css', 'yaml', 'toml', 'rust', 'go', 'sql', 'xml', 'ini', 'markdown', 'scss', 'less', 'dockerfile']
+    Components({
+      resolvers: [ElementPlusResolver({ importStyle: false })],
+      directives: true,
+      dts: false,
     }),
     webReleaseManifestPlugin()
   ],
@@ -111,14 +146,10 @@ export default defineConfig({
       'vue',
       'vue-router',
       'pinia',
-      'element-plus',
-      'element-plus/es/locale/lang/zh-cn',
       'axios',
-      'echarts',
-      '@vueuse/core',
-      'ansi_up'
+      '@vueuse/core'
     ],
-    exclude: ['@guolao/vue-monaco-editor']
+    exclude: ['@guolao/vue-monaco-editor', 'monaco-editor']
   },
   server: {
     port: 7787,
@@ -154,22 +185,15 @@ export default defineConfig({
     reportCompressedSize: false,
     rollupOptions: {
       output: {
-        // Aggressive merging of smaller chunks to reduce request count
         manualChunks(id) {
-          if (id.includes('node_modules')) {
-            if (id.includes('echarts') || id.includes('zrender')) {
-              return 'vendor-charts'
-            }
-            // ⚠️ 不要手动分割 monaco-editor，让 vite-plugin-monaco-editor 自己处理
-            // 否则会破坏 Web Worker 的加载机制导致生产环境报错
-            if (id.includes('element-plus')) {
-              return 'vendor-ui'
-            }
-            if (id.includes('vue') || id.includes('pinia') || id.includes('router')) {
-              return 'vendor-core'
-            }
-            // Group all other dependencies to prevent 'fragmentation'
-            return 'vendor-others'
+          const normalized = id.replaceAll('\\', '/')
+          if (
+            normalized.includes('/node_modules/vue/') ||
+            normalized.includes('/node_modules/vue-router/') ||
+            normalized.includes('/node_modules/pinia/') ||
+            normalized.includes('/node_modules/@vue/shared/')
+          ) {
+            return 'vendor-core'
           }
         }
       }

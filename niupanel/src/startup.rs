@@ -48,7 +48,6 @@ pub async fn run() -> Result<Option<tracing_appender::non_blocking::WorkerGuard>
             .await
             .context("Failed to start TaskManagerService")?;
 
-    let sys = Arc::new(tokio::sync::Mutex::new(sysinfo::System::new_all()));
     let system_metrics = Arc::new(tokio::sync::RwLock::new(
         niupanel_common::metrics::SystemMetrics::default(),
     ));
@@ -83,7 +82,7 @@ pub async fn run() -> Result<Option<tracing_appender::non_blocking::WorkerGuard>
     );
     let _ = crate::common::state::GLOBAL_STATE.set(state.clone());
 
-    background::spawn_system_metrics_updater(sys, system_metrics);
+    background::spawn_system_metrics_updater(system_metrics);
 
     let session_layer =
         session::build_session_layer(&db, &config.session_key, config.session_cookie_secure)

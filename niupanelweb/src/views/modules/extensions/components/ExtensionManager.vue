@@ -14,7 +14,6 @@
           </div>
         </div>
       </div>
-
       <div class="grid grid-cols-[44px_44px_minmax(0,1fr)] items-center gap-2 md:flex">
         <button
           type="button"
@@ -56,7 +55,6 @@
         </el-dropdown>
       </div>
     </header>
-
     <div class="flex flex-col items-stretch gap-3 border-y border-light py-3 md:flex-row md:flex-wrap md:items-center">
       <div class="flex overflow-x-auto rounded-md border border-light bg-card p-0.5 no-scrollbar">
         <button
@@ -79,7 +77,6 @@
           </span>
         </button>
       </div>
-
       <el-input
         v-model="searchQuery"
         clearable
@@ -88,7 +85,6 @@
       >
         <template #prefix><span class="i-ep-search text-muted"></span></template>
       </el-input>
-
       <el-select
         v-if="activeView === 'installed'"
         v-model="statusFilter"
@@ -101,7 +97,6 @@
         <el-option label="异常" value="error" />
       </el-select>
     </div>
-
     <section v-if="activeView === 'installed'">
       <div v-if="loading" class="h-40 flex-center text-[12px] font-semibold text-muted">正在读取扩展...</div>
       <div v-else-if="visiblePlugins.length === 0" class="h-44 flex flex-col items-center justify-center gap-2 text-muted">
@@ -120,7 +115,6 @@
           >
             <span :class="pluginIcon(item)" class="text-[17px]"></span>
           </div>
-
           <div class="min-w-0 flex-1 md:min-w-[180px]">
             <div class="flex flex-wrap items-center gap-2">
               <h2 class="m-0 truncate text-[13px] font-bold text-default">{{ item.record.manifest.name }}</h2>
@@ -157,12 +151,10 @@
               {{ item.record.manifest.id }} · v{{ item.record.manifest.version }} · {{ item.record.manifest.description || "无描述" }}
             </p>
           </div>
-
           <div class="hidden min-w-[130px] md:block">
             <div class="text-[9px] font-semibold text-muted">运行时</div>
             <div class="mt-1 font-mono text-[10px] font-semibold text-secondary">{{ item.record.manifest.runtime }}</div>
           </div>
-
           <div class="w-full pl-14 md:w-auto md:min-w-[110px] md:pl-0">
             <div class="text-[10px] font-semibold text-muted">健康状态</div>
             <div class="mt-1 flex items-center gap-1.5 text-[11px] font-bold" :class="healthTone(pluginHealthReport(item))">
@@ -170,7 +162,6 @@
               {{ healthText(pluginHealthReport(item)) }}
             </div>
           </div>
-
           <div class="ml-14 flex flex-1 items-center justify-end gap-2 md:ml-auto md:flex-none">
             <el-switch
               v-if="item.record.source !== 'builtin'"

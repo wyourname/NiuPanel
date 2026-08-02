@@ -34,7 +34,7 @@
             <el-input
               v-model="username"
               placeholder="请输入用户名"
-              prefix-icon="User"
+              :prefix-icon="User"
               @keyup.enter="$emit('identify')"
             />
           </el-form-item>
@@ -138,6 +138,7 @@
 
 <script setup lang="ts">
 import ResponsiveDialog from "@/components/common/ResponsiveDialog.vue";
+import { User } from "@element-plus/icons-vue";
 
 defineProps<{
   countdown: number;

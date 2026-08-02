@@ -41,7 +41,7 @@ Release and Magisk packages bundle `uv` plus pnpm; they must never bundle fnm. `
 - `Promote Panel Release` 可将使用纯数字版本的 preview Panel Release 原地提升为 stable，并把同一完整描述写入 `stable.json`；带 `-beta.N` 的预览版本不能改名，正式发布需创建新的纯数字 Panel Release。流程可安全重跑。
 - `main/release/channels` 是面板更新和 Docker 构建的唯一输入，每个 schema v2 文件只指向一个完整 Panel Release。
 - 本地 `./build.sh [amd64|arm64|armv7|all]` 仍可生成组合测试包；它不是线上通道索引或正式组件发布的来源。
-- `Publish Docker Image` 仅手动运行。它验证所选通道后构建多架构镜像，只推送 `docker/VERSION`（当前 `3.0.1`）与 `latest`，不创建 preview 标签。Panel/Web 的常规在线更新不需要重建镜像。
+- `Publish Docker Image` 仅手动运行。它验证所选通道后构建多架构镜像，只推送 `docker/VERSION`（当前 `3.0.2`）与 `latest`，不创建 preview 标签。Panel/Web 的常规在线更新不需要重建镜像。
 - 新镜像内置的 Panel 版本只有在高于持久化 active 版本时才会由 Launcher 排队激活；因此重建同一 Docker 环境版本不会绕过 Panel Release 的不可变性或回退事务。
 - 发布和索引写入必须使用 `RELEASE_TOKEN`（fine-grained PAT，目标仓库 `Contents: Read and write`、`Workflows: Read and write`），以便写入 `main` 后可靠触发 Docker 工作流。
 - Plugins: independently versioned packages; their manifests must declare their own license.

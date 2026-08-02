@@ -32,9 +32,6 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, watch } from "vue";
 import { useRouter, useRoute } from "vue-router";
-import { App } from "@capacitor/app";
-import { StatusBar, Style } from "@capacitor/status-bar";
-import { Keyboard } from "@capacitor/keyboard";
 import { useAppStore } from "../stores/app";
 import { useWorkspaceStore } from "../stores/workspace";
 import { usePluginThemesStore } from "../stores/pluginThemes";
@@ -45,6 +42,7 @@ import CommandPalette from "../components/common/CommandPalette.vue";
 import DesktopWorkspaceHome from "../components/workspace/DesktopWorkspaceHome.vue";
 import WorkspaceLayer from "../components/workspace/WorkspaceLayer.vue";
 import { workspaceApps } from "../workspace/apps";
+import { isNativePlatform } from "../utils/nativePlatform";
 
 const appStore = useAppStore();
 const workspaceStore = useWorkspaceStore();
@@ -62,9 +60,15 @@ let backButtonListener: AppListenerHandle | null = null;
 let stopStatusBarThemeSync: (() => void) | null = null;
 
 const setupCapacitor = async () => {
-  if (!appStore.isMobile) return;
+  if (!isNativePlatform()) return;
 
   try {
+    const [{ App }, { StatusBar, Style }, { Keyboard }] = await Promise.all([
+      import("@capacitor/app"),
+      import("@capacitor/status-bar"),
+      import("@capacitor/keyboard"),
+    ]);
+
     backButtonListener = await App.addListener(
       "backButton",
       async ({ canGoBack }) => {
@@ -152,7 +156,7 @@ const openRouteAsDesktopWindow = () => {
 
 onMounted(() => {
   window.addEventListener("keydown", handleKeydown);
-  setupCapacitor();
+  void setupCapacitor();
   openRouteAsDesktopWindow();
   void pluginThemes.loadThemes().catch(() => undefined);
 });

@@ -1,50 +1,62 @@
-import { Haptics, ImpactStyle, NotificationType } from '@capacitor/haptics';
-import { useAppStore } from '../stores/app';
+import type { ImpactStyle, NotificationType } from '@capacitor/haptics';
+import { isNativePlatform } from '../utils/nativePlatform';
+
+let hapticsModule: Promise<typeof import('@capacitor/haptics') | null> | null = null;
+
+const loadHaptics = () => {
+  if (!isNativePlatform()) return Promise.resolve(null);
+  hapticsModule ??= import('@capacitor/haptics');
+  return hapticsModule;
+};
 
 export function useHaptics() {
-  const appStore = useAppStore();
-
-  const impact = async (style: ImpactStyle = ImpactStyle.Light) => {
-    if (!appStore.isMobile) return;
+  const impact = async (style?: ImpactStyle) => {
+    const module = await loadHaptics();
+    if (!module) return;
     try {
-      await Haptics.impact({ style });
+      await module.Haptics.impact({ style: style ?? module.ImpactStyle.Light });
     } catch (e) {
       // Ignore if not on a real device or Capacitor not ready
     }
   };
 
-  const notification = async (type: NotificationType = NotificationType.Success) => {
-    if (!appStore.isMobile) return;
+  const notification = async (type?: NotificationType) => {
+    const module = await loadHaptics();
+    if (!module) return;
     try {
-      await Haptics.notification({ type });
+      await module.Haptics.notification({ type: type ?? module.NotificationType.Success });
     } catch (e) {}
   };
 
   const selectionStart = async () => {
-    if (!appStore.isMobile) return;
+    const module = await loadHaptics();
+    if (!module) return;
     try {
-      await Haptics.selectionStart();
+      await module.Haptics.selectionStart();
     } catch (e) {}
   };
 
   const selectionChanged = async () => {
-    if (!appStore.isMobile) return;
+    const module = await loadHaptics();
+    if (!module) return;
     try {
-      await Haptics.selectionChanged();
+      await module.Haptics.selectionChanged();
     } catch (e) {}
   };
 
   const selectionEnd = async () => {
-    if (!appStore.isMobile) return;
+    const module = await loadHaptics();
+    if (!module) return;
     try {
-      await Haptics.selectionEnd();
+      await module.Haptics.selectionEnd();
     } catch (e) {}
   };
 
   const vibrate = async () => {
-    if (!appStore.isMobile) return;
+    const module = await loadHaptics();
+    if (!module) return;
     try {
-      await Haptics.vibrate();
+      await module.Haptics.vibrate();
     } catch (e) {}
   };
 

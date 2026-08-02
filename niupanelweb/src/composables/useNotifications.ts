@@ -1,13 +1,19 @@
-import { LocalNotifications } from '@capacitor/local-notifications';
-import { useAppStore } from '../stores/app';
+import { isNativePlatform } from '../utils/nativePlatform';
+
+let notificationsModule: Promise<typeof import('@capacitor/local-notifications') | null> | null = null;
+
+const loadNotifications = () => {
+  if (!isNativePlatform()) return Promise.resolve(null);
+  notificationsModule ??= import('@capacitor/local-notifications');
+  return notificationsModule;
+};
 
 export function useNotifications() {
-  const appStore = useAppStore();
-
   const requestPermissions = async () => {
-    if (!appStore.isMobile) return false;
+    const module = await loadNotifications();
+    if (!module) return false;
     try {
-      const status = await LocalNotifications.requestPermissions();
+      const status = await module.LocalNotifications.requestPermissions();
       return status.display === 'granted';
     } catch (e) {
       return false;
@@ -15,13 +21,13 @@ export function useNotifications() {
   };
 
   const schedule = async (title: string, body: string, id: number = Math.floor(Math.random() * 100000)) => {
-    if (!appStore.isMobile) return;
-
     const hasPermission = await requestPermissions();
     if (!hasPermission) return;
 
     try {
-      await LocalNotifications.schedule({
+      const module = await loadNotifications();
+      if (!module) return;
+      await module.LocalNotifications.schedule({
         notifications: [
           {
             title,

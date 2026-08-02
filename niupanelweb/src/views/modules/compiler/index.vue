@@ -173,9 +173,6 @@
 </template>
 
 <script setup lang="ts">
-import {
-  defineAsyncComponent,
-} from "vue";
 import WorkspaceAppFrame from "../../../components/workspace/WorkspaceAppFrame.vue";
 import FloatingActionButton from "../../../components/common/FloatingActionButton.vue";
 import { useAppStore } from "../../../stores/app";
@@ -184,10 +181,9 @@ import { useCompilerBuild } from "./composables/useCompilerBuild";
 import { useCompilerSourceFiles } from "./composables/useCompilerSourceFiles";
 
 import ConfigPanel from "./ConfigPanel.vue";
+import { createAsyncMonacoEditor } from "@/utils/monaco";
 
-const VueMonacoEditor = defineAsyncComponent(() =>
-  import("@guolao/vue-monaco-editor").then((mod) => mod.VueMonacoEditor),
-);
+const VueMonacoEditor = createAsyncMonacoEditor();
 
 const appStore = useAppStore();
 

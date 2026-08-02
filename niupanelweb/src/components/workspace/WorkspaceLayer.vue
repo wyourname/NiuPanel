@@ -123,6 +123,7 @@
 </template>
 
 <script setup lang="ts">
+import { defineAsyncComponent } from "vue";
 import { useAppStore } from "@/stores/app";
 import { useWorkspaceStore } from "@/stores/workspace";
 import type {
@@ -134,11 +135,20 @@ import type {
   WorkspaceWindowPayload,
 } from "@/types/workspace";
 import { workspaceAppComponents } from "@/workspace/components";
-import PluginHostView from "@/views/plugins/PluginHostView.vue";
-import FileEditorWorkspaceWindow from "./FileEditorWorkspaceWindow.vue";
-import TaskEditorWorkspaceWindow from "./TaskEditorWorkspaceWindow.vue";
-import TaskLogWorkspaceWindow from "./TaskLogWorkspaceWindow.vue";
 import WorkspaceWindow from "./WorkspaceWindow.vue";
+
+const PluginHostView = defineAsyncComponent(
+  () => import("@/views/plugins/PluginHostView.vue"),
+);
+const FileEditorWorkspaceWindow = defineAsyncComponent(
+  () => import("./FileEditorWorkspaceWindow.vue"),
+);
+const TaskEditorWorkspaceWindow = defineAsyncComponent(
+  () => import("./TaskEditorWorkspaceWindow.vue"),
+);
+const TaskLogWorkspaceWindow = defineAsyncComponent(
+  () => import("./TaskLogWorkspaceWindow.vue"),
+);
 
 const appStore = useAppStore();
 const workspace = useWorkspaceStore();

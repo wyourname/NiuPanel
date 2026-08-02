@@ -21,21 +21,16 @@ pub fn init(config: LogConfig) -> Option<WorkerGuard> {
     }
 
     let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| {
-        EnvFilter::try_new(&filter_str).unwrap_or_else(|_| EnvFilter::new("info"))
+        EnvFilter::try_new(&filter_str).unwrap_or_else(|_| EnvFilter::new("warn"))
     });
 
-    // 1. 默认对一些吵闹的外部库进行限制 (Default noisy libs)
+    // Keep noisy dependencies at production-safe levels while respecting the
+    // configured global level (for example, `warn` in production and `info`
+    // in development).
     let env_filter = env_filter
         .add_directive("sqlx=warn".parse().unwrap())
         .add_directive("sea_orm=warn".parse().unwrap())
-        .add_directive("tower_http=info".parse().unwrap());
-
-    // 2. --- 在此处直接通过代码控制日志规则 (Code-controlled rules) ---
-    // 你可以根据需要取消注释或添加新的行
-    let env_filter = env_filter
-        .add_directive("niupanel_bot=info".parse().unwrap())
-        .add_directive("niupanel_proxy=info".parse().unwrap())
-        .add_directive("niupanel=info".parse().unwrap());
+        .add_directive("tower_http=warn".parse().unwrap());
 
     // 自定义时间格式: [2025-12-22 14:30:01]
     let timer = LocalTime::new(time::macros::format_description!(

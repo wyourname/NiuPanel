@@ -11,7 +11,7 @@
         v-model="resetForm.password"
         type="password"
         placeholder="新密码"
-        prefix-icon="Lock"
+        :prefix-icon="Lock"
         show-password
         clearable
         class="!h-12"
@@ -22,7 +22,7 @@
         v-model="resetForm.confirm"
         type="password"
         placeholder="确认新密码"
-        prefix-icon="Check"
+        :prefix-icon="Check"
         show-password
         clearable
         class="!h-12"
@@ -47,6 +47,7 @@
 
 <script setup lang="ts">
 import { ref } from "vue";
+import { Check, Lock } from "@element-plus/icons-vue";
 import type { FormInstance, FormRules } from "element-plus";
 import type { ResetForm } from "../composables/usePasswordResetFlow";
 

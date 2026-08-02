@@ -36,13 +36,12 @@
 </template>
 
 <script setup lang="ts">
-import { computed, defineAsyncComponent, onBeforeUnmount, ref } from "vue";
+import { computed, onBeforeUnmount, ref } from "vue";
 import type * as Monaco from "monaco-editor";
 import { getLanguageConfig, getLanguageFromFilename } from "@/utils/editor";
+import { createAsyncMonacoEditor } from "@/utils/monaco";
 
-const VueMonacoEditor = defineAsyncComponent(() =>
-  import("@guolao/vue-monaco-editor").then((module) => module.VueMonacoEditor),
-);
+const VueMonacoEditor = createAsyncMonacoEditor();
 
 const props = defineProps<{
   content: string;

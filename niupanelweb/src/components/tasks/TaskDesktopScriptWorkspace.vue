@@ -60,22 +60,15 @@
 </template>
 
 <script setup lang="ts">
-import { computed, defineAsyncComponent } from "vue";
+import { computed } from "vue";
 import type { Task } from "@/types";
+import { createAsyncMonacoEditor } from "@/utils/monaco";
 import type {
   TaskEditorOptions,
   TaskScriptEditorRef,
 } from "../../composables/taskPageTypes";
 
-const VueMonacoEditor = defineAsyncComponent({
-  loader: () =>
-    import("@guolao/vue-monaco-editor").then((mod) => mod.VueMonacoEditor),
-  loadingComponent: {
-    template: '<div class="flex-center h-full"><div class="i-ep-loading animate-spin text-2xl"></div></div>',
-  },
-  delay: 200,
-  timeout: 10000,
-});
+const VueMonacoEditor = createAsyncMonacoEditor();
 
 const props = defineProps<{
   content: string;

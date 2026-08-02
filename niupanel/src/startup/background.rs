@@ -9,7 +9,9 @@ use niupanel_core::handlers::{db_sync::DbSyncHandler, notification::Notification
 use sea_orm::{
     ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait, QueryFilter, Statement,
 };
+use std::path::Path;
 use std::sync::Arc;
+use sysinfo::{CpuRefreshKind, MemoryRefreshKind, RefreshKind, System};
 
 pub type SharedSystemMetrics = Arc<tokio::sync::RwLock<niupanel_common::metrics::SystemMetrics>>;
 
@@ -214,33 +216,86 @@ pub fn spawn_telegram_import_listener(db: DatabaseConnection, event_bus: EventBu
     });
 }
 
-pub fn spawn_system_metrics_updater(
-    sys: Arc<tokio::sync::Mutex<sysinfo::System>>,
-    system_metrics: SharedSystemMetrics,
-) {
+pub fn spawn_system_metrics_updater(system_metrics: SharedSystemMetrics) {
     tokio::spawn(async move {
+        let refresh_kind = RefreshKind::nothing()
+            .with_cpu(CpuRefreshKind::nothing().with_cpu_usage())
+            .with_memory(MemoryRefreshKind::nothing().with_ram());
+        let mut system = System::new_with_specifics(refresh_kind);
+        let os_info = System::long_os_version().unwrap_or_else(|| "Unknown".to_string());
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(3));
+
         loop {
             interval.tick().await;
 
-            let mut s = sys.lock().await;
-            s.refresh_cpu_all();
-            s.refresh_memory();
+            system.refresh_cpu_usage();
+            system.refresh_memory_specifics(MemoryRefreshKind::nothing().with_ram());
+            let (memory_total, memory_used) =
+                visible_memory(system.total_memory(), system.used_memory());
 
             let metrics = niupanel_common::metrics::SystemMetrics {
-                cpu_usage: s.global_cpu_usage(),
-                memory_total: s.total_memory(),
-                memory_used: s.used_memory(),
-                uptime: sysinfo::System::uptime(),
-                os_info: sysinfo::System::long_os_version()
-                    .unwrap_or_else(|| "Unknown".to_string()),
+                cpu_usage: system.global_cpu_usage(),
+                memory_total,
+                memory_used,
+                uptime: System::uptime(),
+                os_info: os_info.clone(),
             };
-            drop(s);
 
             let mut m = system_metrics.write().await;
             *m = metrics;
         }
     });
+}
+
+fn visible_memory(host_total: u64, host_used: u64) -> (u64, u64) {
+    const CGROUP_V2: (&str, &str) = ("/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory.current");
+    const CGROUP_V1: (&str, &str) = (
+        "/sys/fs/cgroup/memory/memory.limit_in_bytes",
+        "/sys/fs/cgroup/memory/memory.usage_in_bytes",
+    );
+
+    for (limit_path, current_path) in [CGROUP_V2, CGROUP_V1] {
+        let Some(limit) = read_cgroup_memory_value(limit_path) else {
+            continue;
+        };
+        let Some(current) = read_cgroup_memory_value(current_path) else {
+            continue;
+        };
+
+        // Bare-metal hosts commonly expose `max` or a sentinel much larger
+        // than physical RAM. Only a real, tighter container limit should
+        // replace host memory in the status UI.
+        if limit > 0 && limit < host_total {
+            return (limit, current.min(limit));
+        }
+    }
+
+    (host_total, host_used)
+}
+
+fn read_cgroup_memory_value(path: impl AsRef<Path>) -> Option<u64> {
+    let raw = std::fs::read_to_string(path).ok()?;
+    parse_cgroup_memory_value(&raw)
+}
+
+fn parse_cgroup_memory_value(raw: &str) -> Option<u64> {
+    let value = raw.trim();
+    if value.is_empty() || value == "max" {
+        return None;
+    }
+    value.parse().ok()
+}
+
+#[cfg(test)]
+mod metrics_tests {
+    use super::parse_cgroup_memory_value;
+
+    #[test]
+    fn parses_finite_cgroup_memory_values() {
+        assert_eq!(parse_cgroup_memory_value("536870912\n"), Some(536_870_912));
+        assert_eq!(parse_cgroup_memory_value("max\n"), None);
+        assert_eq!(parse_cgroup_memory_value("invalid"), None);
+    }
 }
 
 fn spawn_notification_handler(

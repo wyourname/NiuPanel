@@ -1,6 +1,6 @@
 {
   "name": "niupanelweb",
-  "version": "2.0.2",
+  "version": "2.0.3",
   "description": "Vue web and mobile interface for NiuPanel",
   "license": "Apache-2.0",
   "repository": {
@@ -82,8 +82,8 @@
     "postcss": "^8.5.25",
     "typescript": "^6.0.3",
     "vite": "^8.2.0",
-    "vite-plugin-monaco-editor": "^1.1.0",
     "vite-plugin-vue-devtools": "^8.2.1",
+    "unplugin-vue-components": "^32.1.0",
     "vue-tsc": "^3.3.9"
   }
 }

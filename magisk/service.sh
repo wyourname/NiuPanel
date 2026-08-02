@@ -118,7 +118,7 @@ DNS
     cd /app
     [ -L web ] || ln -snf /app/web web 2>/dev/null
 
-    export RUST_LOG=info
+    export RUST_LOG=warn
     export HOST=0.0.0.0
     export PORT=7788
 

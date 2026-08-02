@@ -86,6 +86,12 @@ opt-level = 3        # 3 = 最大性能优化
 lto = true           # 启用 Link Time Optimization，整体性能提升                                                                               │
 codegen-units = 1    # 减少并行 codegen 单元，有助于优化跨函数的内联                                                                           │
 debug = false        # 去掉调试信息，减小体积
+strip = "symbols"   # 发布产物移除符号表，降低磁盘占用与冷启动 I/O
+
+[profile.release-debug]
+inherits = "release"
+debug = 2
+strip = "none"
 
 # Teloxide's latest release and main branch still pull proc-macro-error2 2.0.1.
 # Upstream has not released the one-line Rust future-incompatibility fix yet.

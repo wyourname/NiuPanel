@@ -73,7 +73,7 @@ pub struct Config {
 }
 
 fn default_log_level() -> String {
-    "info".to_owned()
+    "warn".to_owned()
 }
 
 fn default_cors_origins() -> Vec<String> {
@@ -255,5 +255,6 @@ mod tests {
         let config: Config = serde_json::from_str("{}").unwrap();
 
         assert!(config.mcp_allowed_hosts.is_empty());
+        assert_eq!(config.log_level, "warn");
     }
 }
