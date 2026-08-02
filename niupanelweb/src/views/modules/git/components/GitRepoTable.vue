@@ -22,7 +22,7 @@
           <div class="min-w-0 flex-1">
             <div class="flex min-w-0 items-center gap-2">
               <span class="truncate text-sm font-semibold text-default">{{ row.name }}</span>
-              <span class="shrink-0 rounded bg-subtle px-1.5 py-0.5 font-mono text-[10px] text-secondary">
+              <span class="shrink-0 rounded bg-subtle px-1.5 py-0.5 font-mono text-[11px] text-secondary">
                 {{ row.branch }}
               </span>
             </div>
@@ -188,8 +188,8 @@ const statusLabel = (status: string | null) => {
 <style scoped>
 .repo-action {
   display: inline-flex;
-  width: 32px;
-  height: 32px;
+  width: 44px;
+  height: 44px;
   cursor: pointer;
   align-items: center;
   justify-content: center;

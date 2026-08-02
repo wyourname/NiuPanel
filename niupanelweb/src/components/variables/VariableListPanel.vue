@@ -2,9 +2,7 @@
   <div
     class="flex-1 overflow-y-auto custom-scrollbar transition-all duration-300"
     :class="isMobile ? 'px-0 py-1' : 'px-2 py-2'"
-    v-infinite-scroll="loadMore"
-    :infinite-scroll-disabled="loading || !hasMore"
-    :infinite-scroll-distance="40"
+    @scroll.passive="handleScroll"
   >
     <div
       v-if="loading && variables.length === 0"
@@ -95,7 +93,7 @@
 import type { VariablePageRow } from "../../composables/useVariablePageData";
 import VariableCard from "./VariableCard.vue";
 
-defineProps<{
+const props = defineProps<{
   dragOverIndex: number | null;
   getTaskNames: (taskIds?: number[]) => string;
   hasMore: boolean;
@@ -127,8 +125,12 @@ const emit = defineEmits<{
   (event: "touch-start", touchEvent: TouchEvent, index: number): void;
 }>();
 
-const loadMore = () => {
-  emit("load-more");
+const handleScroll = (event: Event) => {
+  if (props.loading || !props.hasMore) return;
+
+  const target = event.currentTarget as HTMLElement;
+  const remaining = target.scrollHeight - target.scrollTop - target.clientHeight;
+  if (remaining <= 40) emit("load-more");
 };
 
 const forwardStatusChange = (row: VariablePageRow, value: unknown) => {

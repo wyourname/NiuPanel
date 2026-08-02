@@ -1,5 +1,5 @@
 <template>
-  <div class="h-screen w-screen flex overflow-hidden bg-base font-sans antialiased">
+  <div class="app-viewport flex overflow-hidden bg-base font-sans antialiased">
     <div class="flex-1 flex flex-col min-w-0 overflow-hidden relative bg-card">
       <TheHeader
         v-if="appStore.isMobile"
@@ -10,7 +10,7 @@
 
       <main
         class="flex-1 overflow-hidden relative"
-        :class="appStore.isMobile ? 'bg-base' : 'bg-card'"
+        :class="appStore.isMobile ? 'mobile-main-content bg-base' : 'bg-card'"
       >
         <DesktopWorkspaceHome v-if="!appStore.isMobile" />
         <router-view v-else v-slot="{ Component }">
@@ -125,7 +125,7 @@ const handleKeydown = (e: KeyboardEvent) => {
     workspaceStore.focusNextWindow();
   } else if (hasMod && e.key.toLowerCase() === "w" && activeWindowId) {
     e.preventDefault();
-    workspaceStore.closeActiveWindow();
+    void workspaceStore.requestCloseActiveWindow();
   } else if (hasMod && e.shiftKey && e.key.toLowerCase() === "m") {
     e.preventDefault();
     workspaceStore.minimizeActiveWindow();

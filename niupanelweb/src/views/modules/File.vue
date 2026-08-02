@@ -51,12 +51,14 @@
         :loading="loading"
         :search-query="searchQuery"
         :selected-paths="selectedFilePaths"
+        :sort-mode="sortMode"
         :view-mode="viewMode"
         @command="handleDesktopCommand"
         @context-menu="handleDesktopContextMenu"
         @item-drag-end="handleFileDragEnd"
         @item-drag-start="handleFileDragStart"
         @item-click="handleItemClick"
+        @sort-time="sortMode = toggleModifiedTimeSort(sortMode)"
         @toggle-selection="toggleSelection"
       />
     </section>
@@ -99,7 +101,7 @@
 
         <FileBulkActions
           :count="selectedFiles.length"
-          :is-all-selected="selectedFiles.length === (searchQuery ? filteredFileList.length : fileList.length) && fileList.length > 0"
+          :is-all-selected="isAllVisibleSelected"
           @cancel="clearSelection"
           @copy="copyToClipboard(selectedFiles)"
           @cut="cutToClipboard(selectedFiles)"
@@ -110,7 +112,7 @@
         />
 
         <FileMobileList
-          :items="filteredFileList"
+          :items="sortedFileList"
           :loading="loading"
           :search-query="searchQuery"
           :selected-paths="selectedFilePaths"
@@ -150,6 +152,7 @@
     />
 
     <FileEditorDialog
+      v-if="appStore.isMobile"
       v-model:visible="editFileDialogVisible"
       v-model:content="fileContent"
       :current-file="currentFile"
@@ -186,6 +189,7 @@ import {
   watch,
 } from "vue";
 import { useAppStore } from "../../stores/app";
+import { useWorkspaceStore } from "../../stores/workspace";
 import { useFileOperations } from "../../composables/useFileOperations";
 import ContextMenu from "../../components/common/ContextMenu.vue";
 import PageShell from "../../components/common/PageShell.vue";
@@ -213,9 +217,13 @@ import type {
   FileItem,
   FileTableRef,
 } from "../../composables/useFileOperations";
-import { getFileExtension } from "./file/utils/fileDisplay";
+import {
+  normalizeFileSortMode,
+  sortFileItemsForView,
+  toggleModifiedTimeSort,
+  type FileSortMode,
+} from "./file/utils/fileSort";
 
-type FileSortMode = "mtime" | "name" | "size" | "type";
 type FileViewMode = "detail" | "grid";
 
 const VIEW_MODE_KEY = "niupanel.file.viewMode";
@@ -232,23 +240,22 @@ const readStoredValue = <T extends string>(
 };
 
 const appStore = useAppStore();
+const workspaceStore = useWorkspaceStore();
 const fileTableRef = ref<FileTableRef | null>(null);
 const viewMode = ref<FileViewMode>(
   readStoredValue<FileViewMode>(VIEW_MODE_KEY, "detail", ["detail", "grid"]),
 );
 const sortMode = ref<FileSortMode>(
-  readStoredValue<FileSortMode>(SORT_MODE_KEY, "name", [
-    "name",
-    "mtime",
-    "size",
-    "type",
-  ]),
+  normalizeFileSortMode(
+    typeof window === "undefined"
+      ? null
+      : window.localStorage.getItem(SORT_MODE_KEY),
+  ),
 );
 
 const {
   cancelUpload,
   loading,
-  fileList,
   currentPath,
   selectedFiles,
   searchQuery,
@@ -284,7 +291,7 @@ const {
   batchDelete,
   handleCreateItem,
   handleRenameItem,
-  showEditFileDialog,
+  showEditFileDialog: showResponsiveFileEditor,
   saveFileContent,
   performUpload,
   handleDownload,
@@ -310,33 +317,9 @@ const selectedFilePaths = computed(() =>
   selectedFiles.value.map((file) => file.path),
 );
 
-const sortItems = (items: FileItem[]) => {
-  return [...items].sort((a, b) => {
-    const directorySort = Number(b.is_dir) - Number(a.is_dir);
-    if (directorySort !== 0) return directorySort;
-
-    if (sortMode.value === "mtime") {
-      const result = (b.mtime ?? 0) - (a.mtime ?? 0);
-      return result || a.name.localeCompare(b.name);
-    }
-
-    if (sortMode.value === "size") {
-      const result = Number(b.size || 0) - Number(a.size || 0);
-      return result || a.name.localeCompare(b.name);
-    }
-
-    if (sortMode.value === "type") {
-      const result = getFileExtension(a.name).localeCompare(
-        getFileExtension(b.name),
-      );
-      return result || a.name.localeCompare(b.name);
-    }
-
-    return a.name.localeCompare(b.name);
-  });
-};
-
-const sortedFileList = computed(() => sortItems(filteredFileList.value));
+const sortedFileList = computed(() =>
+  sortFileItemsForView(filteredFileList.value, sortMode.value),
+);
 
 const isAllVisibleSelected = computed(
   () =>
@@ -361,6 +344,15 @@ const refreshCurrentPath = () => {
   void loadContents(currentPath.value || "/", Boolean(searchQuery.value));
 };
 
+const showFileEditor = (item: FileItem) => {
+  if (appStore.isMobile) {
+    void showResponsiveFileEditor(item);
+    return;
+  }
+
+  workspaceStore.openFileEditorWindow(item);
+};
+
 const {
   fileActionHandlers,
   handleCreateCommand,
@@ -381,7 +373,7 @@ const {
   handleDownload,
   navigate,
   previewImage,
-  showEditFileDialog,
+  showEditFileDialog: showFileEditor,
   showMoveDialog,
   showRenameDialog,
 });
@@ -449,6 +441,13 @@ watch(viewMode, (mode) => {
 watch(sortMode, (mode) => {
   window.localStorage.setItem(SORT_MODE_KEY, mode);
 });
+
+watch(
+  () => appStore.isMobile,
+  (isMobile) => {
+    if (!isMobile) editFileDialogVisible.value = false;
+  },
+);
 
 useFileSaveShortcut({
   isEditing: editFileDialogVisible,

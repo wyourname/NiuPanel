@@ -2,10 +2,11 @@
   <ResponsiveDialog
     v-model:visible="visible"
     title="服务器设置"
-    width="400px"
+    desktop-size="sm"
+    content-preset="form"
     append-to-body
   >
-    <div class="flex flex-col gap-4 p-4 sm:p-5">
+    <div class="flex flex-col gap-4">
       <el-alert
         title="App 模式下需配置服务器地址"
         type="info"

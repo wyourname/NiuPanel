@@ -1,6 +1,7 @@
 import { ref, onMounted, onUnmounted } from 'vue'
+import { MOBILE_MAX_WIDTH } from '@/constants/responsive'
 
-export function useMobile(breakpoint = 768) {
+export function useMobile(breakpoint = MOBILE_MAX_WIDTH) {
   const isMobile = ref(false)
 
   const checkMobile = () => {

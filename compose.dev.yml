@@ -8,10 +8,12 @@ services:
         NODE_IMAGE: ${NODE_IMAGE:-node:22.23.1-bookworm-slim}
         NIUPANEL_TARGET_ARCH: ${NIUPANEL_DOCKER_ARCH:-}
     working_dir: /workspace
-    command: bash -c "cargo run -p niupanel"
+    command: bash scripts/start-dev-core.sh
     environment:
       SERVER_ADDR: 0.0.0.0:7788
       DATABASE_URL: sqlite://data/database/niupanel-dev.db?mode=rwc
+      SYSTEM_DIR: /workspace/data/system
+      NIUPANEL_SYSTEM_DIR: /workspace/data/system
       SCRIPTS_DIR: data/scripts
       JOBS_DIR: data/jobs
       LOGS_DIR: data/logs
@@ -20,8 +22,6 @@ services:
       SHARE_IMPORT_DIR: data/share/import
       BACKUP_DIR: data/share/backup
       RESTORE_DIR: data/share/restore
-      BUNDLED_WEB_DIR: niupanelweb/dist
-      ALLOW_MISSING_BUNDLED_WEB: "true"
       NIUPANEL_TOOLS_DIR: /opt/niupanel/tools
       TRUSTED_PLUGIN_PUBLIC_KEYS: ${TRUSTED_PLUGIN_PUBLIC_KEYS:-sha256:655e4bf8f3150e7e643714e0750c03c49d343f23c7f914b208a8e174e36f9d39}
       PLUGIN_SIGNATURE_REQUIRED: "true"

@@ -65,11 +65,11 @@
             <div class="space-y-4 p-4">
               <fieldset :disabled="backingUp || restoring" class="grid grid-cols-1 gap-x-3 gap-y-2 sm:grid-cols-2">
                 <legend class="sr-only">选择备份内容</legend>
-                <el-checkbox v-model="backupOptions.tasks" label="任务与脚本" size="small" class="!mr-0" />
-                <el-checkbox v-model="backupOptions.variables" label="环境变量" size="small" class="!mr-0" />
-                <el-checkbox v-model="backupOptions.settings" label="系统设置" size="small" class="!mr-0" />
-                <el-checkbox v-model="backupOptions.environments" label="运行环境元数据" size="small" class="!mr-0" />
-                <el-checkbox v-model="backupOptions.telegram" label="Telegram 机器人配置" size="small" class="!mr-0" />
+                <el-checkbox v-model="backupOptions.tasks" size="small" class="!mr-0">任务与脚本</el-checkbox>
+                <el-checkbox v-model="backupOptions.variables" size="small" class="!mr-0">环境变量</el-checkbox>
+                <el-checkbox v-model="backupOptions.settings" size="small" class="!mr-0">系统设置</el-checkbox>
+                <el-checkbox v-model="backupOptions.environments" size="small" class="!mr-0">运行环境元数据</el-checkbox>
+                <el-checkbox v-model="backupOptions.telegram" size="small" class="!mr-0">Telegram 机器人配置</el-checkbox>
               </fieldset>
 
               <div class="flex items-start gap-2 rounded-md border border-amber-500/20 bg-amber-500/[0.045] px-3 py-2 text-[10px] leading-4 text-amber-800 dark:text-amber-200">

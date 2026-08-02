@@ -85,9 +85,7 @@ export function useEnvPackageManager({
   const installDialogVisible = ref(false);
   const installing = ref(false);
   const installForm = reactive({ packages: "" });
-
-  const uninstallDialogVisible = ref(false);
-  const uninstallForm = reactive({ package: "" });
+  const uninstallingPackage = ref("");
 
   const currentEnv = computed(() => toValue(env) ?? null);
 
@@ -151,19 +149,25 @@ export function useEnvPackageManager({
     }
   };
 
-  const showUninstallDialog = () => {
-    uninstallForm.package = "";
-    uninstallDialogVisible.value = true;
-  };
-
   const handleUninstallPackage = async (packageName: string) => {
-    if (!packageName || !currentEnv.value) return;
+    if (!packageName || !currentEnv.value || uninstallingPackage.value) return;
 
     try {
-      await ElMessageBox.confirm(`确定要卸载 ${packageName} 吗？`, "提示", {
-        type: "warning",
-      });
+      await ElMessageBox.confirm(
+        `卸载后，依赖该包的任务可能无法运行。确定卸载“${packageName}”吗？`,
+        "卸载依赖",
+        {
+          type: "warning",
+          confirmButtonText: "确认卸载",
+          cancelButtonText: "取消",
+        },
+      );
+    } catch {
+      return;
+    }
 
+    uninstallingPackage.value = packageName;
+    try {
       const res = await envApi.uninstallPackage(currentEnv.value, packageName);
 
       if (
@@ -180,15 +184,10 @@ export function useEnvPackageManager({
 
       void loadPackages();
     } catch {
-      // Confirmation cancellation and API failures keep the dialog state intact.
+      // API errors are handled by the shared request interceptor.
+    } finally {
+      uninstallingPackage.value = "";
     }
-  };
-
-  const handleManualUninstall = async () => {
-    if (!uninstallForm.package.trim()) return;
-
-    uninstallDialogVisible.value = false;
-    await handleUninstallPackage(uninstallForm.package.trim());
   };
 
   const handleJobFinished = () => {
@@ -218,7 +217,6 @@ export function useEnvPackageManager({
     dialogTitle,
     filteredPackages,
     handleInstallPackages,
-    handleManualUninstall,
     handleUninstallPackage,
     installDialogVisible,
     installForm,
@@ -228,8 +226,6 @@ export function useEnvPackageManager({
     packages,
     searchQuery,
     showInstallDialog,
-    showUninstallDialog,
-    uninstallDialogVisible,
-    uninstallForm,
+    uninstallingPackage,
   };
 }

@@ -1,103 +1,137 @@
 <template>
-  <template v-if="appStore.isMobile">
-    <el-drawer
-      v-model="internalVisible"
-      v-bind="$attrs"
-      :title="title"
-      :size="size || '100%'"
-      :direction="direction"
-      :destroy-on-close="destroyOnClose"
-      :append-to-body="appendToBody"
-      :show-close="false"
-      :class="['responsive-dialog mobile-sheet', customClass]"
-      @close="emit('close')"
-      @closed="emit('closed')"
-      @open="emit('open')"
-      @opened="emit('opened')"
-    >
-      <template #header>
-        <div class="responsive-dialog__mobile-header">
-          <div v-if="title" class="responsive-dialog__title">{{ title }}</div>
-          <button
-            type="button"
-            class="responsive-dialog__close"
-            title="关闭"
-            aria-label="关闭"
-            @click="internalVisible = false"
-          >
-            <span class="i-ep-close"></span>
-          </button>
-        </div>
-      </template>
+  <OverlayDrawer
+    v-if="appStore.isMobile"
+    v-model:visible="internalVisible"
+    v-bind="$attrs"
+    :title="title"
+    :size="mobileDrawerSize"
+    :direction="direction"
+    :variant="isMobileFullscreen ? 'workspace' : 'sheet'"
+    :content-preset="contentPreset"
+    :destroy-on-close="destroyOnClose"
+    :append-to-body="appendToBody"
+    :show-close="showClose"
+    :show-header="showHeader"
+    :custom-class="customClass"
+    @close="emit('close')"
+    @closed="emit('closed')"
+    @open="emit('open')"
+    @opened="emit('opened')"
+  >
+    <template v-if="$slots.title" #title>
+      <slot name="title" />
+    </template>
+    <template v-if="$slots['header-actions']" #header-actions>
+      <slot name="header-actions" />
+    </template>
 
-      <div class="h-full flex flex-col overflow-hidden relative">
-        <slot />
-      </div>
+    <slot />
 
-      <template v-if="$slots.footer" #footer>
-        <div class="responsive-dialog-footer">
-          <slot name="footer" />
-        </div>
-      </template>
-    </el-drawer>
-  </template>
+    <template v-if="$slots.footer" #footer>
+      <slot name="footer" />
+    </template>
+  </OverlayDrawer>
 
-  <template v-else>
-    <el-dialog
-      v-model="internalVisible"
-      v-bind="$attrs"
-      :title="title"
-      :width="width"
-      :align-center="true"
-      :fullscreen="fullscreen"
-      :destroy-on-close="destroyOnClose"
-      :append-to-body="appendToBody"
-      :class="['responsive-dialog desktop-modal', customClass]"
-      @close="emit('close')"
-      @closed="emit('closed')"
-      @open="emit('open')"
-      @opened="emit('opened')"
-    >
-      <div class="h-full flex flex-col overflow-hidden relative">
-        <slot />
-      </div>
+  <el-dialog
+    v-else
+    v-model="internalVisible"
+    v-bind="$attrs"
+    :title="title"
+    :width="resolvedDesktopWidth"
+    :style="desktopDialogStyle"
+    :align-center="true"
+    :fullscreen="fullscreen"
+    :show-close="false"
+    :destroy-on-close="destroyOnClose"
+    :append-to-body="appendToBody"
+    :class="[
+      'responsive-dialog',
+      'desktop-modal',
+      `responsive-dialog--content-${contentPreset}`,
+      showHeader ? '' : 'responsive-dialog--headerless',
+      customClass,
+    ]"
+    @close="emit('close')"
+    @closed="emit('closed')"
+    @open="emit('open')"
+    @opened="emit('opened')"
+  >
+    <template #header>
+      <OverlayHeader
+        v-if="showHeader"
+        :title="title"
+        :show-close="showClose"
+        @close="internalVisible = false"
+      >
+        <template v-if="$slots.title" #title>
+          <slot name="title" />
+        </template>
+        <template v-if="$slots['header-actions']" #actions>
+          <slot name="header-actions" />
+        </template>
+      </OverlayHeader>
+    </template>
 
-      <template v-if="$slots.footer" #footer>
-        <div class="responsive-dialog-footer">
-          <slot name="footer" />
-        </div>
-      </template>
-    </el-dialog>
-  </template>
+    <div :class="['overlay-content', `overlay-content--${contentPreset}`]">
+      <slot />
+    </div>
+
+    <template v-if="$slots.footer" #footer>
+      <OverlayFooter>
+        <slot name="footer" />
+      </OverlayFooter>
+    </template>
+  </el-dialog>
 </template>
 
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, type CSSProperties } from "vue";
 import { useAppStore } from "../../stores/app";
+import OverlayDrawer, {
+  type OverlayContentPreset,
+  type OverlayDrawerDirection,
+} from "./OverlayDrawer.vue";
+import OverlayFooter from "./OverlayFooter.vue";
+import OverlayHeader from "./OverlayHeader.vue";
 
-type ResponsiveDialogDirection = "ltr" | "rtl" | "ttb" | "btt";
+defineOptions({ inheritAttrs: false });
+
+export type ResponsiveDialogDesktopSize = "sm" | "md" | "lg" | "xl" | "fluid";
+export type ResponsiveDialogMobileMode = "sheet" | "fullscreen";
 
 type ResponsiveDialogProps = {
-  visible: boolean;
-  title?: string;
-  width?: string | number;
-  size?: string | number;
-  fullscreen?: boolean;
-  direction?: ResponsiveDialogDirection;
-  destroyOnClose?: boolean;
   appendToBody?: boolean;
+  contentPreset?: OverlayContentPreset;
   customClass?: string;
+  desktopHeight?: string | number;
+  desktopSize?: ResponsiveDialogDesktopSize;
+  destroyOnClose?: boolean;
+  direction?: OverlayDrawerDirection;
+  fullscreen?: boolean;
+  mobileMode?: ResponsiveDialogMobileMode;
+  showClose?: boolean;
+  showHeader?: boolean;
+  size?: string | number;
+  title?: string;
+  visible: boolean;
+  width?: string | number;
 };
 
 const props = withDefaults(defineProps<ResponsiveDialogProps>(), {
-  title: "",
-  width: "500px",
-  size: "auto",
-  fullscreen: false,
-  direction: "btt",
-  destroyOnClose: false,
   appendToBody: false,
+  contentPreset: "form",
   customClass: "",
+  desktopHeight: undefined,
+  desktopSize: "md",
+  destroyOnClose: false,
+  direction: "btt",
+  fullscreen: false,
+  mobileMode: "sheet",
+  showClose: true,
+  showHeader: true,
+  size: "auto",
+  title: "",
+  width: undefined,
 });
 
 const emit = defineEmits<{
@@ -107,120 +141,77 @@ const emit = defineEmits<{
   (event: "open"): void;
   (event: "opened"): void;
 }>();
+
 const appStore = useAppStore();
+
+const desktopWidths: Record<ResponsiveDialogDesktopSize, string> = {
+  sm: "440px",
+  md: "560px",
+  lg: "720px",
+  xl: "920px",
+  fluid: "min(1200px, calc(100vw - 32px))",
+};
 
 const internalVisible = computed({
   get: () => props.visible,
-  set: (val) => emit("update:visible", val),
+  set: (value) => emit("update:visible", value),
 });
+
+const resolvedDesktopWidth = computed(
+  () => props.width ?? desktopWidths[props.desktopSize],
+);
+
+const desktopDialogStyle = computed<CSSProperties | undefined>(() => {
+  if (props.desktopHeight === undefined || props.fullscreen) return undefined;
+
+  return {
+    height:
+      typeof props.desktopHeight === "number"
+        ? `${props.desktopHeight}px`
+        : props.desktopHeight,
+  };
+});
+
+const isMobileFullscreen = computed(
+  () => props.mobileMode === "fullscreen" || props.size === "100%",
+);
+
+const mobileDrawerSize = computed(() =>
+  isMobileFullscreen.value ? "100%" : props.size,
+);
 </script>
 
 <style>
-/* Normalize Drawer/Dialog body to allow flex layouts inside */
-.responsive-dialog .el-dialog__body {
-  padding: 0;
-  overflow: hidden;
+.responsive-dialog.el-dialog {
+  box-sizing: border-box;
   display: flex;
+  max-width: calc(100vw - 32px);
+  max-height: calc(var(--app-viewport-height) - 32px);
   flex-direction: column;
-}
-
-.responsive-dialog .el-dialog__header,
-.responsive-dialog .el-dialog__footer,
-.responsive-dialog .el-drawer__footer {
-  margin: 0;
-}
-
-.responsive-dialog .el-drawer__body {
-  padding: 0;
   overflow: hidden;
-  display: flex;
-  flex-direction: column;
-}
-
-.mobile-sheet .el-drawer__body {
-  padding: 0 !important;
-}
-
-.responsive-dialog-footer {
-  width: 100%;
-  padding: 12px;
-  border-top: 1px solid var(--border-light);
-  background: var(--bg-card);
-}
-
-.responsive-dialog .el-drawer__header {
-  margin-bottom: 0;
   padding: 0;
-}
-
-.responsive-dialog__mobile-header {
-  display: flex;
-  width: 100%;
-  min-width: 0;
-  height: 48px;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 0 12px 0 16px;
-  border-bottom: 1px solid var(--border-light);
-  background: var(--bg-card);
-}
-
-.responsive-dialog__title {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--text-default);
-  font-size: var(--font-size-body);
-  font-weight: 700;
-}
-
-.responsive-dialog__close {
-  display: inline-flex;
-  width: 32px;
-  height: 32px;
-  flex: 0 0 32px;
-  align-items: center;
-  justify-content: center;
-  border-radius: var(--radius-sm);
-  color: var(--text-secondary);
-  transition: color 0.16s ease, background-color 0.16s ease;
-}
-
-.responsive-dialog__close:hover {
-  color: var(--text-default);
-  background: var(--bg-soft);
-}
-
-/* Mobile Sheet Specifics */
-.mobile-sheet.el-drawer.btt {
-  border-top-left-radius: var(--radius-md) !important;
-  border-top-right-radius: var(--radius-md) !important;
-  background-color: var(--bg-card) !important;
-  box-shadow: 0 -10px 30px rgba(15, 23, 42, 0.14) !important;
-}
-
-/* Desktop Modal Specifics */
-.desktop-modal.el-dialog {
+  border: 1px solid var(--border-light);
   border-radius: var(--radius-md) !important;
-  overflow: hidden;
+  background: var(--bg-card);
   box-shadow: var(--shadow-md) !important;
 }
 
-.desktop-modal .el-dialog__header {
-  margin-right: 0;
-  padding: 14px 16px;
-  border-bottom: 1px solid var(--border-light);
-}
-
-.desktop-modal .el-dialog__footer {
+.responsive-dialog .el-dialog__header,
+.responsive-dialog .el-dialog__footer {
+  margin: 0;
   padding: 0;
 }
 
-.desktop-modal .el-dialog__title {
-  font-size: var(--font-size-body);
-  font-weight: 700;
-  letter-spacing: 0;
+.responsive-dialog .el-dialog__body {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0;
+}
+
+.responsive-dialog--headerless .el-dialog__header {
+  display: none;
 }
 </style>

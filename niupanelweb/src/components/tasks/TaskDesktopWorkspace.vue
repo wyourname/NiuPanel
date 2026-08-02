@@ -8,7 +8,6 @@
         :task="task"
         @back="emit('back')"
         @command="emit('detail-command', $event)"
-        @open-log-window="emit('open-log-window')"
         @toggle-search="emit('toggle-search')"
       />
 
@@ -104,7 +103,6 @@ const emit = defineEmits<{
   (event: "edit", task: Task): void;
   (event: "expand-qr"): void;
   (event: "load-more-timeline"): void;
-  (event: "open-log-window"): void;
   (event: "refresh-timeline"): void;
   (event: "save-script"): void;
   (event: "script-editor-mount", editor: TaskScriptEditorRef): void;

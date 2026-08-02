@@ -16,7 +16,7 @@
       </div>
     </div>
 
-    <div class="mobile-dock-safe flex-1 space-y-3 overflow-y-auto p-4 custom-scrollbar">
+    <div class="flex-1 space-y-3 overflow-y-auto p-4 custom-scrollbar">
       <div
         class="overflow-hidden rounded-lg border border-light bg-card divide-y divide-light"
       >

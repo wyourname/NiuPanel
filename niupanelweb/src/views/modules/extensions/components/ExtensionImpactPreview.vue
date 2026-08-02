@@ -1,5 +1,5 @@
 <template>
-  <article class="max-h-[58vh] w-full space-y-3 overflow-y-auto pr-1 text-left custom-scrollbar">
+  <article class="w-full space-y-3 text-left">
     <header class="rounded-lg border border-light bg-subtle/60 p-3">
       <div class="flex items-start justify-between gap-3">
         <div class="min-w-0">
@@ -192,20 +192,3 @@ const changeGroups = computed(() =>
   ].filter((group) => group.items.length),
 );
 </script>
-
-<style>
-.extension-impact-preview-dialog {
-  width: min(580px, calc(100vw - 32px));
-  max-width: calc(100vw - 32px);
-}
-
-.extension-impact-preview-dialog .el-message-box__content {
-  align-items: flex-start;
-  padding-top: 10px;
-}
-
-.extension-impact-preview-dialog .el-message-box__message {
-  min-width: 0;
-  width: 100%;
-}
-</style>

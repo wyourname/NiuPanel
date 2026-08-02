@@ -2,12 +2,13 @@
   <ResponsiveDialog
     v-model:visible="dialogVisible"
     title="创建分享链接"
-    width="800px"
+    desktop-size="lg"
+    content-preset="form"
     size="92%"
     :close-on-click-modal="false"
     @close="handleClose"
   >
-    <div class="min-h-0 flex-1 overflow-y-auto p-4 sm:p-5">
+    <div class="min-h-0 flex-1">
       <el-steps
         :active="activeStep"
         finish-status="success"

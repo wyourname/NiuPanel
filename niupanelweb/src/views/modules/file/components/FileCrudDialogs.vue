@@ -2,11 +2,12 @@
   <ResponsiveDialog
     :visible="createVisible"
     :title="`创建${createType === 'file' ? '文件' : '目录'}`"
-    width="440px"
+    desktop-size="sm"
+    content-preset="form"
     append-to-body
     @update:visible="emit('update:createVisible', $event)"
   >
-    <div class="flex flex-col gap-5 p-5 md:p-6">
+    <div class="flex flex-col gap-4">
       <el-form
         ref="createFormRef"
         :model="createForm"
@@ -26,30 +27,25 @@
           />
         </el-form-item>
       </el-form>
-      <div class="flex gap-3 pt-2">
-        <el-button class="flex-1 !h-9 font-bold" @click="emit('update:createVisible', false)">
-          取消
-        </el-button>
-        <el-button
-          type="primary"
-          class="flex-1 !h-9 font-bold"
-          :loading="creating"
-          @click="submitCreate"
-        >
-          确认创建
-        </el-button>
-      </div>
     </div>
+
+    <template #footer>
+      <el-button @click="emit('update:createVisible', false)">取消</el-button>
+      <el-button type="primary" :loading="creating" @click="submitCreate">
+        确认创建
+      </el-button>
+    </template>
   </ResponsiveDialog>
 
   <ResponsiveDialog
     :visible="moveVisible"
     title="移动项目"
-    width="440px"
+    desktop-size="sm"
+    content-preset="form"
     append-to-body
     @update:visible="emit('update:moveVisible', $event)"
   >
-    <div class="flex flex-col gap-5 p-5 md:p-6">
+    <div class="flex flex-col gap-4">
       <el-form
         ref="moveFormRef"
         :model="moveForm"
@@ -80,30 +76,25 @@
           />
         </el-form-item>
       </el-form>
-      <div class="flex gap-3 pt-2">
-        <el-button class="flex-1 !h-9 font-bold" @click="emit('update:moveVisible', false)">
-          取消
-        </el-button>
-        <el-button
-          type="primary"
-          class="flex-1 !h-9 font-bold"
-          :loading="movingFile"
-          @click="submitMove"
-        >
-          确认移动
-        </el-button>
-      </div>
     </div>
+
+    <template #footer>
+      <el-button @click="emit('update:moveVisible', false)">取消</el-button>
+      <el-button type="primary" :loading="movingFile" @click="submitMove">
+        确认移动
+      </el-button>
+    </template>
   </ResponsiveDialog>
 
   <ResponsiveDialog
     :visible="renameVisible"
     title="重命名项目"
-    width="440px"
+    desktop-size="sm"
+    content-preset="form"
     append-to-body
     @update:visible="emit('update:renameVisible', $event)"
   >
-    <div class="flex flex-col gap-5 p-5 md:p-6">
+    <div class="flex flex-col gap-4">
       <el-form
         ref="renameFormRef"
         :model="renameForm"
@@ -123,30 +114,25 @@
           />
         </el-form-item>
       </el-form>
-      <div class="flex gap-3">
-        <el-button class="flex-1 !h-9 font-bold" @click="emit('update:renameVisible', false)">
-          取消
-        </el-button>
-        <el-button
-          type="primary"
-          class="flex-1 !h-9 font-bold"
-          :loading="renaming"
-          @click="submitRename"
-        >
-          应用更改
-        </el-button>
-      </div>
     </div>
+
+    <template #footer>
+      <el-button @click="emit('update:renameVisible', false)">取消</el-button>
+      <el-button type="primary" :loading="renaming" @click="submitRename">
+        应用更改
+      </el-button>
+    </template>
   </ResponsiveDialog>
 
   <ResponsiveDialog
     :visible="downloadUrlVisible"
     title="远程下载资源"
-    width="480px"
+    desktop-size="sm"
+    content-preset="form"
     append-to-body
     @update:visible="emit('update:downloadUrlVisible', $event)"
   >
-    <div class="flex flex-col gap-5 p-5 md:p-6">
+    <div class="flex flex-col gap-4">
       <el-form
         ref="downloadUrlFormRef"
         :model="downloadUrlForm"
@@ -178,20 +164,14 @@
         </el-form-item>
       </el-form>
 
-      <div class="flex gap-3">
-        <el-button class="flex-1 !h-9 font-bold" @click="emit('update:downloadUrlVisible', false)">
-          取消
-        </el-button>
-        <el-button
-          type="primary"
-          class="flex-1 !h-9 font-bold"
-          :loading="downloadingUrl"
-          @click="submitDownloadUrl"
-        >
-          开始下载
-        </el-button>
-      </div>
     </div>
+
+    <template #footer>
+      <el-button @click="emit('update:downloadUrlVisible', false)">取消</el-button>
+      <el-button type="primary" :loading="downloadingUrl" @click="submitDownloadUrl">
+        开始下载
+      </el-button>
+    </template>
   </ResponsiveDialog>
 </template>
 

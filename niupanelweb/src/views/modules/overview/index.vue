@@ -52,8 +52,6 @@
         :loading="loading"
         @open-audit="openAudit"
       />
-
-      <div v-if="appStore.isMobile" class="h-20"></div>
     </div>
   </PullToRefresh>
 </template>
@@ -103,6 +101,6 @@ const openShare = () => {
 };
 
 const openAudit = () => {
-  void router.push("/audit");
+  void router.push({ name: "settings", query: { section: "audit" } });
 };
 </script>

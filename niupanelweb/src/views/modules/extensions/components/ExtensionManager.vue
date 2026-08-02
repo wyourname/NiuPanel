@@ -1,9 +1,9 @@
 <template>
   <div class="mx-auto w-full max-w-[1280px] space-y-4">
-    <header class="flex flex-wrap items-center justify-between gap-3">
+    <header class="flex flex-col items-stretch justify-between gap-3 md:flex-row md:flex-wrap md:items-center">
       <div class="min-w-0">
         <div class="flex items-center gap-2.5">
-          <span class="h-9 w-9 shrink-0 rounded-md bg-primary text-white flex-center">
+          <span class="h-11 w-11 shrink-0 rounded-md bg-primary text-white flex-center md:h-9 md:w-9">
             <span class="i-carbon-plug text-[17px]"></span>
           </span>
           <div class="min-w-0">
@@ -15,10 +15,10 @@
         </div>
       </div>
 
-      <div class="flex items-center gap-2">
+      <div class="grid grid-cols-[44px_44px_minmax(0,1fr)] items-center gap-2 md:flex">
         <button
           type="button"
-          class="h-9 w-9 rounded-md border border-light bg-card text-secondary flex-center transition-colors hover:bg-soft hover:text-default"
+          class="h-11 w-11 rounded-md border border-light bg-card text-secondary flex-center transition-colors hover:bg-soft hover:text-default md:h-9 md:w-9"
           title="刷新"
           aria-label="刷新扩展"
           @click="loadAll"
@@ -27,7 +27,7 @@
         </button>
         <button
           type="button"
-          class="h-9 w-9 rounded-md border border-light bg-card text-secondary flex-center transition-colors hover:bg-soft hover:text-default"
+          class="h-11 w-11 rounded-md border border-light bg-card text-secondary flex-center transition-colors hover:bg-soft hover:text-default md:h-9 md:w-9"
           title="发布源设置"
           aria-label="发布源设置"
           @click="marketSourcesDialogVisible = true"
@@ -37,7 +37,7 @@
         <el-dropdown trigger="click" @command="openInstall">
           <button
             type="button"
-            class="h-9 rounded-md bg-primary px-3 text-[12px] font-bold text-white flex items-center gap-1.5 transition-opacity hover:opacity-90"
+            class="h-11 w-full rounded-md bg-primary px-3 text-[12px] font-bold text-white flex items-center justify-center gap-1.5 transition-opacity hover:opacity-90 md:h-9 md:w-auto"
           >
             <span class="i-ep-plus"></span>
             安装扩展
@@ -57,13 +57,13 @@
       </div>
     </header>
 
-    <div class="flex flex-wrap items-center gap-3 border-y border-light py-3">
-      <div class="flex rounded-md border border-light bg-card p-0.5">
+    <div class="flex flex-col items-stretch gap-3 border-y border-light py-3 md:flex-row md:flex-wrap md:items-center">
+      <div class="flex overflow-x-auto rounded-md border border-light bg-card p-0.5 no-scrollbar">
         <button
           v-for="view in views"
           :key="view.id"
           type="button"
-          class="h-8 rounded px-3 text-[12px] font-bold transition-colors"
+          class="h-11 shrink-0 rounded px-3 text-[12px] font-bold transition-colors md:h-8"
           :class="activeView === view.id ? 'bg-soft text-primary' : 'text-muted hover:text-default'"
           @click="activeView = view.id"
         >
@@ -83,7 +83,7 @@
       <el-input
         v-model="searchQuery"
         clearable
-        class="min-w-[220px] flex-1"
+        class="w-full min-w-0 flex-1 md:min-w-[220px]"
         placeholder="搜索名称、ID 或能力"
       >
         <template #prefix><span class="i-ep-search text-muted"></span></template>
@@ -92,7 +92,7 @@
       <el-select
         v-if="activeView === 'installed'"
         v-model="statusFilter"
-        class="w-[130px]"
+        class="w-full md:w-[130px]"
         aria-label="状态筛选"
       >
         <el-option label="全部状态" value="all" />
@@ -112,48 +112,48 @@
         <article
           v-for="item in visiblePlugins"
           :key="item.record.manifest.id"
-          class="flex flex-wrap items-center gap-3 border-b border-light px-3 py-3 last:border-b-0 transition-colors hover:bg-soft/45"
+          class="flex flex-wrap items-start gap-3 border-b border-light px-3 py-3 last:border-b-0 transition-colors hover:bg-soft/45 md:items-center"
         >
           <div
-            class="h-10 w-10 shrink-0 rounded-md flex-center"
+            class="h-11 w-11 shrink-0 rounded-md flex-center md:h-10 md:w-10"
             :class="item.record.enabled ? 'accent-subtle' : 'bg-soft text-muted'"
           >
             <span :class="pluginIcon(item)" class="text-[17px]"></span>
           </div>
 
-          <div class="min-w-[180px] flex-1">
+          <div class="min-w-0 flex-1 md:min-w-[180px]">
             <div class="flex flex-wrap items-center gap-2">
               <h2 class="m-0 truncate text-[13px] font-bold text-default">{{ item.record.manifest.name }}</h2>
               <span
                 v-for="capability in visibleCapabilities(item)"
                 :key="capability"
-                class="rounded bg-soft px-1.5 py-0.5 text-[9px] font-bold text-secondary"
+                class="rounded bg-soft px-1.5 py-0.5 text-[10px] font-bold text-secondary"
               >
                 {{ capabilityLabel(capability) }}
               </span>
               <span
                 v-if="!visibleCapabilities(item).length && item.record.manifest.ui?.enabled"
-                class="rounded bg-amber-500/10 px-1.5 py-0.5 text-[9px] font-bold text-amber-700 dark:text-amber-300"
+                class="rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-bold text-amber-700 dark:text-amber-300"
               >
                 同源原生 UI
               </span>
               <span
                 v-if="item.record.manifest.theme?.enabled"
-                class="rounded bg-emerald-500/10 px-1.5 py-0.5 text-[9px] font-bold text-emerald-700 dark:text-emerald-300"
+                class="rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700 dark:text-emerald-300"
               >
                 面板主题
               </span>
               <span
                 v-if="item.record.manifest.runtime_permissions.includes('network_outbound')"
-                class="rounded bg-amber-500/10 px-1.5 py-0.5 text-[9px] font-bold text-amber-700 dark:text-amber-300"
+                class="rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-bold text-amber-700 dark:text-amber-300"
               >
                 Web 出站
               </span>
-              <span v-if="item.record.source === 'builtin'" class="rounded bg-blue-500/10 px-1.5 py-0.5 text-[9px] font-bold text-blue-600 dark:text-blue-300">
+              <span v-if="item.record.source === 'builtin'" class="rounded bg-blue-500/10 px-1.5 py-0.5 text-[10px] font-bold text-blue-600 dark:text-blue-300">
                 内置
               </span>
             </div>
-            <p class="mt-1 truncate text-[10px] text-muted">
+            <p class="mt-1 truncate text-[11px] text-muted">
               {{ item.record.manifest.id }} · v{{ item.record.manifest.version }} · {{ item.record.manifest.description || "无描述" }}
             </p>
           </div>
@@ -163,15 +163,15 @@
             <div class="mt-1 font-mono text-[10px] font-semibold text-secondary">{{ item.record.manifest.runtime }}</div>
           </div>
 
-          <div class="min-w-[110px]">
-            <div class="text-[9px] font-semibold text-muted">健康状态</div>
-            <div class="mt-1 flex items-center gap-1.5 text-[10px] font-bold" :class="healthTone(pluginHealthReport(item))">
+          <div class="w-full pl-14 md:w-auto md:min-w-[110px] md:pl-0">
+            <div class="text-[10px] font-semibold text-muted">健康状态</div>
+            <div class="mt-1 flex items-center gap-1.5 text-[11px] font-bold" :class="healthTone(pluginHealthReport(item))">
               <span class="h-1.5 w-1.5 rounded-full bg-current"></span>
               {{ healthText(pluginHealthReport(item)) }}
             </div>
           </div>
 
-          <div class="ml-auto flex items-center gap-2">
+          <div class="ml-14 flex flex-1 items-center justify-end gap-2 md:ml-auto md:flex-none">
             <el-switch
               v-if="item.record.source !== 'builtin'"
               :model-value="item.record.enabled"
@@ -182,7 +182,7 @@
             <button
               v-if="item.record.manifest.ui?.enabled && item.record.enabled"
               type="button"
-              class="accent-subtle h-8 rounded-md px-2.5 text-[11px] font-bold transition-[filter,box-shadow] duration-200 hover:brightness-95 focus-visible:ring-2 focus-visible:ring-primary/25"
+              class="accent-subtle h-11 rounded-md px-3 text-[11px] font-bold transition-[filter,box-shadow] duration-200 hover:brightness-95 focus-visible:ring-2 focus-visible:ring-primary/25 md:h-8 md:px-2.5"
               @click="openPluginApp(item)"
             >
               打开
@@ -194,7 +194,7 @@
             >
               <button
                 type="button"
-                class="h-8 w-8 rounded-md text-secondary flex-center transition-colors hover:bg-soft hover:text-default"
+                class="h-11 w-11 rounded-md text-secondary flex-center transition-colors hover:bg-soft hover:text-default md:h-8 md:w-8"
                 title="更多操作"
               >
                 <span class="i-ep-more-filled"></span>
@@ -251,8 +251,8 @@
                 <h3 class="m-0 truncate text-[12px] font-bold text-default">{{ theme.name }}</h3>
                 <span v-if="pluginThemes.activeThemeId === theme.plugin_id" class="accent-subtle rounded px-1.5 py-0.5 text-[9px] font-bold">使用中</span>
               </div>
-              <p class="mt-1 line-clamp-2 text-[10px] leading-4 text-muted">{{ theme.description }}</p>
-              <div class="mt-1 font-mono text-[9px] text-muted">{{ theme.plugin_id }} · v{{ theme.version }}</div>
+              <p class="mt-1 line-clamp-2 text-[11px] leading-4 text-muted">{{ theme.description }}</p>
+              <div class="mt-1 font-mono text-[10px] text-muted">{{ theme.plugin_id }} · v{{ theme.version }}</div>
             </div>
           </div>
           <div class="mt-3 flex justify-end">
@@ -273,7 +273,7 @@
       <div class="flex flex-wrap items-center gap-2">
         <el-select
           v-model="market.selectedUrl"
-          class="min-w-[260px] flex-1"
+          class="w-full min-w-0 flex-1 md:min-w-[260px]"
           placeholder="选择插件发布源"
           filterable
         >
@@ -321,7 +321,7 @@
           <div class="h-10 w-10 shrink-0 rounded-md bg-soft text-primary flex-center">
             <span :class="marketIcon()" class="text-[17px]"></span>
           </div>
-          <div class="min-w-[200px] flex-1">
+          <div class="min-w-0 flex-1 md:min-w-[200px]">
             <div class="flex flex-wrap items-center gap-2">
               <h2 class="m-0 text-[13px] font-bold text-default">{{ entry.name }}</h2>
               <span
@@ -331,11 +331,11 @@
                 {{ marketEntryIsSigned(entry) ? "已签名" : "未签名" }}
               </span>
             </div>
-            <p class="mt-1 truncate text-[10px] text-muted">{{ entry.description || entry.id }}</p>
+            <p class="mt-1 truncate text-[11px] text-muted">{{ entry.description || entry.id }}</p>
           </div>
-          <div class="min-w-[100px] text-right sm:text-left">
-            <div class="text-[9px] font-semibold text-muted">版本</div>
-            <div class="mt-1 font-mono text-[10px] font-bold text-secondary">v{{ entry.version }}</div>
+          <div class="min-w-0 text-right md:min-w-[100px] md:text-left">
+            <div class="text-[10px] font-semibold text-muted">版本</div>
+            <div class="mt-1 font-mono text-[11px] font-bold text-secondary">v{{ entry.version }}</div>
           </div>
           <div class="ml-auto">
             <el-button size="small" type="primary" @click="installFromMarket(entry)">
@@ -346,11 +346,13 @@
       </div>
     </section>
 
-    <el-dialog
-      v-model="installDialog.visible"
+    <ResponsiveDialog
+      v-model:visible="installDialog.visible"
       :title="installDialog.operation === 'install' ? '安装扩展' : `更新 ${installDialog.pluginName}`"
-      width="560px"
-      class="responsive-dialog"
+      desktop-size="md"
+      content-preset="form"
+      size="82%"
+      append-to-body
     >
       <div class="space-y-4">
         <label class="block">
@@ -423,11 +425,11 @@
           {{ installDialog.operation === "install" ? "安装" : "更新" }}
         </el-button>
       </template>
-    </el-dialog>
+    </ResponsiveDialog>
 
-    <el-dialog v-model="marketSourcesDialogVisible" title="插件发布源" width="680px" class="responsive-dialog">
+    <ResponsiveDialog v-model:visible="marketSourcesDialogVisible" title="插件发布源" desktop-size="lg" content-preset="list" size="86%" append-to-body>
       <div class="space-y-3">
-        <div class="grid gap-2 sm:grid-cols-[160px_minmax(0,1fr)_auto]">
+        <div class="grid gap-2 md:grid-cols-[160px_minmax(0,1fr)_auto]">
           <el-input v-model="market.draftName" placeholder="名称" />
           <el-input v-model="market.draftUrl" placeholder="https://example.com/plugins/index.json" />
           <el-button @click="addMarketSource">添加</el-button>
@@ -443,7 +445,7 @@
               <div class="truncate text-[11px] font-bold text-default">{{ source.name || "未命名发布源" }}</div>
               <div class="mt-0.5 truncate font-mono text-[9px] text-muted">{{ source.url }}</div>
             </div>
-            <button type="button" class="h-8 w-8 rounded-md text-rose-600 flex-center hover:bg-rose-50 dark:text-rose-300 dark:hover:bg-rose-950/20" title="删除" @click="removeMarketSource(source)">
+            <button type="button" class="h-11 w-11 rounded-md text-rose-600 flex-center hover:bg-rose-50 dark:text-rose-300 dark:hover:bg-rose-950/20 md:h-8 md:w-8" title="删除" @click="removeMarketSource(source)">
               <span class="i-ep-delete"></span>
             </button>
           </div>
@@ -454,12 +456,12 @@
         <el-button @click="marketSourcesDialogVisible = false">取消</el-button>
         <el-button type="primary" :loading="market.sourcesSaving" @click="saveMarketSources">保存</el-button>
       </template>
-    </el-dialog>
+    </ResponsiveDialog>
 
-    <el-dialog v-model="historyDialog.visible" :title="`${historyDialog.pluginName} 版本历史`" width="620px" class="responsive-dialog">
+    <ResponsiveDialog v-model:visible="historyDialog.visible" :title="`${historyDialog.pluginName} 版本历史`" desktop-size="lg" content-preset="list" size="82%" append-to-body>
       <div v-if="historyDialog.loading" class="h-28 flex-center text-[11px] font-semibold text-muted">正在读取历史版本...</div>
       <div v-else-if="!historyDialog.versions.length" class="h-28 flex-center text-[11px] font-semibold text-muted">暂无历史版本</div>
-      <div v-else class="overflow-hidden rounded-md border border-light">
+      <div v-else class="overflow-y-auto rounded-md border border-light">
         <div
           v-for="version in historyDialog.versions"
           :key="version.id"
@@ -472,20 +474,31 @@
           <el-button size="small" @click="rollbackVersion(version)">回滚</el-button>
         </div>
       </div>
-    </el-dialog>
+    </ResponsiveDialog>
+
+    <ExtensionImpactPreviewDialog
+      v-if="impactDialog.preview"
+      :visible="impactDialog.visible"
+      :preview="impactDialog.preview"
+      @cancel="resolveImpactPreview(false)"
+      @confirm="resolveImpactPreview(true)"
+      @update:visible="impactDialog.visible = $event"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
 import { useExtensionManager } from "../composables/useExtensionManager";
+import ResponsiveDialog from "@/components/common/ResponsiveDialog.vue";
+import ExtensionImpactPreviewDialog from "./ExtensionImpactPreviewDialog.vue";
 
 const {
   views, installMethodOptions, router, appStore, workspace, pluginApps, pluginThemes, activeView,
   searchQuery, statusFilter, loading, busyPlugin, installedPluginRecords, pluginHealth, marketSourcesDialogVisible, market,
-  installDialog, historyDialog, allPlugins, capabilityLabel, visibleCapabilities, normalizedSearch, visiblePlugins, marketVisiblePlugins,
+  installDialog, historyDialog, impactDialog, allPlugins, capabilityLabel, visibleCapabilities, normalizedSearch, visiblePlugins, marketVisiblePlugins,
   marketVisibleUpdates, enabledCount, appCount, themeCount, themeSwatches, healthByPlugin, pluginHealthReport, pluginIcon,
   marketIcon, marketEntryIsSigned, healthText, healthTone, formatTime, loadPlugins, loadMarketSources, loadAll, addMarketSource,
-  removeMarketSource, saveMarketSources, loadMarket, checkMarketUpdates, installedVersion, impactSummary, confirmPreview, openInstall,
+  removeMarketSource, saveMarketSources, loadMarket, checkMarketUpdates, installedVersion, confirmPreview, resolveImpactPreview, openInstall,
   openUpdate, handleInstallFile, uploadForm, submitInstallDialog, togglePlugin, removePlugin, handlePluginCommand, openHistory,
   rollbackVersion, installFromMarket, openPluginApp,
 } = useExtensionManager();

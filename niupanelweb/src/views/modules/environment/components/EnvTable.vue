@@ -163,7 +163,7 @@ const handleMobileCommand = ({ action, env }: MobileEnvCommand) => {
 
     <div
       v-else
-      class="mobile-dock-safe flex-1 overflow-y-auto custom-scrollbar"
+      class="flex-1 overflow-y-auto custom-scrollbar"
     >
       <div
         v-if="data.length === 0 && !loading"
@@ -212,7 +212,7 @@ const handleMobileCommand = ({ action, env }: MobileEnvCommand) => {
             <el-dropdown trigger="click" @command="handleMobileCommand">
               <button
                 type="button"
-                class="h-8 w-8 shrink-0 rounded-md text-secondary flex-center transition-colors hover:bg-soft hover:text-default"
+                class="h-11 w-11 shrink-0 rounded-md text-secondary flex-center transition-colors hover:bg-soft hover:text-default"
                 title="环境操作"
                 aria-label="环境操作"
               >

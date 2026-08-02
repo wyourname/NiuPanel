@@ -1,29 +1,85 @@
 <template>
-  <el-drawer
-    v-model="drawerVisible"
-    size="100%"
-    :with-header="false"
-    direction="btt"
+  <OverlayDrawer
+    v-model:visible="drawerVisible"
+    :title="task?.name || '任务日志'"
+    variant="workspace"
+    content-preset="workspace"
     destroy-on-close
     append-to-body
-    class="log-modal"
     :lock-scroll="false"
   >
-    <div class="flex-1 flex flex-col bg-[var(--editor-bg)] overflow-hidden">
-      <TaskMobileLogHeader
-        :show-timeline="showTimeline"
-        :task="task"
-        @clear="clear"
-        @close="drawerVisible = false"
-        @download-logs="emit('download-logs')"
-        @edit="emit('edit', $event)"
-        @edit-cron="emit('edit-cron', $event)"
-        @edit-script="emit('edit-script', $event)"
-        @edit-variables="emit('edit-variables', $event)"
-        @share="emit('share', $event)"
-        @toggle-timeline="toggleTimeline"
-      />
+    <template #title>
+      <div class="flex min-w-0 items-center gap-2">
+        <span
+          :class="getEnvIcon(task)"
+          class="h-8 w-8 shrink-0 text-xl flex-center"
+          aria-hidden="true"
+        ></span>
+        <div class="min-w-0">
+          <div class="truncate text-[13px] font-bold leading-tight text-default">
+            {{ task?.name || "任务日志" }}
+          </div>
+          <div
+            class="mt-0.5 truncate text-[10px] font-semibold leading-tight"
+            :class="task?.status === 'Running' ? 'text-primary' : 'text-muted'"
+          >
+            {{ task?.status === "Running" ? "正在运行" : task?.status === "Paused" ? "已暂停" : "未运行" }}
+          </div>
+        </div>
+      </div>
+    </template>
 
+    <template #header-actions>
+      <button
+        type="button"
+        class="mobile-touch-target cursor-pointer rounded-md text-secondary flex-center transition-colors hover:bg-soft hover:text-default"
+        :class="showTimeline ? 'accent-subtle' : ''"
+        title="运行历史"
+        aria-label="显示运行历史"
+        @click="toggleTimeline"
+      >
+        <span class="i-ep-clock text-[18px]" aria-hidden="true"></span>
+      </button>
+
+      <el-dropdown trigger="click">
+        <button
+          type="button"
+          class="mobile-touch-target cursor-pointer rounded-md text-secondary flex-center transition-colors hover:bg-soft hover:text-default"
+          title="更多操作"
+          aria-label="更多日志操作"
+        >
+          <span class="i-ep-more-filled rotate-90 text-[20px]" aria-hidden="true"></span>
+        </button>
+        <template #dropdown>
+          <el-dropdown-menu class="modern-dropdown w-48">
+            <el-dropdown-item v-if="task" @click="emit('edit', task)">
+              <span class="flex items-center gap-3"><span class="i-ep-edit text-lg"></span>编辑任务</span>
+            </el-dropdown-item>
+            <el-dropdown-item v-if="task" @click="emit('edit-variables', task.id)">
+              <span class="flex items-center gap-3"><span class="i-ep-key text-lg text-emerald-500"></span>环境变量</span>
+            </el-dropdown-item>
+            <el-dropdown-item v-if="task" @click="emit('edit-cron', task)">
+              <span class="flex items-center gap-3"><span class="i-ep-clock text-lg text-orange-400"></span>定时规则</span>
+            </el-dropdown-item>
+            <el-dropdown-item v-if="task" @click="emit('edit-script', task)">
+              <span class="flex items-center gap-3"><span class="i-ep-document text-lg text-purple-500"></span>编辑脚本</span>
+            </el-dropdown-item>
+            <el-dropdown-item v-if="task" @click="emit('share', task)">
+              <span class="flex items-center gap-3"><span class="i-ep-share text-lg text-purple-500"></span>分享资源</span>
+            </el-dropdown-item>
+            <div class="mx-2 my-1 h-px bg-light/50"></div>
+            <el-dropdown-item @click="clear">
+              <span class="flex items-center gap-3"><span class="i-ep-delete text-lg text-rose-500"></span>清空日志</span>
+            </el-dropdown-item>
+            <el-dropdown-item @click="emit('download-logs')">
+              <span class="flex items-center gap-3"><span class="i-ep-download text-lg text-blue-500"></span>下载日志</span>
+            </el-dropdown-item>
+          </el-dropdown-menu>
+        </template>
+      </el-dropdown>
+    </template>
+
+    <div class="flex-1 flex flex-col bg-[var(--editor-bg)] overflow-hidden">
       <div class="flex-1 overflow-hidden relative z-10">
         <div
           v-show="showTimeline"
@@ -90,7 +146,7 @@
 
       <TaskMobileLogFooter :task="task" @action="emit('action', $event)" />
     </div>
-  </el-drawer>
+  </OverlayDrawer>
 </template>
 
 <script setup lang="ts">
@@ -104,9 +160,10 @@ import type {
   TaskRunTimelineItem,
 } from "../../composables/taskPageTypes";
 import type { Task } from "@/types";
+import OverlayDrawer from "../common/OverlayDrawer.vue";
+import { getEnvIcon } from "../../composables/useTaskPresentation";
 import TaskRunTimeline from "./TaskRunTimeline.vue";
 import TaskMobileLogFooter from "./TaskMobileLogFooter.vue";
-import TaskMobileLogHeader from "./TaskMobileLogHeader.vue";
 
 const props = defineProps<{
   logProgressValue: number;

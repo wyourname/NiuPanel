@@ -31,6 +31,7 @@
         :is-selected="isSelected"
         :selection-mode="selectionMode"
         :task="task"
+        @logs="emit('logs', task)"
         @more-actions="emit('more-actions', task)"
         @run="emit('run', task.id)"
         @selection-change="handleSelectionChange"

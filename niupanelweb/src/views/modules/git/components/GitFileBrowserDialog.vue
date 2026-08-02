@@ -2,10 +2,12 @@
   <ResponsiveDialog
     v-model:visible="visible"
     title="仓库文件浏览"
-    width="600px"
+    desktop-size="lg"
+    content-preset="list"
+    mobile-mode="fullscreen"
     append-to-body
   >
-    <div class="flex h-[70vh] max-h-[520px] flex-col p-3 sm:p-4">
+    <div class="flex h-full min-h-0 flex-col md:h-[70vh] md:max-h-[520px]">
       <div
         class="mb-3 flex items-center gap-2 overflow-x-auto whitespace-nowrap rounded-md bg-subtle p-2 text-sm"
       >

@@ -28,40 +28,44 @@ const routes = [
   {
     path: '/login',
     name: 'login',
-    component: Login
+    component: Login,
+    meta: { title: '登录' }
   },
   {
     path: '/onboarding',
     name: 'onboarding',
-    component: Onboarding
+    component: Onboarding,
+    meta: { title: '首次配置' }
   },
   {
     path: '/',
     component: MainLayout,
     redirect: '/tasks',
     children: [
-      { path: 'overview', name: 'overview', component: Overview },
-      { path: 'tasks', name: 'tasks', component: Tasks },
-      { path: 'variables', name: 'variables', component: Variables },
-      { path: 'files', name: 'files', component: File },
-      { path: 'environments', name: 'environments', component: Environment },
-      { path: 'share', name: 'share', component: Share },
-      { path: 'extensions', name: 'extensions', component: Extensions },
-      { path: 'settings', name: 'settings', component: Settings },
-      { path: 'terminal', name: 'terminal', component: Terminal },
-      { path: 'git', name: 'git', component: Git },
-      { path: 'more', name: 'more', component: More },
-      { path: 'webhook', name: 'webhook', component: Webhook },
-      { path: 'telegram', name: 'telegram', component: Telegram },
+      { path: 'overview', name: 'overview', component: Overview, meta: { title: '系统概览' } },
+      { path: 'tasks', name: 'tasks', component: Tasks, meta: { title: '任务列表' } },
+      { path: 'variables', name: 'variables', component: Variables, meta: { title: '环境变量' } },
+      { path: 'files', name: 'files', component: File, meta: { title: '文件管理' } },
+      { path: 'environments', name: 'environments', component: Environment, meta: { title: '环境管理' } },
+      { path: 'share', name: 'share', component: Share, meta: { title: '分享中心' } },
+      { path: 'extensions', name: 'extensions', component: Extensions, meta: { title: '扩展中心' } },
+      { path: 'settings', name: 'settings', component: Settings, meta: { title: '系统设置' } },
+      { path: 'terminal', name: 'terminal', component: Terminal, meta: { title: '系统终端' } },
+      { path: 'git', name: 'git', component: Git, meta: { title: 'Git 管理' } },
+      { path: 'more', name: 'more', component: More, meta: { title: '更多功能' } },
+      { path: 'webhook', name: 'webhook', component: Webhook, meta: { title: 'Webhook' } },
+      { path: 'telegram', name: 'telegram', component: Telegram, meta: { title: '电报机器人' } },
       {
         path: 'plugins/agents/:pathMatch(.*)*',
         name: 'plugin-agents',
-        component: AgentsGateway
+        component: AgentsGateway,
+        meta: { title: '智能代理' }
       },
       {
         path: 'plugins/:pluginId/:pathMatch(.*)*',
         name: 'plugin-app',
-        component: PluginHostView
+        component: PluginHostView,
+        meta: { title: '插件应用' }
       }
     ]
   }
@@ -72,34 +76,23 @@ const router = createRouter({
   routes
 })
 
-router.beforeEach(async (to, from, next) => {
+router.beforeEach(async (to, from) => {
   const userStore = useUserStore()
   const isAuthenticated = !!(userStore.userInfo && userStore.userInfo.username)
 
   // 1. If visiting login page
   if (to.name === 'login') {
-    if (isAuthenticated) {
-      next({ name: 'tasks' })
-    } else {
-      next()
-    }
-    return
+    return isAuthenticated ? { name: 'tasks' } : true
   }
 
   // 2. Allow onboarding page if authenticated
   if (to.name === 'onboarding') {
-    if (!isAuthenticated) {
-      next({ name: 'login' })
-    } else {
-      next()
-    }
-    return
+    return isAuthenticated ? true : { name: 'login' }
   }
 
   // 3. If visiting protected routes
   if (!isAuthenticated) {
-    next({ name: 'login' })
-    return
+    return { name: 'login' }
   }
 
   try {
@@ -114,15 +107,14 @@ router.beforeEach(async (to, from, next) => {
       const res = await request.get<ApiResponse<boolean>, ApiResponse<boolean>>('/settings/onboarding')
       const isDone = res.data === true
       if (!isDone) {
-        next({ name: 'onboarding' })
-        return
+        return { name: 'onboarding' }
       }
     } catch (_) {
       // On error, don't block the user
     }
   }
 
-  next()
+  return true
 })
 
 export default router

@@ -2,11 +2,12 @@
   <ResponsiveDialog
     v-model:visible="visibleValue"
     title="从 URL 导入"
-    width="460px"
+    desktop-size="sm"
+    content-preset="form"
     append-to-body
     destroy-on-close
   >
-    <div class="flex flex-col gap-5 p-5 md:p-6">
+    <div class="flex flex-col gap-4">
       <el-form
         ref="formRef"
         :model="form"

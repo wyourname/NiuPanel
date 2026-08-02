@@ -11,6 +11,7 @@ use utoipa::ToSchema;
 
 pub const PANEL_RUNTIME_DATABASE_FILE: &str = "runtime.db";
 pub const PANEL_RUNTIME_SCHEMA_VERSION: i64 = 1;
+pub const PANEL_RUNTIME_NOT_INITIALIZED: &str = "Panel runtime is not initialized";
 const DIRECTORY_DIGEST_DOMAIN: &[u8] = b"NIUPANEL-DIRECTORY-DIGEST-V1\0";
 static ACTIVATION_QUEUE_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
@@ -448,7 +449,7 @@ pub async fn read_panel_runtime_state(
         ))
         .await
         .map_err(|error| format!("Failed to read panel runtime state: {error}"))?
-        .ok_or_else(|| "Panel runtime is not initialized".to_string())?;
+        .ok_or_else(|| PANEL_RUNTIME_NOT_INITIALIZED.to_string())?;
     let protocol = row
         .try_get_by_index::<i64>(0)
         .map_err(|error| error.to_string())? as u32;

@@ -2,10 +2,12 @@
   <ResponsiveDialog
     v-model:visible="visible"
     title="扫描并导入任务"
-    width="700px"
+    desktop-size="lg"
+    content-preset="list"
+    mobile-mode="fullscreen"
     append-to-body
   >
-    <div class="flex h-[72vh] max-h-[620px] flex-col p-3 sm:p-4">
+    <div class="flex h-full min-h-0 flex-col md:h-[72vh] md:max-h-[620px]">
       <div class="mb-3 flex items-center justify-between gap-3">
         <p class="text-xs text-muted">
           已发现 {{ tasks.length }} 个潜在任务。勾选你想要导入的任务。

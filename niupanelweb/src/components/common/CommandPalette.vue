@@ -78,10 +78,9 @@ const {
 <style scoped>
 .command-palette-overlay {
   position: fixed;
-  top: 0;
-  left: 0;
-  width: 100vw;
-  height: 100vh;
+  inset: 0;
+  width: 100%;
+  height: var(--app-viewport-height);
   background: rgba(0, 0, 0, 0.5);
   backdrop-filter: blur(4px);
   z-index: 2000;
@@ -117,7 +116,7 @@ const {
   .command-palette-container {
     width: 100%;
     max-width: 100%;
-    height: 100%;
+    height: var(--app-viewport-height);
     border-radius: 0;
     border: none;
     animation: none;

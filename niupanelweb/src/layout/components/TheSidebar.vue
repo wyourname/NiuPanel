@@ -1,12 +1,17 @@
 <template>
   <aside
-    class="pointer-events-none fixed inset-x-0 bottom-3 z-50 flex justify-center px-1 pb-safe select-none md:bottom-5 md:px-4"
+    class="pointer-events-none fixed inset-x-0 bottom-2 z-50 flex justify-center px-1 pb-safe select-none md:bottom-5 md:px-4"
   >
-    <div class="dock-shell w-[calc(100vw-8px)] max-w-[calc(100vw-8px)] justify-center md:w-auto md:max-w-[calc(100vw-32px)]">
+    <div
+      ref="dockScrollRef"
+      class="dock-shell w-full max-w-full md:w-auto md:max-w-[calc(100vw-32px)]"
+      :class="appStore.isMobile ? 'dock-mobile-scroll overflow-x-auto overscroll-x-contain no-scrollbar' : 'justify-center overflow-visible'"
+    >
       <button
         type="button"
-        class="group dock-item-base h-9 w-9 overflow-hidden rounded-lg bg-primary text-sm font-extrabold text-white shadow-sm md:h-10 md:w-10"
+        class="group dock-item-base h-11 w-11 overflow-hidden rounded-lg bg-primary text-sm font-extrabold text-white shadow-sm md:h-10 md:w-10"
         :class="isOverviewActive ? 'ring-2 ring-primary/25' : 'hover:opacity-90'"
+        :aria-current="isOverviewActive ? 'page' : undefined"
         :title="systemName"
         aria-label="系统概览"
         @click="handleOverviewSelect"
@@ -24,7 +29,7 @@
           v-for="item in primaryDockItems"
           :key="item.index"
           type="button"
-          class="group dock-item-base h-9 w-9 rounded-lg md:h-10 md:w-10"
+          class="group dock-item-base h-11 w-11 rounded-lg md:h-10 md:w-10"
           :class="isMenuItemActive(item) ? activeDockItemClass : 'dock-item-idle'"
           :aria-current="isMenuItemActive(item) ? 'page' : undefined"
           :aria-label="item.title"
@@ -56,7 +61,7 @@
             v-for="item in visibleWindowItems"
             :key="item.id"
             type="button"
-            class="group dock-item-base h-9 w-9 rounded-lg md:h-10 md:w-10"
+            class="group dock-item-base h-11 w-11 rounded-lg md:h-10 md:w-10"
             :class="workspace.activeWindowId === item.id ? activeDockItemClass : 'dock-item-idle'"
             :aria-current="workspace.activeWindowId === item.id ? 'page' : undefined"
             :aria-label="item.title"
@@ -85,7 +90,7 @@
             v-for="item in systemDockItems"
             :key="item.index"
             type="button"
-            class="group dock-item-base h-9 w-9 rounded-lg md:h-10 md:w-10"
+            class="group dock-item-base h-11 w-11 rounded-lg md:h-10 md:w-10"
             :class="isMenuItemActive(item) ? activeDockItemClass : 'dock-item-idle'"
             :aria-current="isMenuItemActive(item) ? 'page' : undefined"
             :aria-label="item.title"
@@ -117,7 +122,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, nextTick, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import ContextMenu from "../../components/common/ContextMenu.vue";
 import type {
@@ -154,6 +159,7 @@ const { systemName, logoUrl } = useSystemSettings();
 const dockContextMenuVisible = ref(false);
 const dockContextMenuPosition = ref<ContextMenuPosition>({ x: 0, y: 0 });
 const dockContextItem = ref<DockMenuItem | null>(null);
+const dockScrollRef = ref<HTMLElement | null>(null);
 const activeDockItemClass = "dock-item-active !bg-slate-100 !text-slate-900 !ring-slate-900/10 dark:!bg-white/12 dark:!text-white dark:!ring-white/12";
 const activeDockIconClass = "!text-slate-900 opacity-100 dark:!text-white";
 const activeDockDotClass = "absolute -bottom-1 left-1/2 h-1 w-1 -translate-x-1/2 rounded-full bg-slate-900/70 dark:bg-white/80";
@@ -191,7 +197,7 @@ const toDockItems = (ids: readonly string[]): DockMenuItem[] =>
 void pluginApps.loadApps().catch(() => {});
 
 const pluginDockItems = computed<DockMenuItem[]>(() =>
-  pluginApps.menuApps
+  (appStore.isMobile ? pluginApps.mobileApps : pluginApps.menuApps)
     .map((app) => {
       const route = primaryPluginRoute(app);
       return {
@@ -401,4 +407,29 @@ const handleDockContextSelect = async (action: string) => {
 
   await handleSelect(item);
 };
+
+const scrollActiveDockItemIntoView = async () => {
+  if (!appStore.isMobile) return;
+  await nextTick();
+  const activeItem = dockScrollRef.value?.querySelector<HTMLElement>(
+    '[aria-current="page"]',
+  );
+  activeItem?.scrollIntoView({ block: "nearest", inline: "center" });
+};
+
+watch(
+  () => [
+    route.fullPath,
+    appStore.isMobile,
+    primaryDockItems.value.map((item) => item.index).join(","),
+  ],
+  scrollActiveDockItemIntoView,
+  { immediate: true },
+);
 </script>
+
+<style scoped>
+.dock-mobile-scroll {
+  justify-content: safe center;
+}
+</style>

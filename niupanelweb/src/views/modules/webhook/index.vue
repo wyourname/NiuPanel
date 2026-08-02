@@ -1,6 +1,6 @@
 <template>
   <div
-    class="h-full flex flex-col overflow-y-auto custom-scrollbar p-4 md:p-6 gap-6 max-w-[1000px] mx-auto relative w-full"
+    class="relative mx-auto flex h-full w-full max-w-[1000px] flex-col gap-4 overflow-y-auto p-3 custom-scrollbar md:gap-6 md:p-6"
   >
     <!-- Header -->
     <div class="shrink-0">
@@ -15,7 +15,7 @@
       </p>
     </div>
 
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+    <div class="grid grid-cols-1 gap-4 md:grid-cols-3 md:gap-6">
       <!-- Left: Form -->
       <div class="md:col-span-2 space-y-6">
         <div class="common-card p-2">
@@ -76,7 +76,7 @@
           </p>
 
           <div
-            class="group relative overflow-x-auto rounded-md bg-dark-900/90 p-3 font-mono text-[10px] text-slate-300"
+            class="group relative overflow-x-auto rounded-md bg-dark-900/90 p-3 font-mono text-[11px] text-slate-300"
           >
             <pre><code>POST /api/v1/webhook/push
 X-API-Key: npk_xxx
@@ -168,6 +168,21 @@ const handlePush = async () => {
   border: 1px solid var(--el-border-color) !important;
   font-size: 12px;
   font-weight: bold;
+}
+
+@media (max-width: 768px) {
+  :deep(.modern-radio) {
+    display: grid;
+    width: 100%;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  :deep(.modern-radio .el-radio-button),
+  :deep(.modern-radio .el-radio-button__inner) {
+    width: 100%;
+    margin-right: 0;
+  }
 }
 
 :deep(.modern-radio .el-radio-button:first-child .el-radio-button__inner) {

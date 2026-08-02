@@ -2,12 +2,14 @@
   <ResponsiveDialog
     v-model:visible="visibleValue"
     :title="`历史日志 - 运行 #${runId}`"
-    width="860px"
+    desktop-size="xl"
+    content-preset="workspace"
+    mobile-mode="fullscreen"
     append-to-body
     destroy-on-close
   >
     <div
-      class="h-[60vh] overflow-y-auto bg-[#1e1e1e] p-4 font-mono text-xs leading-relaxed"
+      class="h-full min-h-0 overflow-y-auto bg-[#1e1e1e] p-4 font-mono text-xs leading-relaxed md:h-[60vh]"
       v-loading="loading"
     >
       <pre

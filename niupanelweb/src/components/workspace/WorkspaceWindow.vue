@@ -119,7 +119,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import type {
   WorkspaceWindow,
   WorkspaceWindowPlacement,
@@ -154,13 +154,29 @@ const emit = defineEmits<{
   (event: "update-bounds", bounds: Partial<WorkspaceWindow["bounds"]>): void;
 }>();
 
-const windowStyle = computed(() => ({
-  left: `${props.window.bounds.x}px`,
-  top: `${props.window.bounds.y}px`,
-  width: `${props.window.bounds.width}px`,
-  height: `${props.window.bounds.height}px`,
-  zIndex: props.window.zIndex,
-}));
+const viewportSize = ref({
+  width: typeof window === "undefined" ? 1440 : window.innerWidth,
+  height: typeof window === "undefined" ? 900 : window.innerHeight,
+});
+
+const windowStyle = computed(() => {
+  const bounds = props.window.maximized
+    ? {
+        x: 12,
+        y: 12,
+        width: Math.max(320, viewportSize.value.width - 24),
+        height: Math.max(240, viewportSize.value.height - 104),
+      }
+    : props.window.bounds;
+
+  return {
+    left: `${bounds.x}px`,
+    top: `${bounds.y}px`,
+    width: `${bounds.width}px`,
+    height: `${bounds.height}px`,
+    zIndex: props.window.zIndex,
+  };
+});
 
 const resizeHandles: ResizeHandle[] = [
   {
@@ -207,6 +223,42 @@ const handlePlacementCommand = (command: unknown) => {
   if (isWindowPlacement(command)) emit("place", command);
 };
 
+const viewportPadding = 8;
+const clamp = (value: number, min: number, max: number) =>
+  Math.min(Math.max(value, min), Math.max(min, max));
+
+const fitWindowToViewport = () => {
+  viewportSize.value = {
+    width: window.innerWidth,
+    height: window.innerHeight,
+  };
+  if (props.window.maximized) return;
+
+  const availableWidth = Math.max(320, window.innerWidth - viewportPadding * 2);
+  const availableHeight = Math.max(240, window.innerHeight - viewportPadding * 2);
+  const width = Math.min(props.window.bounds.width, availableWidth);
+  const height = Math.min(props.window.bounds.height, availableHeight);
+  const x = clamp(
+    props.window.bounds.x,
+    viewportPadding,
+    window.innerWidth - width - viewportPadding,
+  );
+  const y = clamp(
+    props.window.bounds.y,
+    viewportPadding,
+    window.innerHeight - height - viewportPadding,
+  );
+
+  if (
+    width !== props.window.bounds.width ||
+    height !== props.window.bounds.height ||
+    x !== props.window.bounds.x ||
+    y !== props.window.bounds.y
+  ) {
+    emit("update-bounds", { x, y, width, height });
+  }
+};
+
 const startDrag = (event: PointerEvent) => {
   if (props.window.maximized) return;
   const target = event.target as HTMLElement | null;
@@ -218,9 +270,12 @@ const startDrag = (event: PointerEvent) => {
   const { x, y } = props.window.bounds;
 
   const move = (moveEvent: PointerEvent) => {
+    const maxX = window.innerWidth - props.window.bounds.width - viewportPadding;
+    const maxY = window.innerHeight - props.window.bounds.height - viewportPadding;
+
     emit("update-bounds", {
-      x: Math.max(8, x + moveEvent.clientX - startX),
-      y: Math.max(8, y + moveEvent.clientY - startY),
+      x: clamp(x + moveEvent.clientX - startX, viewportPadding, maxX),
+      y: clamp(y + moveEvent.clientY - startY, viewportPadding, maxY),
     });
   };
 
@@ -239,8 +294,16 @@ const startResize = (event: PointerEvent, direction: ResizeDirection) => {
   const startX = event.clientX;
   const startY = event.clientY;
   const startBounds = { ...props.window.bounds };
-  const minWidth = 480;
-  const minHeight = 360;
+  const minWidth = Math.min(480, Math.max(320, window.innerWidth - 16));
+  const minHeight = Math.min(360, Math.max(240, window.innerHeight - 16));
+  const maxWidth = Math.max(
+    minWidth,
+    window.innerWidth - startBounds.x - viewportPadding,
+  );
+  const maxHeight = Math.max(
+    minHeight,
+    window.innerHeight - startBounds.y - viewportPadding,
+  );
 
   const move = (moveEvent: PointerEvent) => {
     const dx = moveEvent.clientX - startX;
@@ -248,33 +311,31 @@ const startResize = (event: PointerEvent, direction: ResizeDirection) => {
     const next = { ...startBounds };
 
     if (direction.includes("e")) {
-      next.width = Math.max(minWidth, startBounds.width + dx);
+      next.width = clamp(startBounds.width + dx, minWidth, maxWidth);
     }
 
     if (direction.includes("s")) {
-      next.height = Math.max(minHeight, startBounds.height + dy);
+      next.height = clamp(startBounds.height + dy, minHeight, maxHeight);
     }
 
     if (direction.includes("w")) {
-      const proposedWidth = startBounds.width - dx;
-      if (proposedWidth >= minWidth) {
-        next.x = Math.max(8, startBounds.x + dx);
-        next.width = startBounds.width + startBounds.x - next.x;
-      } else {
-        next.x = startBounds.x + startBounds.width - minWidth;
-        next.width = minWidth;
-      }
+      const right = startBounds.x + startBounds.width;
+      next.x = clamp(
+        startBounds.x + dx,
+        viewportPadding,
+        right - minWidth,
+      );
+      next.width = right - next.x;
     }
 
     if (direction.includes("n")) {
-      const proposedHeight = startBounds.height - dy;
-      if (proposedHeight >= minHeight) {
-        next.y = Math.max(8, startBounds.y + dy);
-        next.height = startBounds.height + startBounds.y - next.y;
-      } else {
-        next.y = startBounds.y + startBounds.height - minHeight;
-        next.height = minHeight;
-      }
+      const bottom = startBounds.y + startBounds.height;
+      next.y = clamp(
+        startBounds.y + dy,
+        viewportPadding,
+        bottom - minHeight,
+      );
+      next.height = bottom - next.y;
     }
 
     emit("update-bounds", next);
@@ -288,4 +349,13 @@ const startResize = (event: PointerEvent, direction: ResizeDirection) => {
   window.addEventListener("pointermove", move);
   window.addEventListener("pointerup", stop);
 };
+
+onMounted(() => {
+  fitWindowToViewport();
+  window.addEventListener("resize", fitWindowToViewport);
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener("resize", fitWindowToViewport);
+});
 </script>

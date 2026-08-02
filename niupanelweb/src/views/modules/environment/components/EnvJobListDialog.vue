@@ -1,51 +1,27 @@
 <template>
-  <component
-    :is="appStore.isMobile ? 'el-drawer' : 'el-dialog'"
-    v-model="visible"
-    :title="appStore.isMobile ? '环境任务' : ''"
-    :size="appStore.isMobile ? '100%' : '600px'"
-    :width="appStore.isMobile ? '100%' : '600px'"
-    :align-center="!appStore.isMobile"
-    direction="btt"
+  <ResponsiveDialog
+    v-model:visible="visible"
+    title="环境任务"
+    desktop-size="lg"
+    content-preset="list"
+    mobile-mode="fullscreen"
     destroy-on-close
     append-to-body
-    class="log-modal"
   >
-    <div class="flex-1 flex flex-col bg-[var(--editor-bg)] overflow-hidden">
-      <!-- Internal Header for PC/Modern Style -->
-      <div
-        class="flex items-center justify-between px-4 shrink-0 border-b border-[var(--editor-border)] h-12"
+    <template #header-actions>
+      <button
+        type="button"
+        class="mobile-touch-target h-9 w-9 cursor-pointer rounded-md text-secondary flex-center transition-colors hover:bg-soft hover:text-default"
+        title="刷新任务"
+        aria-label="刷新环境任务"
+        @click="fetchJobs"
       >
-        <div class="flex items-center gap-4 overflow-hidden">
-          <button
-            v-if="!appStore.isMobile"
-            type="button"
-            class="h-8 w-8 rounded-md text-muted flex-center transition-colors hover:bg-black/5 hover:text-default dark:hover:bg-white/5"
-            title="关闭"
-            aria-label="关闭环境任务对话框"
-            @click="visible = false"
-          >
-            <div class="i-ep-close text-lg"></div>
-          </button>
-          <span class="text-xs font-bold text-[var(--editor-text)] truncate">
-            {{ appStore.isMobile ? "" : "环境任务" }}
-          </span>
-        </div>
-        <div class="flex items-center gap-2">
-          <button
-            type="button"
-            class="h-8 w-8 rounded-md text-muted flex-center transition-colors hover:bg-black/5 hover:text-default dark:hover:bg-white/5"
-            title="刷新任务"
-            aria-label="刷新环境任务"
-            @click="fetchJobs"
-          >
-            <div :class="['i-ep-refresh', loading ? 'animate-spin' : '']"></div>
-          </button>
-        </div>
-      </div>
+        <span :class="['i-ep-refresh', loading ? 'animate-spin' : '']"></span>
+      </button>
+    </template>
 
-      <!-- Table Content with consistent padding -->
-      <div class="flex-1 overflow-hidden px-4">
+    <div class="flex min-h-[420px] flex-1 flex-col overflow-hidden md:h-[min(600px,70vh)]">
+      <div class="min-h-0 flex-1 overflow-hidden">
         <el-table
           :data="jobs"
           v-loading="loading"
@@ -101,7 +77,7 @@
         </el-table>
       </div>
     </div>
-  </component>
+  </ResponsiveDialog>
 </template>
 
 <script setup lang="ts">
@@ -109,6 +85,7 @@ import { ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import * as jobApi from "../../../../api/jobs";
 import { useAppStore } from "../../../../stores/app";
+import ResponsiveDialog from "../../../../components/common/ResponsiveDialog.vue";
 import type { Job } from "@/types";
 
 type TagType = "success" | "danger" | undefined;

@@ -42,9 +42,7 @@ const emit = defineEmits<{
 .fab-button {
   position: fixed;
   right: 20px;
-  bottom: calc(20px + env(safe-area-inset-bottom, 0px));
-  /* Offset for bottom nav if present */
-  margin-bottom: 64px;
+  bottom: calc(var(--mobile-dock-clearance) + 12px);
   width: 52px;
   height: 52px;
   border-radius: 50%;

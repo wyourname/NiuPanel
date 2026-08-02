@@ -50,7 +50,7 @@
           <span class="truncate">{{ taskNames }}</span>
         </span>
       </div>
-      <div class="text-[10px] text-muted mt-0.5 truncate flex items-center gap-1.5">
+      <div class="mt-0.5 flex items-center gap-1.5 truncate text-[11px] text-muted">
         <span class="font-mono">#{{ row.id }}</span>
         <span>·</span>
         <span>{{ row.remarks || (valueVisible ? (row.value ?? "").substring(0, 20) : "••••••••••••••••") }}</span>
@@ -96,7 +96,7 @@
     </div>
 
     <div class="flex items-center gap-2 shrink-0 md:hidden">
-      <span class="text-[9px] font-bold text-primary/60">{{ row.scope === 'Global' ? '全局' : '脚本' }}</span>
+      <span class="text-[11px] font-bold text-primary">{{ row.scope === 'Global' ? '全局' : '脚本' }}</span>
       <div class="i-ep-arrow-right text-muted opacity-30 text-xs"></div>
     </div>
 

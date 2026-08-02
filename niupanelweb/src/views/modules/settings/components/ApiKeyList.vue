@@ -3,7 +3,7 @@
     <PullToRefresh v-if="isMobile" :on-refresh="onRefresh">
       <div
         v-loading="loading"
-        class="mobile-dock-safe h-full overflow-y-auto custom-scrollbar"
+        class="h-full overflow-y-auto custom-scrollbar"
         :aria-busy="loading"
       >
         <div v-if="keys.length" class="space-y-2.5 pb-3">

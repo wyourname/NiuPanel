@@ -59,7 +59,6 @@
       @edit="emit('edit', $event)"
       @expand-qr="emit('expand-qr')"
       @load-more-timeline="emit('load-more-timeline')"
-      @open-log-window="emit('open-log-window')"
       @refresh-timeline="emit('refresh-timeline')"
       @save-script="emit('save-script')"
       @script-editor-mount="emit('script-editor-mount', $event)"
@@ -146,7 +145,6 @@ const emit = defineEmits<{
   (event: "load-more"): void;
   (event: "load-more-timeline"): void;
   (event: "more-actions", task: Task): void;
-  (event: "open-log-window"): void;
   (event: "quick-create"): void;
   (event: "refresh-timeline"): void;
   (event: "run", id: number): void;

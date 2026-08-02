@@ -62,7 +62,7 @@
     />
 
     <div
-      class="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-base bg-base px-4 py-3"
+      class="task-variable-editor__footer flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-base bg-base px-4 py-3"
     >
       <div class="flex items-center min-w-0">
         <transition name="el-fade-in-linear" mode="out-in">
@@ -99,34 +99,38 @@
       </div>
     </div>
 
-    <el-dialog
-      v-model="sourceModeVisible"
+    <ResponsiveDialog
+      v-model:visible="sourceModeVisible"
       title="源码模式"
-      width="90%"
+      desktop-size="fluid"
+      content-preset="workspace"
+      mobile-mode="fullscreen"
       append-to-body
       destroy-on-close
     >
-      <div
-        class="mb-3 text-xs text-muted bg-base p-3 rounded-lg flex items-start gap-2 leading-relaxed"
-      >
-        <div class="i-ep-info-filled text-primary shrink-0 mt-0.5"></div>
-        <span>
-          您可以直接粘贴 <b>KEY=VALUE</b>。含空格、换行或等号的值请使用双引号，
-          例如 <b>CONFIG="line1\nline=2"</b>；从列表生成的内容可无损往返。
-        </span>
+      <div class="flex min-h-0 flex-1 flex-col overflow-y-auto p-3">
+        <div
+          class="mb-3 text-xs text-muted bg-base p-3 rounded-lg flex items-start gap-2 leading-relaxed"
+        >
+          <div class="i-ep-info-filled text-primary shrink-0 mt-0.5"></div>
+          <span>
+            您可以直接粘贴 <b>KEY=VALUE</b>。含空格、换行或等号的值请使用双引号，
+            例如 <b>CONFIG="line1\nline=2"</b>；从列表生成的内容可无损往返。
+          </span>
+        </div>
+        <el-input
+          v-model="rawSource"
+          type="textarea"
+          :rows="15"
+          placeholder="APP_ID=12345&#10;SECRET=abcde..."
+          class="font-mono text-sm"
+        />
       </div>
-      <el-input
-        v-model="rawSource"
-        type="textarea"
-        :rows="15"
-        placeholder="APP_ID=12345&#10;SECRET=abcde..."
-        class="font-mono text-sm"
-      />
       <template #footer>
         <el-button @click="sourceModeVisible = false">取消</el-button>
         <el-button type="primary" @click="applySource">解析并应用</el-button>
       </template>
-    </el-dialog>
+    </ResponsiveDialog>
   </div>
 </template>
 
@@ -138,6 +142,7 @@ import { useTaskVariableEditorRows } from "../../composables/useTaskVariableEdit
 import { useTaskVariableReorder } from "../../composables/useTaskVariableReorder";
 import TaskVariableDesktopList from "./TaskVariableDesktopList.vue";
 import TaskVariableMobileList from "./TaskVariableMobileList.vue";
+import ResponsiveDialog from "../common/ResponsiveDialog.vue";
 
 const appStore = useAppStore();
 
@@ -212,3 +217,15 @@ watch(
   { immediate: true },
 );
 </script>
+
+<style scoped>
+@media (max-width: 768px) {
+  .task-variable-editor__footer {
+    padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .task-variable-editor__footer > :deep(.flex:last-child .el-button:not(.is-link)) {
+    min-height: var(--mobile-touch-target);
+  }
+}
+</style>

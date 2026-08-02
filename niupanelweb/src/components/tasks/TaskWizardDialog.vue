@@ -2,7 +2,9 @@
   <ResponsiveDialog
     v-model:visible="visibleValue"
     :title="task?.id ? '编辑任务' : '创建任务'"
-    :width="isMobile ? '100%' : '860px'"
+    desktop-size="xl"
+    content-preset="workspace"
+    mobile-mode="fullscreen"
     append-to-body
     destroy-on-close
   >
@@ -22,7 +24,6 @@ import TaskWizard from "./TaskWizard.vue";
 import ResponsiveDialog from "../common/ResponsiveDialog.vue";
 
 const props = defineProps<{
-  isMobile: boolean;
   task: TaskWizardInitialData | null;
   visible: boolean;
 }>();

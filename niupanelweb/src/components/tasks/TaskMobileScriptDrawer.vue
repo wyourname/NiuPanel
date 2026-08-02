@@ -1,59 +1,45 @@
 <template>
-  <el-drawer
-    v-model="visibleValue"
-    size="100%"
-    :with-header="false"
-    direction="btt"
+  <OverlayDrawer
+    v-model:visible="visibleValue"
+    :title="task?.name || '编辑脚本'"
+    variant="workspace"
+    content-preset="workspace"
+    custom-class="editor-overlay"
     destroy-on-close
     append-to-body
-    class="log-modal"
     :lock-scroll="false"
+    :close-on-header="false"
     @opened="emit('opened')"
     @close="emit('drawer-close')"
+    @request-close="emit('request-close')"
   >
-    <div class="flex flex-col h-full bg-[var(--editor-bg)] overflow-hidden">
-      <div
-        class="shrink-0 px-3 h-12 flex items-center justify-between border-b border-[var(--editor-border)] z-10"
-      >
-        <div class="flex items-center gap-2 min-w-0 flex-1">
-          <button
-            type="button"
-            class="h-9 w-9 shrink-0 rounded-md border-none bg-transparent text-[var(--editor-text)] opacity-60 flex-center transition-colors hover:bg-[var(--editor-border)] touch-manipulation"
-            aria-label="关闭脚本编辑器"
-            @click="emit('request-close')"
-          >
-            <div class="i-ep-back text-[22px]"></div>
-          </button>
-          <div class="flex flex-col min-w-0 justify-center">
-            <span class="text-[15px] font-bold text-[var(--editor-text)] truncate leading-tight">
-              {{ task?.name || "编辑脚本" }}
-            </span>
-            <span
-              class="text-[11px] text-[var(--editor-text)] opacity-40 truncate leading-tight mt-0.5 font-mono"
-            >
-              {{ task?.path || task?.env_type || "shell" }}
-            </span>
-          </div>
+    <template #title>
+      <div class="min-w-0">
+        <div class="truncate text-[13px] font-bold leading-tight text-default">
+          {{ task?.name || "编辑脚本" }}
         </div>
-        <div class="flex items-center gap-1.5 pr-1 shrink-0">
-          <span
-            class="rounded-md bg-[var(--editor-border)] px-2 py-0.5 font-mono text-[10px] font-bold text-purple-300"
-          >
-            {{ language }}
-          </span>
-          <el-button
-            type="primary"
-            size="small"
-            :loading="loading"
-            class="!h-7 !rounded-md !px-4 text-xs font-bold"
-            @click="emit('save')"
-          >
-            <div class="i-ep-check mr-1 text-xs"></div>
-            保存
-          </el-button>
+        <div class="mt-0.5 truncate font-mono text-[10px] leading-tight text-muted">
+          {{ task?.path || task?.env_type || "shell" }}
         </div>
       </div>
+    </template>
 
+    <template #header-actions>
+      <span class="rounded-md bg-soft px-2 py-1 font-mono text-[10px] font-bold text-secondary">
+        {{ language }}
+      </span>
+      <el-button
+        type="primary"
+        :loading="loading"
+        class="!min-h-11 !rounded-md !px-3 !text-xs font-bold"
+        @click="emit('save')"
+      >
+        <span class="i-ep-check mr-1 text-xs"></span>
+        保存
+      </el-button>
+    </template>
+
+    <div class="flex flex-col h-full bg-[var(--editor-bg)] overflow-hidden">
       <div class="flex-1 overflow-hidden relative">
         <VueMonacoEditor
           v-if="ready && !loading"
@@ -71,12 +57,12 @@
       </div>
 
       <div
-        class="shrink-0 bg-[var(--editor-toolbar-bg)] border-t border-[var(--editor-border)] flex items-center justify-between px-3 py-2"
+        class="task-mobile-script-toolbar shrink-0 bg-[var(--editor-toolbar-bg)] border-t border-[var(--editor-border)] flex items-center justify-between px-3 pt-2"
       >
         <div class="flex items-center gap-1">
           <button
             type="button"
-            class="h-8 w-8 rounded-md text-[var(--editor-text)] opacity-50 flex-center transition-colors hover:bg-[var(--editor-border)] hover:opacity-90"
+            class="h-11 w-11 cursor-pointer rounded-md text-[var(--editor-text)] opacity-50 flex-center transition-colors hover:bg-[var(--editor-border)] hover:opacity-90"
             title="撤销"
             @click="emit('editor-command', 'undo')"
           >
@@ -84,7 +70,7 @@
           </button>
           <button
             type="button"
-            class="h-8 w-8 rounded-md text-[var(--editor-text)] opacity-50 flex-center transition-colors hover:bg-[var(--editor-border)] hover:opacity-90"
+            class="h-11 w-11 cursor-pointer rounded-md text-[var(--editor-text)] opacity-50 flex-center transition-colors hover:bg-[var(--editor-border)] hover:opacity-90"
             title="重做"
             @click="emit('editor-command', 'redo')"
           >
@@ -93,7 +79,7 @@
           <div class="w-px h-4 bg-[var(--editor-border)] mx-1"></div>
           <button
             type="button"
-            class="h-8 w-8 rounded-md text-[var(--editor-text)] opacity-50 flex-center transition-colors hover:bg-[var(--editor-border)] hover:opacity-90"
+            class="h-11 w-11 cursor-pointer rounded-md text-[var(--editor-text)] opacity-50 flex-center transition-colors hover:bg-[var(--editor-border)] hover:opacity-90"
             title="格式化"
             @click="emit('editor-command', 'format')"
           >
@@ -101,7 +87,7 @@
           </button>
           <button
             type="button"
-            class="h-8 w-8 rounded-md text-[var(--editor-text)] opacity-50 flex-center transition-colors hover:bg-[var(--editor-border)] hover:opacity-90"
+            class="h-11 w-11 cursor-pointer rounded-md text-[var(--editor-text)] opacity-50 flex-center transition-colors hover:bg-[var(--editor-border)] hover:opacity-90"
             :class="{ '!text-primary': wordWrap }"
             title="换行"
             @click="emit('toggle-word-wrap')"
@@ -116,12 +102,13 @@
         </div>
       </div>
     </div>
-  </el-drawer>
+  </OverlayDrawer>
 </template>
 
 <script setup lang="ts">
 import { computed, defineAsyncComponent } from "vue";
 import type { Task } from "@/types";
+import OverlayDrawer from "../common/OverlayDrawer.vue";
 import type {
   TaskEditorOptions,
   TaskMobileScriptEditorCommand,
@@ -171,3 +158,9 @@ const contentValue = computed({
   set: (value: string) => emit("update:content", value),
 });
 </script>
+
+<style scoped>
+.task-mobile-script-toolbar {
+  padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+}
+</style>

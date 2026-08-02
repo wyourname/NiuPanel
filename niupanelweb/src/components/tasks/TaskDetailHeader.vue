@@ -46,6 +46,23 @@
     </div>
 
     <div class="flex items-center gap-2">
+      <button
+        v-if="activeTab === 'log'"
+        type="button"
+        class="w-8 h-8 shrink-0 flex-center rounded-md transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35"
+        :class="
+          showSearch
+            ? 'bg-primary text-white'
+            : 'text-secondary hover:bg-soft hover:text-primary bg-card border border-light'
+        "
+        title="搜索日志"
+        aria-label="搜索日志"
+        :aria-pressed="showSearch"
+        @click="emit('toggle-search')"
+      >
+        <div class="i-ep-search"></div>
+      </button>
+
       <nav class="hidden lg:flex items-center gap-0.5 rounded-md border border-light bg-base p-0.5">
         <button
           v-for="t in detailTabs"
@@ -83,29 +100,6 @@
       </div>
 
       <div class="flex items-center gap-1">
-        <button
-          v-if="activeTab === 'log'"
-          class="w-8 h-8 flex-center rounded-md transition-colors cursor-pointer"
-          :class="
-            showSearch
-              ? 'bg-primary text-white '
-              : 'text-secondary hover:bg-soft hover:text-primary bg-card border border-light'
-          "
-          title="搜索日志"
-          @click="emit('toggle-search')"
-        >
-          <div class="i-ep-search"></div>
-        </button>
-
-        <button
-          v-if="activeTab === 'log' && !isMobile"
-          class="w-8 h-8 flex-center rounded-md text-secondary hover:bg-soft hover:text-primary transition-colors bg-card border border-light cursor-pointer"
-          title="打开日志窗口"
-          @click="emit('open-log-window')"
-        >
-          <div class="i-ep-copy-document"></div>
-        </button>
-
         <el-dropdown trigger="click" @command="handleCommand">
           <button
             type="button"
@@ -181,7 +175,6 @@ defineProps<{
 const emit = defineEmits<{
   (event: "back"): void;
   (event: "command", command: TaskDetailMoreCommand): void;
-  (event: "open-log-window"): void;
   (event: "toggle-search"): void;
   (event: "update:activeTab", tab: TaskDetailTab): void;
 }>();

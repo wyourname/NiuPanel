@@ -1,20 +1,54 @@
 <template>
-  <div class="h-full overflow-y-auto custom-scrollbar">
+  <div class="h-full min-h-0">
     <div class="flex h-full min-h-0 flex-col gap-2">
       <div class="flex min-h-8 shrink-0 items-center justify-between">
         <span class="text-sm font-bold text-default">自定义指令</span>
         <button
-          class="h-8 rounded-md bg-primary px-3 text-[11px] font-bold text-white flex-center gap-1.5 transition-colors hover:bg-primary/90"
+          class="rounded-md bg-primary px-3 text-[11px] font-bold text-white flex-center gap-1.5 transition-colors hover:bg-primary/90"
+          :class="isMobile ? 'h-11' : 'h-8'"
           @click="$emit('create')"
         >
           <div class="i-ep-plus text-sm"></div>
           新建
         </button>
       </div>
-      <div
-        class="min-h-0 flex-1 overflow-hidden"
-        :class="isMobile ? 'rounded-md border border-light bg-card' : 'border border-light/70'"
-      >
+      <div v-if="isMobile" class="min-h-0 flex-1 space-y-2 overflow-y-auto pb-2 custom-scrollbar">
+        <article
+          v-for="row in commands"
+          :key="row.id"
+          class="rounded-md border border-light bg-card p-3"
+        >
+          <div class="flex min-w-0 items-center gap-2">
+            <span class="min-w-0 flex-1 truncate font-mono text-[13px] font-bold text-default">
+              /{{ row.name }}
+            </span>
+            <button
+              type="button"
+              class="h-11 w-11 shrink-0 rounded-md text-primary flex-center transition-colors hover:bg-soft"
+              title="编辑指令"
+              aria-label="编辑指令"
+              @click="$emit('edit', row)"
+            >
+              <span class="i-ep-edit"></span>
+            </button>
+            <button
+              type="button"
+              class="h-11 w-11 shrink-0 rounded-md text-rose-600 flex-center transition-colors hover:bg-rose-500/10 dark:text-rose-300"
+              title="删除指令"
+              aria-label="删除指令"
+              @click="$emit('delete', row)"
+            >
+              <span class="i-ep-delete"></span>
+            </button>
+          </div>
+          <pre class="mt-2 whitespace-pre-wrap break-all rounded-md bg-subtle p-2.5 font-mono text-[12px] leading-5 text-secondary">{{ row.script }}</pre>
+        </article>
+        <div v-if="!commands.length" class="h-40 flex-col-center gap-2 text-muted">
+          <span class="i-ep-chat-line-square text-2xl"></span>
+          <span class="text-[12px]">暂无自定义指令</span>
+        </div>
+      </div>
+      <div v-else class="min-h-0 flex-1 overflow-hidden border border-light/70">
         <el-table
           :data="commands"
           size="small"

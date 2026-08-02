@@ -27,7 +27,6 @@
       </div>
 
       <el-input
-        ref="searchInputRef"
         :model-value="searchQuery"
         placeholder="搜索文件"
         size="small"
@@ -63,28 +62,14 @@
           </button>
           <template #dropdown>
             <el-dropdown-menu class="modern-dropdown">
-              <el-dropdown-item command="name">
+              <el-dropdown-item
+                v-for="option in FILE_SORT_OPTIONS"
+                :key="option.value"
+                :command="option.value"
+              >
                 <div class="flex items-center gap-2">
-                  <div :class="sortMode === 'name' ? 'i-ep-check' : 'i-ep-sort'"></div>
-                  名称
-                </div>
-              </el-dropdown-item>
-              <el-dropdown-item command="mtime">
-                <div class="flex items-center gap-2">
-                  <div :class="sortMode === 'mtime' ? 'i-ep-check' : 'i-ep-clock'"></div>
-                  修改时间
-                </div>
-              </el-dropdown-item>
-              <el-dropdown-item command="size">
-                <div class="flex items-center gap-2">
-                  <div :class="sortMode === 'size' ? 'i-ep-check' : 'i-ep-files'"></div>
-                  大小
-                </div>
-              </el-dropdown-item>
-              <el-dropdown-item command="type">
-                <div class="flex items-center gap-2">
-                  <div :class="sortMode === 'type' ? 'i-ep-check' : 'i-ep-collection'"></div>
-                  类型
+                  <div :class="sortMode === option.value ? 'i-ep-check' : option.icon"></div>
+                  {{ option.label }}
                 </div>
               </el-dropdown-item>
             </el-dropdown-menu>
@@ -157,10 +142,19 @@
     </div>
   </div>
 
-  <div v-else class="flex items-center justify-between gap-4 border-b border-light bg-soft/10 px-4 py-3">
-    <div class="min-w-0 flex-1">
+  <div v-else class="shrink-0 space-y-2 border-b border-light bg-soft/10 px-3 py-2.5">
+    <div class="flex min-w-0 items-center gap-2">
+      <button
+        type="button"
+        class="h-11 w-11 shrink-0 cursor-pointer rounded-md text-secondary flex-center transition-colors hover:bg-soft hover:text-default"
+        title="刷新"
+        aria-label="刷新当前目录"
+        @click="emit('refresh')"
+      >
+        <div class="i-ep-refresh text-[17px]" :class="{ 'animate-spin': loading }"></div>
+      </button>
       <FileBreadcrumbs
-        class="!h-auto !border-none !bg-transparent !px-0"
+        class="min-w-0 flex-1 !h-auto !border-none !bg-transparent !px-0"
         :current-path="currentPath"
         :collapsed-breadcrumbs="collapsedBreadcrumbs"
         @back="emit('back')"
@@ -168,40 +162,50 @@
       />
     </div>
 
-    <div class="flex items-center gap-1.5">
-      <transition name="el-fade-in-linear">
-        <el-input
-          v-if="isSearchExpanded"
-          ref="searchInputRef"
-          :model-value="searchQuery"
-          placeholder="搜索文件"
-          size="small"
-          class="modern-input !w-40"
-          clearable
-          @update:model-value="handleSearchInput"
-          @blur="isSearchExpanded = !!searchQuery"
-        >
-          <template #prefix>
-            <div class="i-ep-search text-xs opacity-50"></div>
-          </template>
-        </el-input>
-      </transition>
-
-      <button
-        v-if="!isSearchExpanded"
-        type="button"
-        class="h-9 w-9 cursor-pointer rounded-md bg-soft/40 text-primary flex-center transition-colors hover:bg-soft"
-        title="搜索文件"
-        aria-label="搜索文件"
-        @click="expandSearch"
+    <div class="flex min-w-0 items-center gap-1.5">
+      <el-input
+        :model-value="searchQuery"
+        placeholder="搜索文件"
+        class="modern-input min-w-[88px] flex-1"
+        clearable
+        @update:model-value="handleSearchInput"
       >
-        <div class="i-ep-search text-lg"></div>
-      </button>
+        <template #prefix>
+          <div class="i-ep-search text-sm text-muted"></div>
+        </template>
+      </el-input>
+
+      <el-dropdown trigger="click" @command="handleSortCommand">
+        <button
+          type="button"
+          class="h-11 w-11 shrink-0 cursor-pointer rounded-md text-secondary flex-center transition-colors hover:bg-soft hover:text-default"
+          :title="`排序：${sortLabel}`"
+          :aria-label="`文件排序：${sortLabel}`"
+        >
+          <div class="i-ep-sort text-lg"></div>
+        </button>
+        <template #dropdown>
+          <el-dropdown-menu class="modern-dropdown">
+            <el-dropdown-item
+              v-for="option in FILE_SORT_OPTIONS"
+              :key="option.value"
+              :command="option.value"
+            >
+              <div class="flex items-center gap-2">
+                <div :class="sortMode === option.value ? 'i-ep-check' : option.icon"></div>
+                {{ option.label }}
+              </div>
+            </el-dropdown-item>
+          </el-dropdown-menu>
+        </template>
+      </el-dropdown>
 
       <button
         v-if="clipboardFilesCount > 0"
         type="button"
-        class="h-9 cursor-pointer rounded-md border border-orange-200/60 bg-orange-50 px-3 text-xs font-semibold text-orange-600 inline-flex items-center gap-1.5 dark:border-orange-500/20 dark:bg-orange-500/10 dark:text-orange-300"
+        class="h-11 w-11 shrink-0 cursor-pointer rounded-md border border-orange-200/60 bg-orange-50 text-orange-600 flex-center dark:border-orange-500/20 dark:bg-orange-500/10 dark:text-orange-300"
+        :title="`粘贴 ${clipboardFilesCount} 个项目`"
+        aria-label="粘贴剪贴板文件"
         @click="emit('paste')"
       >
         <div class="i-ep-copy-document text-lg"></div>
@@ -209,7 +213,7 @@
 
       <button
         type="button"
-        class="h-9 w-9 cursor-pointer rounded-md text-secondary flex-center transition-colors hover:bg-soft"
+        class="h-11 w-11 shrink-0 cursor-pointer rounded-md text-secondary flex-center transition-colors hover:bg-soft"
         title="上传文件"
         aria-label="上传文件"
         @click="emit('trigger-upload')"
@@ -220,7 +224,7 @@
       <el-dropdown trigger="click" @command="handleCreateCommand">
         <button
           type="button"
-          class="h-9 w-9 cursor-pointer rounded-md bg-primary text-white flex-center transition-colors hover:bg-primary/90"
+          class="h-11 w-11 shrink-0 cursor-pointer rounded-md bg-primary text-white flex-center transition-colors hover:bg-primary/90"
           title="新建"
           aria-label="新建文件或目录"
         >
@@ -255,12 +259,17 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, ref } from "vue";
+import { computed } from "vue";
 import type { Breadcrumb } from "../../../../composables/useFileOperations";
 import FileBreadcrumbs from "./FileBreadcrumbs.vue";
+import {
+  FILE_SORT_OPTIONS,
+  getFileSortLabel,
+  isFileSortMode,
+  type FileSortMode,
+} from "../utils/fileSort";
 
 type FileCreateCommand = "file" | "directory" | "download_url";
-type FileSortMode = "mtime" | "name" | "size" | "type";
 type FileViewMode = "detail" | "grid";
 
 const props = defineProps<{
@@ -286,33 +295,12 @@ const emit = defineEmits<{
   (event: "update:viewMode", mode: FileViewMode): void;
 }>();
 
-const isSearchExpanded = ref(false);
-const searchInputRef = ref<{ focus: () => void } | null>(null);
-
-const sortLabel = computed(() => {
-  if (props.sortMode === "mtime") return "时间";
-  if (props.sortMode === "size") return "大小";
-  if (props.sortMode === "type") return "类型";
-  return "名称";
-});
+const sortLabel = computed(() => getFileSortLabel(props.sortMode));
 
 const isFileCreateCommand = (
   command: unknown,
 ): command is FileCreateCommand =>
   command === "file" || command === "directory" || command === "download_url";
-
-const isFileSortMode = (command: unknown): command is FileSortMode =>
-  command === "name" ||
-  command === "mtime" ||
-  command === "size" ||
-  command === "type";
-
-const expandSearch = () => {
-  isSearchExpanded.value = true;
-  nextTick(() => {
-    searchInputRef.value?.focus();
-  });
-};
 
 const handleSearchInput = (value: string | number) => {
   emit("update:searchQuery", String(value));

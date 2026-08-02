@@ -19,9 +19,9 @@
         </div>
 
         <el-checkbox-group v-model="selectedEvents" class="flex flex-wrap gap-3">
-          <el-checkbox label="failed" border class="!mr-0 !h-auto !rounded-md !px-4 !py-2.5 transition-colors">任务失败</el-checkbox>
-          <el-checkbox label="success" border class="!mr-0 !h-auto !rounded-md !px-4 !py-2.5 transition-colors">任务成功</el-checkbox>
-          <el-checkbox label="login" border class="!mr-0 !h-auto !rounded-md !px-4 !py-2.5 transition-colors">系统登录</el-checkbox>
+          <el-checkbox value="failed" border class="!mr-0 !h-auto !rounded-md !px-4 !py-2.5 transition-colors">任务失败</el-checkbox>
+          <el-checkbox value="success" border class="!mr-0 !h-auto !rounded-md !px-4 !py-2.5 transition-colors">任务成功</el-checkbox>
+          <el-checkbox value="login" border class="!mr-0 !h-auto !rounded-md !px-4 !py-2.5 transition-colors">系统登录</el-checkbox>
         </el-checkbox-group>
       </section>
 

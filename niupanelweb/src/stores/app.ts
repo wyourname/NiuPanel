@@ -3,6 +3,7 @@ import { ref, watch } from 'vue'
 import { useDark, useToggle, useWindowSize } from '@vueuse/core'
 import { updateBaseUrl } from '@/utils/request'
 import { storageKey as makeStorageKey } from '@/utils/storage'
+import { MOBILE_MAX_WIDTH } from '@/constants/responsive'
 
 const serverUrlKey = makeStorageKey('server_url')
 
@@ -35,7 +36,7 @@ export const useAppStore = defineStore('app', () => {
 
   // --- Mobile Detection ---
   const { width } = useWindowSize()
-  const isMobile = ref(width.value <= 768)
+  const isMobile = ref(width.value <= MOBILE_MAX_WIDTH)
   const showDrawerSidebar = ref(false)
 
   const toggleDrawerSidebar = () => {
@@ -44,7 +45,7 @@ export const useAppStore = defineStore('app', () => {
 
   watch(width, (newWidth) => {
     if (newWidth === 0) return
-    const mobile = newWidth <= 768
+    const mobile = newWidth <= MOBILE_MAX_WIDTH
     isMobile.value = mobile
     // Auto-collapse sidebar on mobile
     if (mobile) {

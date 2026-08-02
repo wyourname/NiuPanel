@@ -7,7 +7,6 @@
 
   <TaskWizardDialog
     v-model:visible="wizardVisibleValue"
-    :is-mobile="isMobile"
     :task="editingTask"
     @success="emit('wizard-success')"
   />

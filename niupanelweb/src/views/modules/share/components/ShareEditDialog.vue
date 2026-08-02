@@ -2,17 +2,17 @@
   <ResponsiveDialog
     v-model:visible="visible"
     title="编辑资源信息"
-    :size="appStore.isMobile ? '100%' : 'auto'"
-    :width="appStore.isMobile ? '100%' : '500px'"
+    desktop-size="md"
+    content-preset="form"
+    mobile-mode="fullscreen"
     destroy-on-close
     append-to-body
-    class="custom-dialog"
   >
     <div class="flex flex-col h-full">
       <el-form
         :model="form"
         label-position="top"
-        class="flex-1 overflow-y-auto p-4"
+        class="flex-1"
       >
         <el-form-item label="备注名称">
           <el-input v-model="form.note" placeholder="设置一个易记的备注" />
@@ -47,32 +47,24 @@
         </el-form-item>
 
         <el-form-item>
-          <el-checkbox v-model="form.deleteOnDownload" label="阅后即焚" />
+          <el-checkbox v-model="form.deleteOnDownload">阅后即焚</el-checkbox>
         </el-form-item>
       </el-form>
 
-      <div class="p-4 border-t border-base bg-base/10">
-        <div class="flex gap-3">
-          <el-button class="h-9 flex-1 !rounded-md" @click="visible = false"
-            >取消</el-button
-          >
-          <el-button
-            class="h-9 flex-1 !rounded-md"
-            type="primary"
-            :loading="submitting"
-            @click="handleSubmit"
-            >保存修改</el-button
-          >
-        </div>
-      </div>
     </div>
+
+    <template #footer>
+      <el-button @click="visible = false">取消</el-button>
+      <el-button type="primary" :loading="submitting" @click="handleSubmit">
+        保存修改
+      </el-button>
+    </template>
   </ResponsiveDialog>
 </template>
 
 <script setup lang="ts">
 import { ref, watch } from "vue";
 import { ElMessage } from "element-plus";
-import { useAppStore } from "../../../../stores/app";
 import ResponsiveDialog from "../../../../components/common/ResponsiveDialog.vue";
 import * as shareApi from "../../../../api/share";
 import type { StationFile } from "@/types";
@@ -94,7 +86,6 @@ const emit = defineEmits<{
   (event: "success"): void;
   (event: "update:modelValue", visible: boolean): void;
 }>();
-const appStore = useAppStore();
 
 const visible = ref(false);
 const submitting = ref(false);

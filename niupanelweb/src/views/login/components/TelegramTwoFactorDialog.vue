@@ -2,11 +2,12 @@
   <ResponsiveDialog
     v-model:visible="visible"
     title="身份验证"
-    :width="width"
+    desktop-size="sm"
+    content-preset="form"
     append-to-body
     :close-on-click-modal="false"
   >
-    <div class="flex flex-col gap-4 p-4 sm:p-5">
+    <div class="flex flex-col gap-4">
       <el-alert
         title="系统已向您的 Telegram 机器人下发了6位验证码"
         type="info"
@@ -21,15 +22,13 @@
         class="!h-11 font-mono text-center text-lg font-bold"
         @keyup.enter="$emit('verify')"
       />
-      <el-button
-        type="primary"
-        :loading="loading"
-        class="!h-11 !w-full !rounded-lg !text-base !font-semibold"
-        @click="$emit('verify')"
-      >
+    </div>
+
+    <template #footer>
+      <el-button type="primary" :loading="loading" @click="$emit('verify')">
         验证并登录
       </el-button>
-    </div>
+    </template>
   </ResponsiveDialog>
 </template>
 
@@ -38,7 +37,6 @@ import ResponsiveDialog from "@/components/common/ResponsiveDialog.vue";
 
 defineProps<{
   loading: boolean;
-  width: string;
 }>();
 
 defineEmits<{

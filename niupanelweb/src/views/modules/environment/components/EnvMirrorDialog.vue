@@ -1,38 +1,12 @@
 <template>
-  <component
-    :is="appStore.isMobile ? 'el-drawer' : 'el-dialog'"
-    v-model="visible"
-    :title="appStore.isMobile ? `设置 ${getMirrorTitle()} 镜像` : ''"
-    :size="appStore.isMobile ? 'auto' : '550px'"
-    :width="appStore.isMobile ? '100%' : '550px'"
-    :align-center="!appStore.isMobile"
-    direction="btt"
+  <ResponsiveDialog
+    v-model:visible="visible"
+    :title="`设置 ${getMirrorTitle()} 镜像`"
+    desktop-size="md"
+    content-preset="form"
     append-to-body
-    class="log-modal"
   >
-    <div class="flex-1 flex flex-col bg-[var(--editor-bg)] overflow-hidden">
-      <!-- Internal Header -->
-      <div
-        class="flex items-center justify-between px-4 shrink-0 border-b border-[var(--editor-border)] h-12"
-      >
-        <div class="flex items-center gap-4 overflow-hidden">
-          <button
-            v-if="!appStore.isMobile"
-            type="button"
-            class="h-8 w-8 rounded-md text-muted flex-center transition-colors hover:bg-black/5 hover:text-default dark:hover:bg-white/5"
-            title="关闭"
-            aria-label="关闭镜像配置对话框"
-            @click="visible = false"
-          >
-            <div class="i-ep-close text-lg"></div>
-          </button>
-          <span class="text-xs font-bold text-[var(--editor-text)] truncate">
-            {{ appStore.isMobile ? "" : `设置 ${getMirrorTitle()} 镜像` }}
-          </span>
-        </div>
-      </div>
-
-      <div class="p-6 flex flex-col gap-4 min-h-60" v-loading="loading">
+    <div class="flex min-h-60 flex-col gap-4" v-loading="loading">
         <EnvMirrorShellNotice
           v-if="filterType === 'sh'"
           @close="visible = false"
@@ -59,15 +33,15 @@
           :node-registry-mirrors="NODE_MIRRORS"
         />
 
-        <div v-if="filterType !== 'sh'" class="flex justify-end pt-4 gap-2">
-          <el-button @click="visible = false">取消</el-button>
-          <el-button type="primary" @click="handleSubmit" :loading="submitting"
-            >确定</el-button
-          >
-        </div>
-      </div>
     </div>
-  </component>
+
+    <template v-if="filterType !== 'sh'" #footer>
+      <el-button @click="visible = false">取消</el-button>
+      <el-button type="primary" :loading="submitting" @click="handleSubmit">
+        确定
+      </el-button>
+    </template>
+  </ResponsiveDialog>
 </template>
 
 <script setup lang="ts">
@@ -83,6 +57,7 @@ import type { EnvType } from "@/types";
 import EnvMirrorShellNotice from "./EnvMirrorShellNotice.vue";
 import EnvNodeMirrorTabs from "./EnvNodeMirrorTabs.vue";
 import EnvPythonMirrorTabs from "./EnvPythonMirrorTabs.vue";
+import ResponsiveDialog from "../../../../components/common/ResponsiveDialog.vue";
 
 const props = withDefaults(
   defineProps<{
@@ -161,7 +136,7 @@ watch(visible, (val: boolean) => emit("update:modelValue", val));
 }
 
 /* PC 端通用优化：限制最大宽度但不强制定位 */
-@media (min-width: 768px) {
+@media (min-width: 769px) {
   .mirror-select-popper {
     max-width: 500px !important;
   }

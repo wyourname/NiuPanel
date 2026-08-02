@@ -1,19 +1,22 @@
 <template>
-  <div class="flex items-center justify-between shrink-0 min-h-[32px] gap-2">
+  <div
+    class="shrink-0 gap-2"
+    :class="isMobile ? 'flex flex-col items-stretch' : 'flex min-h-[32px] items-center justify-between'"
+  >
     <div
       class="flex shrink-0 gap-0.5 rounded-md bg-gray-100 p-1 dark:bg-dark-900"
-      :class="isMobile ? 'flex-1 min-w-0' : 'w-[200px]'"
+      :class="isMobile ? 'w-full min-w-0' : 'w-[200px]'"
     >
       <button
         v-for="item in tabItems"
         :key="item.value"
         type="button"
-        class="flex-1 rounded py-1.5 font-bold transition-colors duration-200"
+        class="flex-1 rounded font-bold transition-colors duration-200"
         :class="[
           activeTab === item.value
             ? 'bg-white dark:bg-gray-800 text-primary shadow-sm'
             : 'text-gray-500 hover:text-gray-700 dark:text-gray-400',
-          isMobile ? 'text-[11px]' : 'text-xs',
+          isMobile ? 'min-h-11 text-[12px]' : 'py-1.5 text-xs',
         ]"
         @click="activeTab = item.value"
       >
@@ -21,9 +24,13 @@
       </button>
     </div>
 
-    <div class="flex items-center gap-1.5 shrink-0">
+    <div
+      class="flex shrink-0 items-center gap-2"
+      :class="isMobile ? 'w-full justify-between' : ''"
+    >
       <div
-        class="flex h-9 items-center gap-1.5 rounded-md bg-gray-100 px-2.5 font-mono text-[11px] font-bold dark:bg-dark-900"
+        class="flex items-center justify-center gap-1.5 rounded-md bg-gray-100 px-2.5 font-mono text-[11px] font-bold dark:bg-dark-900"
+        :class="isMobile ? 'h-11 min-w-0 flex-1' : 'h-9'"
       >
         <span
           v-if="enabled"
@@ -39,7 +46,7 @@
       <el-dropdown trigger="click" @command="$emit('fileAction', $event)">
         <button
           type="button"
-          class="h-9 w-9 rounded-md bg-orange-500/10 text-orange-600 flex-center transition-colors hover:bg-orange-500/15"
+          class="h-11 w-11 rounded-md bg-orange-500/10 text-orange-600 flex-center transition-colors hover:bg-orange-500/15 md:h-9 md:w-9"
           title="发送文件"
           aria-label="发送文件"
         >
@@ -61,10 +68,10 @@
 
       <button
         type="button"
-        class="h-9 rounded-md bg-primary text-[11px] font-bold text-white flex-center gap-1.5 transition-colors hover:bg-primary/90"
+        class="h-11 rounded-md bg-primary text-[11px] font-bold text-white flex-center gap-1.5 transition-colors hover:bg-primary/90 md:h-9"
         title="机器人配置"
         aria-label="机器人配置"
-        :class="isMobile ? 'w-9' : 'px-5'"
+        :class="isMobile ? 'w-11' : 'px-5'"
         @click="$emit('openSettings')"
       >
         <div class="i-ep-setting text-base"></div>

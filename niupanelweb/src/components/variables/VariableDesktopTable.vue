@@ -33,7 +33,7 @@
           inputmode="search"
           autocomplete="off"
           aria-label="搜索变量名或备注"
-          class="variable-search-input h-9 w-full rounded-md pl-9 pr-9 text-[13px] text-default outline-none placeholder:text-muted"
+          class="variable-search-input h-9 w-full rounded-md pl-9 pr-9 text-[13px] text-default outline-none"
           placeholder="搜索变量名或备注"
           @input="emit('search-input', ($event.target as HTMLInputElement).value)"
         />
@@ -91,9 +91,7 @@
     <!-- 表体 -->
     <div
       class="min-h-0 flex-1 overflow-y-auto custom-scrollbar"
-      v-infinite-scroll="() => emit('load-more')"
-      :infinite-scroll-disabled="loading || !hasMore"
-      :infinite-scroll-distance="40"
+      @scroll.passive="handleScroll"
     >
       <div v-if="loading && !variables.length" class="flex flex-col">
         <div v-for="index in 8" :key="index" class="grid items-center gap-3 border-b border-light px-4 py-3" :style="gridStyle">
@@ -216,7 +214,7 @@
 <script setup lang="ts">
 import type { VariablePageRow } from "../../composables/useVariablePageData";
 
-defineProps<{
+const props = defineProps<{
   activeTab: string;
   searchQuery: string;
   variables: VariablePageRow[];
@@ -241,6 +239,14 @@ const emit = defineEmits<{
   (e: "edit", row: VariablePageRow): void;
   (e: "delete", row: VariablePageRow): void;
 }>();
+
+const handleScroll = (event: Event) => {
+  if (props.loading || !props.hasMore) return;
+
+  const target = event.currentTarget as HTMLElement;
+  const remaining = target.scrollHeight - target.scrollTop - target.clientHeight;
+  if (remaining <= 40) emit("load-more");
+};
 
 const gridStyle =
   "grid-template-columns: 28px minmax(140px, 1.4fr) minmax(160px, 2fr) 60px minmax(100px, 1.2fr) 56px 72px;";
@@ -271,5 +277,9 @@ const maskValue = (value?: string) =>
   border-color: rgb(var(--brand-primary-rgb) / 0.68);
   background: var(--bg-card);
   box-shadow: 0 0 0 3px rgb(var(--brand-primary-rgb) / 0.12);
+}
+
+.variable-search-input::placeholder {
+  color: var(--text-muted);
 }
 </style>

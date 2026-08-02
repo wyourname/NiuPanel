@@ -192,7 +192,7 @@ button.overview-stat-cell:hover {
   justify-content: center;
 }
 
-@media (min-width: 768px) {
+@media (min-width: 769px) {
   .stat-icon {
     width: 2rem;
     height: 2rem;
@@ -205,7 +205,7 @@ button.overview-stat-cell:hover {
   font-weight: 700;
 }
 
-@media (min-width: 768px) {
+@media (min-width: 769px) {
   .stat-value {
     font-size: 1.75rem;
     line-height: 2rem;

@@ -1,9 +1,7 @@
 <template>
   <div
     class="flex-1 overflow-y-auto custom-scrollbar"
-    v-infinite-scroll="() => emit('load-more')"
-    :infinite-scroll-disabled="loading || noMore"
-    :infinite-scroll-distance="20"
+    @scroll.passive="handleScroll"
   >
     <div v-if="loading && totalTasks === 0" class="p-3 space-y-2">
       <el-skeleton animated :loading="true" :count="6">
@@ -170,6 +168,14 @@ const handleContextCommand = (command: unknown, task: Task) => {
   if (isTaskContextCommand(command)) {
     emit("context-command", command, task);
   }
+};
+
+const handleScroll = (event: Event) => {
+  if (props.loading || props.noMore) return;
+
+  const target = event.currentTarget as HTMLElement;
+  const remaining = target.scrollHeight - target.scrollTop - target.clientHeight;
+  if (remaining <= 20) emit("load-more");
 };
 
 const isTaskSelected = (task: Task) => {

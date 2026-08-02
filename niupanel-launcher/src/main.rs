@@ -1,10 +1,11 @@
 use anyhow::{Context, Result, anyhow, bail};
 use chrono::Utc;
 use niupanel_common::panel_runtime::{
-    PanelActivationFailure, PanelActivationTransaction, PanelReleaseDescriptor, PanelRuntimeState,
-    PendingPanelActivation, commit_panel_activation, directory_digest, initialize_runtime,
-    latest_snapshot_for_release, list_panel_releases, read_panel_runtime_state,
-    runtime_database_path, verify_panel_release, write_panel_runtime_state,
+    PANEL_RUNTIME_NOT_INITIALIZED, PanelActivationFailure, PanelActivationTransaction,
+    PanelReleaseDescriptor, PanelRuntimeState, PendingPanelActivation, commit_panel_activation,
+    directory_digest, initialize_runtime, latest_snapshot_for_release, list_panel_releases,
+    read_panel_runtime_state, runtime_database_path, verify_panel_release,
+    write_panel_runtime_state,
 };
 use niupanel_common::version::{
     API_CONTRACT_VERSION, CORE_RELEASE_MANIFEST_FILE, CoreReleaseDescriptor, CoreReleaseManifest,
@@ -329,6 +330,37 @@ mod tests {
         assert_eq!(pending.candidate.core.version, "0.8.2");
         assert_eq!(pending.candidate.web_version, "2.0.2");
         verify_panel_release(&pending.candidate).unwrap();
+    }
+
+    #[tokio::test]
+    async fn existing_uninitialized_runtime_database_is_bootstrapped() {
+        let temp = tempfile::tempdir().unwrap();
+        let mut config = test_config(temp.path(), temp.path().join("data/panel.db"));
+        config.bootstrap_panel_version = Some("0.8.2-dev.1".into());
+        config.bootstrap_core_version = Some("0.8.2-dev.1".into());
+        config.bootstrap_web_version = Some("2.0.2-dev.1".into());
+        fs::write(&config.bundled_binary, b"bundled core").unwrap();
+        fs::create_dir_all(&config.bundled_web_dir).unwrap();
+        fs::write(config.bundled_web_dir.join("index.html"), b"bundled web").unwrap();
+
+        let error = read_panel_runtime_state(&config.system_root)
+            .await
+            .unwrap_err();
+        assert_eq!(error, PANEL_RUNTIME_NOT_INITIALIZED);
+        assert!(runtime_database_path(&config.system_root).is_file());
+
+        let state = ensure_panel_runtime(&config).await.unwrap();
+
+        assert_eq!(state.active.version, "0.8.2-dev.1");
+        assert!(verify_panel_release(&state.active).is_ok());
+        assert_eq!(
+            read_panel_runtime_state(&config.system_root)
+                .await
+                .unwrap()
+                .active
+                .version,
+            "0.8.2-dev.1"
+        );
     }
 
     #[tokio::test]

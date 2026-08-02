@@ -2,11 +2,12 @@
   <ResponsiveDialog
     v-model:visible="visible"
     :title="title"
-    :width="width"
+    desktop-size="sm"
+    content-preset="form"
     append-to-body
     :close-on-click-modal="false"
   >
-    <div class="flex flex-col gap-4 p-4 sm:p-5">
+    <div class="flex flex-col gap-4">
       <div class="flex justify-between px-1 mb-2">
         <div
           v-for="i in 3"
@@ -145,7 +146,6 @@ defineProps<{
   sendingEmail: boolean;
   title: string;
   verifyingCode: boolean;
-  width: string;
 }>();
 
 const emit = defineEmits<{

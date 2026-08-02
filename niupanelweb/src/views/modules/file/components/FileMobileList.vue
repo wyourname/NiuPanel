@@ -1,17 +1,17 @@
 <template>
   <div class="relative min-h-0 flex-1 overflow-hidden">
-    <div class="h-full min-h-0 overflow-y-auto pb-24 custom-scrollbar">
+    <div class="h-full min-h-0 overflow-y-auto custom-scrollbar">
       <div
         v-if="items.length === 0 && !loading"
         class="h-[50vh] flex flex-col items-center justify-center select-none"
       >
         <div class="mb-4 h-14 w-14 rounded-md border border-light/40 bg-soft/50 flex-center">
-          <div :class="emptyStateIcon" class="text-3xl text-muted/20"></div>
+          <div :class="emptyStateIcon" class="text-3xl text-muted"></div>
         </div>
-        <p class="text-sm font-medium text-muted/50">
+        <p class="text-sm font-medium text-muted">
           {{ searchQuery ? "没有结果" : "空文件夹" }}
         </p>
-        <p class="text-xs text-muted/30 mt-1">
+        <p class="mt-1 text-xs text-muted">
           {{ searchQuery ? "换关键词试试" : "点击 + 创建" }}
         </p>
       </div>
@@ -32,9 +32,9 @@
             class="absolute bottom-0 left-0 top-0 w-[2px] bg-primary"
           ></div>
 
-          <div class="flex items-center gap-3 px-4 py-2.5">
+          <div class="flex min-h-[64px] items-center gap-3 px-4 py-2.5">
             <div
-              class="h-10 w-10 shrink-0 rounded-md flex-center"
+              class="h-11 w-11 shrink-0 rounded-md flex-center"
               :class="getFileIconBgClass(row)"
             >
               <div :class="getFileIconClass(row)" class="text-[20px]"></div>
@@ -45,16 +45,16 @@
                 {{ row.name }}
               </span>
               <div class="flex items-center gap-1.5 mt-0.5">
-                <span v-if="!row.is_dir" class="text-[11px] font-mono text-muted/45 tabular-nums">
+                <span v-if="!row.is_dir" class="font-mono text-[11px] text-muted tabular-nums">
                   {{ formatFileSize(row.size) }}
                 </span>
                 <span
                   v-if="row.is_dir"
-                  class="text-[10px] font-medium text-amber-600/70 dark:text-amber-300/70"
+                  class="text-[11px] font-medium text-amber-700 dark:text-amber-300"
                 >
                   文件夹
                 </span>
-                <span v-if="row.mtime" class="text-[10.5px] text-muted/35">
+                <span v-if="row.mtime" class="text-[11px] text-muted">
                   {{ formatRelativeFileDate(row.mtime) }}
                 </span>
               </div>
@@ -63,7 +63,7 @@
             <el-dropdown trigger="click" @command="handleCommand($event, row)">
               <button
                 type="button"
-                class="h-8 w-8 shrink-0 rounded-md text-muted flex-center transition-colors hover:bg-soft hover:text-default"
+                class="h-11 w-11 shrink-0 rounded-md text-muted flex-center transition-colors hover:bg-soft hover:text-default"
                 title="文件操作"
                 aria-label="文件操作"
                 @click.stop

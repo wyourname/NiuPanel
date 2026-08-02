@@ -2,11 +2,12 @@
   <ResponsiveDialog
     v-model:visible="visible"
     title="管理订阅源"
-    width="500px"
+    desktop-size="md"
+    content-preset="form"
     append-to-body
     destroy-on-close
   >
-    <div class="p-5 flex flex-col gap-6">
+    <div class="flex flex-col gap-4">
       <div class="space-y-4 rounded-md border border-light bg-base/50 p-4">
         <div class="flex items-center gap-2">
           <div class="i-ep-plus text-primary"></div>

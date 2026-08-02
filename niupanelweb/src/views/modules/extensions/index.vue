@@ -7,7 +7,7 @@
 
   <PageShell v-else :padded="false">
     <div class="flex h-full min-h-0 flex-col overflow-hidden bg-base">
-      <div class="mobile-dock-safe min-h-0 flex-1 overflow-y-auto px-3 py-3 custom-scrollbar">
+      <div class="min-h-0 flex-1 overflow-y-auto px-3 py-3 custom-scrollbar">
         <ExtensionManager />
       </div>
     </div>

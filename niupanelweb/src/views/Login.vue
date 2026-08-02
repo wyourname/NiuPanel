@@ -1,16 +1,16 @@
 <template>
-  <div class="relative flex min-h-screen w-full flex-col overflow-hidden bg-base">
-    <header class="flex h-14 shrink-0 items-center justify-between border-b border-light bg-card px-4 sm:px-6">
+  <div class="app-viewport relative flex flex-col overflow-x-hidden overflow-y-auto bg-base">
+    <header class="safe-top-header flex shrink-0 items-center justify-between border-b border-light bg-card px-4 pt-safe sm:px-6">
       <div class="flex items-center gap-2.5">
         <img src="/favicon.png" alt="NiuPanel" class="h-8 w-8 rounded-md" />
         <div>
           <div class="text-sm font-semibold text-default">NiuPanel</div>
-          <div class="text-[10px] text-muted">面板控制台</div>
+          <div class="text-[11px] text-muted">面板控制台</div>
         </div>
       </div>
       <button
         type="button"
-        class="h-8 w-8 cursor-pointer rounded-md text-secondary flex-center transition-colors hover:bg-soft hover:text-default"
+        class="mobile-touch-target h-8 w-8 cursor-pointer rounded-md text-secondary flex-center transition-colors hover:bg-soft hover:text-default"
         title="服务器设置"
         aria-label="打开服务器设置"
         @click="showServerSettings = true"
@@ -19,9 +19,9 @@
       </button>
     </header>
 
-    <main class="flex flex-1 items-center justify-center px-4 py-8 sm:py-10">
+    <main class="flex flex-1 items-start justify-center px-4 py-5 sm:items-center sm:py-10">
       <div
-        class="w-full max-w-[420px] rounded-lg border border-light bg-card p-6 shadow-sm sm:p-8"
+        class="w-full max-w-[420px] rounded-lg border border-light bg-card p-5 shadow-sm sm:p-8"
       >
         <LoginBrandHeader
           :is-initialized="isSystemInitialized"
@@ -61,7 +61,6 @@
       v-model:username="forgotUsername"
       v-model:visible="showForgotDialog"
       :title="getForgotTitle()"
-      :width="appStore.isMobile ? '95%' : '450px'"
       :countdown="countdown"
       :email-suffix="forgotEmailSuffix"
       :identifying="identifying"
@@ -76,7 +75,6 @@
     <TelegramTwoFactorDialog
       v-model:code="verifyCode"
       v-model:visible="show2faDialog"
-      :width="appStore.isMobile ? '90%' : '350px'"
       :loading="verifying2fa"
       @verify="handleVerify2FA"
     />
@@ -91,7 +89,6 @@
 
 <script setup lang="ts">
 import { computed } from "vue";
-import { useAppStore } from "../stores/app";
 import ForgotPasswordDialog from "./login/components/ForgotPasswordDialog.vue";
 import LoginBrandHeader from "./login/components/LoginBrandHeader.vue";
 import LoginCredentialForm from "./login/components/LoginCredentialForm.vue";
@@ -103,7 +100,6 @@ import { usePasswordResetFlow } from "./login/composables/usePasswordResetFlow";
 import { useServerSettings } from "./login/composables/useServerSettings";
 import { useTelegramLogin2fa } from "./login/composables/useTelegramLogin2fa";
 
-const appStore = useAppStore();
 
 const {
   handleVerify2FA,

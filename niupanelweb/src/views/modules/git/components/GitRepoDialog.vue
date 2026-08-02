@@ -2,10 +2,11 @@
   <ResponsiveDialog
     v-model:visible="visible"
     :title="isEdit ? '编辑仓库配置' : '添加 Git 仓库'"
-    width="500px"
+    desktop-size="md"
+    content-preset="form"
     append-to-body
   >
-    <div class="flex flex-col gap-4 p-4 sm:p-5">
+    <div class="flex flex-col gap-4">
       <el-form
         ref="formRef"
         :model="form"
@@ -59,13 +60,14 @@
           <el-switch v-model="form.auto_sync" />
         </div>
       </el-form>
-      <div class="flex justify-end gap-2 pt-2">
-        <el-button @click="visible = false">取消</el-button>
-        <el-button type="primary" :loading="submitting" @click="submit">
-          {{ isEdit ? "保存修改" : "立即添加" }}
-        </el-button>
-      </div>
     </div>
+
+    <template #footer>
+      <el-button @click="visible = false">取消</el-button>
+      <el-button type="primary" :loading="submitting" @click="submit">
+        {{ isEdit ? "保存修改" : "立即添加" }}
+      </el-button>
+    </template>
   </ResponsiveDialog>
 </template>
 

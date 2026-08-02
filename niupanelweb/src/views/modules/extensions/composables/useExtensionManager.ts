@@ -1,4 +1,4 @@
-import { computed, h, onMounted, reactive, ref } from "vue";
+import { computed, onMounted, reactive, ref } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { useRouter } from "vue-router";
 import {
@@ -32,7 +32,6 @@ import { useAppStore } from "@/stores/app";
 import { primaryPluginRoute, usePluginAppsStore } from "@/stores/pluginApps";
 import { usePluginThemesStore } from "@/stores/pluginThemes";
 import { useWorkspaceStore } from "@/stores/workspace";
-import ExtensionImpactPreview from "../components/ExtensionImpactPreview.vue";
 import type {
   PluginHealthReport,
   PluginImpactPreview,
@@ -104,6 +103,12 @@ export function useExtensionManager() {
     pluginId: "",
     pluginName: "",
     versions: [] as PluginVersionRecord[],
+  });
+
+  const impactDialog = reactive({
+    visible: false,
+    preview: null as PluginImpactPreview | null,
+    resolve: null as ((confirmed: boolean) => void) | null,
   });
 
   const allPlugins = computed<ManagedPlugin[]>(() =>
@@ -275,25 +280,21 @@ export function useExtensionManager() {
     )?.record.manifest.version ?? "";
   };
 
-  const impactSummary = (preview: PluginImpactPreview) =>
-    h(ExtensionImpactPreview, { preview });
-  const confirmPreview = async (preview: PluginImpactPreview) => {
-    const message = impactSummary(preview);
-    if (!preview.install_allowed) {
-      await ElMessageBox.alert(message, "扩展影响预览", {
-        type: "error",
-        confirmButtonText: "关闭",
-        customClass: "extension-impact-preview-dialog",
-      });
-      return false;
-    }
-    await ElMessageBox.confirm(message, "扩展影响预览", {
-      type: preview.warnings.length ? "warning" : "info",
-      confirmButtonText: preview.operation === "update" ? "继续更新" : "继续安装",
-      cancelButtonText: "取消",
-      customClass: "extension-impact-preview-dialog",
+  const resolveImpactPreview = (confirmed: boolean) => {
+    const resolve = impactDialog.resolve;
+    impactDialog.resolve = null;
+    impactDialog.visible = false;
+    const allowed = confirmed && Boolean(impactDialog.preview?.install_allowed);
+    impactDialog.preview = null;
+    resolve?.(allowed);
+  };
+  const confirmPreview = (preview: PluginImpactPreview) => {
+    impactDialog.resolve?.(false);
+    impactDialog.preview = preview;
+    impactDialog.visible = true;
+    return new Promise<boolean>((resolve) => {
+      impactDialog.resolve = resolve;
     });
-    return true;
   };
 
   const openInstall = (method: "upload" | "path") => {
@@ -461,10 +462,10 @@ export function useExtensionManager() {
   return {
     views, installMethodOptions, router, appStore, workspace, pluginApps, pluginThemes, activeView,
     searchQuery, statusFilter, loading, busyPlugin, installedPluginRecords, pluginHealth, marketSourcesDialogVisible, market,
-    installDialog, historyDialog, allPlugins, capabilityLabel, visibleCapabilities, normalizedSearch, visiblePlugins, marketVisiblePlugins,
+    installDialog, historyDialog, impactDialog, allPlugins, capabilityLabel, visibleCapabilities, normalizedSearch, visiblePlugins, marketVisiblePlugins,
     marketVisibleUpdates, enabledCount, appCount, themeCount, themeSwatches, healthByPlugin, pluginHealthReport, pluginIcon,
     marketIcon, marketEntryIsSigned, healthText, healthTone, formatTime, loadPlugins, loadMarketSources, loadAll, addMarketSource,
-    removeMarketSource, saveMarketSources, loadMarket, checkMarketUpdates, installedVersion, impactSummary, confirmPreview, openInstall,
+    removeMarketSource, saveMarketSources, loadMarket, checkMarketUpdates, installedVersion, confirmPreview, resolveImpactPreview, openInstall,
     openUpdate, handleInstallFile, uploadForm, submitInstallDialog, togglePlugin, removePlugin, handlePluginCommand, openHistory,
     rollbackVersion, installFromMarket, openPluginApp,
   };

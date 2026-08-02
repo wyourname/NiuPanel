@@ -23,7 +23,16 @@
           <div>名称</div>
           <div>类型</div>
           <div class="text-right">大小</div>
-          <div class="text-right">修改时间</div>
+          <button
+            type="button"
+            class="ml-auto cursor-pointer rounded px-1.5 py-1 text-right inline-flex items-center gap-1 transition-colors hover:bg-soft hover:text-default"
+            :class="sortMode.startsWith('mtime-') ? 'text-primary' : 'text-muted'"
+            :title="timeSortTitle"
+            @click="emit('sort-time')"
+          >
+            修改时间
+            <span :class="timeSortIcon" aria-hidden="true"></span>
+          </button>
           <div></div>
         </div>
 
@@ -189,6 +198,7 @@ import {
   isEditableFile,
   isImageFile,
 } from "../utils/fileDisplay";
+import type { FileSortMode } from "../utils/fileSort";
 import { isFileCommand, type FileCommand } from "../utils/fileActions";
 
 type FileViewMode = "detail" | "grid";
@@ -198,6 +208,7 @@ const props = defineProps<{
   loading: boolean;
   searchQuery: string;
   selectedPaths: string[];
+  sortMode: FileSortMode;
   viewMode: FileViewMode;
 }>();
 
@@ -207,6 +218,7 @@ const emit = defineEmits<{
   (event: "item-drag-end"): void;
   (event: "item-drag-start", row: FileItem, dragEvent: DragEvent): void;
   (event: "item-click", row: FileItem): void;
+  (event: "sort-time"): void;
   (event: "toggle-selection", row: FileItem): void;
 }>();
 
@@ -215,6 +227,18 @@ let clickTimer: ReturnType<typeof setTimeout> | null = null;
 const emptyStateIcon = computed(() =>
   props.searchQuery ? "i-ep-search" : "i-ep-folder-opened",
 );
+
+const timeSortIcon = computed(() => {
+  if (props.sortMode === "mtime-asc") return "i-ep-arrow-up";
+  if (props.sortMode === "mtime-desc") return "i-ep-arrow-down";
+  return "i-ep-d-caret";
+});
+
+const timeSortTitle = computed(() => {
+  if (props.sortMode === "mtime-desc") return "当前最新优先，点击切换为最早优先";
+  if (props.sortMode === "mtime-asc") return "当前最早优先，点击切换为最新优先";
+  return "按修改时间排序（最新优先）";
+});
 
 const isSelected = (row: FileItem) => props.selectedPaths.includes(row.path);
 

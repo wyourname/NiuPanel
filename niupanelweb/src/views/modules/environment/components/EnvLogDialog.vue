@@ -1,52 +1,46 @@
 <template>
-  <component
-    :is="isMobile ? 'el-drawer' : 'el-dialog'"
-    v-model="visible"
+  <ResponsiveDialog
+    v-model:visible="visible"
     :title="title"
-    :size="isMobile ? '100%' : '800px'"
-    :width="isMobile ? '100%' : '800px'"
-    :align-center="!isMobile"
-    :with-header="!isMobile"
-    direction="btt"
+    desktop-size="xl"
+    content-preset="workspace"
+    size="100%"
+    mobile-mode="fullscreen"
     destroy-on-close
     append-to-body
-    class="log-modal"
   >
-    <div class="flex-1 flex flex-col overflow-hidden bg-[var(--editor-bg)]">
-      <div
-        v-if="isMobile"
-        class="flex items-center justify-between p-3 border-b border-base shrink-0 bg-base"
+    <template #header-actions>
+      <button
+        type="button"
+        class="mobile-touch-target cursor-pointer rounded-md px-2 text-[10px] font-semibold text-secondary flex-center gap-1.5 transition-colors hover:bg-soft hover:text-default"
+        title="清空当前日志视图"
+        aria-label="清空当前日志视图"
+        @click="clear"
       >
-        <div class="flex items-center gap-2 overflow-hidden">
-          <div
-            class="i-ep-back text-xl text-muted cursor-pointer"
-            @click="visible = false"
-          ></div>
-          <span class="font-bold truncate text-default">{{ title }}</span>
-        </div>
-        <div
-          class="i-ep-delete text-xl text-red-500 cursor-pointer"
-          @click="clear"
-        ></div>
-      </div>
+        <span class="i-ep-delete" aria-hidden="true"></span>
+        <span class="hidden sm:inline">清空</span>
+      </button>
+    </template>
 
-      <div
-        v-else
-        class="flex items-center justify-end px-4 border-b border-[var(--editor-border)] shrink-0 h-12"
-      >
-        <el-button size="small" @click="clear">清空</el-button>
-      </div>
-
-      <div class="flex-1 overflow-hidden relative">
-        <LogViewer ref="logViewerRef" :is-mobile="isMobile" />
+    <div
+      class="environment-log-shell flex h-full min-h-[420px] flex-col overflow-hidden bg-[var(--editor-bg)] md:h-[min(640px,72vh)]"
+    >
+      <div class="relative min-h-0 flex-1 overflow-hidden">
+        <LogViewer
+          ref="logViewerRef"
+          :is-mobile="isMobile"
+          compact
+          class="min-h-0 flex-1"
+        />
       </div>
     </div>
-  </component>
+  </ResponsiveDialog>
 </template>
 
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import LogViewer from "../../../../components/common/LogViewer.vue";
+import ResponsiveDialog from "../../../../components/common/ResponsiveDialog.vue";
 import type { LogFetcher, LogViewerRef, LogViewerWriteInput } from "@/types";
 
 const props = defineProps<{

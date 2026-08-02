@@ -1,12 +1,13 @@
 <template>
-  <el-drawer
-    v-model="visible"
+  <OverlayDrawer
+    v-model:visible="visible"
     title="机器人配置"
-    :size="isMobile ? '100%' : '420px'"
-    direction="rtl"
+    variant="side"
+    content-preset="form"
+    append-to-body
   >
-    <div class="space-y-5">
-      <div class="flex items-center justify-between rounded-md border border-light p-4">
+    <div class="space-y-4">
+      <div class="flex items-center justify-between rounded-md border border-light p-3">
         <div>
           <div class="text-sm font-bold text-default">服务开关</div>
           <div class="text-[10px] text-muted">开启/关闭 Telegram 机器人</div>
@@ -75,32 +76,22 @@
         </div>
       </section>
 
-      <div class="pt-4 flex gap-2">
-        <el-button
-          type="primary"
-          class="h-9 flex-1 !rounded-md font-bold !text-xs"
-          :loading="saving"
-          @click="$emit('save')"
-        >
-          保存配置
-        </el-button>
-        <el-button
-          class="h-9 !rounded-md px-5 font-bold !text-xs"
-          :loading="testing"
-          @click="$emit('test')"
-        >
-          测试
-        </el-button>
-      </div>
     </div>
-  </el-drawer>
+
+    <template #footer>
+      <el-button :loading="testing" @click="$emit('test')">测试</el-button>
+      <el-button type="primary" :loading="saving" @click="$emit('save')">
+        保存配置
+      </el-button>
+    </template>
+  </OverlayDrawer>
 </template>
 
 <script setup lang="ts">
 import type { TelegramBotConfig } from "@/api/telegram";
+import OverlayDrawer from "@/components/common/OverlayDrawer.vue";
 
 defineProps<{
-  isMobile: boolean;
   saving: boolean;
   testing: boolean;
 }>();

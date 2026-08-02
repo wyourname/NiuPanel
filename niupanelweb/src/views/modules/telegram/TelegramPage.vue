@@ -42,12 +42,10 @@
 
   <div
     v-else
-    class="flex flex-col h-full p-4 md:p-6"
-    :class="[appStore.isMobile ? 'gap-1' : 'gap-4']"
+    class="flex h-full flex-col p-3"
   >
     <div
-      class="w-full max-w-5xl mx-auto flex flex-col h-full"
-      :class="[appStore.isMobile ? 'gap-1' : 'gap-4']"
+      class="mx-auto flex h-full w-full max-w-5xl flex-col gap-3"
     >
       <TelegramToolbar
         v-model:active-tab="activeTab"
@@ -93,7 +91,6 @@
   <TelegramCommandDialog
     v-model:form="cmdForm"
     v-model:visible="showCmdDialog"
-    :is-mobile="appStore.isMobile"
     @save="saveCmd"
   />
 
@@ -102,7 +99,6 @@
     v-model:visible="showWfDialog"
     :action-config-label="actionConfigLabel"
     :action-config-placeholder="actionConfigPlaceholder"
-    :is-mobile="appStore.isMobile"
     @save="saveWf"
   />
 
@@ -127,7 +123,6 @@
   <TelegramSettingsDrawer
     v-model:form="form"
     v-model:visible="showSettings"
-    :is-mobile="appStore.isMobile"
     :saving="saving"
     :testing="testing"
     @save="handleSave"

@@ -1,50 +1,43 @@
 <template>
-  <el-drawer
-    v-model="visibleValue"
-    direction="btt"
-    size="auto"
-    :with-header="false"
-    class="action-sheet-drawer"
+  <OverlayDrawer
+    v-model:visible="visibleValue"
+    title="任务操作"
+    variant="sheet"
+    content-preset="list"
     append-to-body
   >
-    <div class="rounded-t-md bg-card px-4 pb-8 pt-3 text-center">
-      <div class="mx-auto mb-4 h-1 w-9 rounded-full bg-muted/30"></div>
-      <div class="mb-4 flex items-center gap-3 border-b border-light pb-4 text-left">
-        <div
-          class="accent-subtle h-10 w-10 rounded-md text-xl flex-center"
-        >
-          <div :class="task ? getEnvIcon(task) : 'i-ep-document'"></div>
+    <template #title>
+      <div class="flex min-w-0 items-center gap-2">
+        <div class="accent-subtle h-8 w-8 shrink-0 rounded-md text-base flex-center">
+          <span :class="task ? getEnvIcon(task) : 'i-ep-document'"></span>
         </div>
-        <div class="flex flex-col min-w-0">
-          <span class="text-base font-bold text-default truncate">
-            {{ task?.name }}
-          </span>
-          <span class="text-[10px] font-medium text-muted">
-            任务 ID：#{{ task?.id }}
-          </span>
+        <div class="min-w-0">
+          <div class="truncate text-[13px] font-bold text-default">{{ task?.name || "任务操作" }}</div>
+          <div class="truncate text-[10px] font-medium text-muted">任务 ID：#{{ task?.id }}</div>
         </div>
       </div>
-      <div class="grid grid-cols-3 gap-2">
-        <button
-          v-for="act in actions"
-          :key="act.command"
-          type="button"
-          class="flex min-h-[72px] flex-col items-center justify-center gap-2 rounded-md border border-light bg-base px-2 py-3 transition-colors hover:bg-soft"
-          @click="selectAction(act.command)"
+    </template>
+
+    <div class="grid grid-cols-3 gap-2">
+      <button
+        v-for="act in actions"
+        :key="act.command"
+        type="button"
+        class="flex min-h-[72px] cursor-pointer flex-col items-center justify-center gap-2 rounded-md border border-light bg-base px-2 py-3 transition-colors hover:bg-soft focus-visible:outline-2 focus-visible:outline-primary"
+        @click="selectAction(act.command)"
+      >
+        <span
+          class="h-8 w-8 rounded-md bg-soft text-lg flex-center"
+          :class="act.color"
         >
-          <div
-            class="h-8 w-8 rounded-md bg-soft text-lg flex-center"
-            :class="act.color"
-          >
-            <div :class="act.icon"></div>
-          </div>
-          <span class="text-[10px] font-semibold leading-tight text-secondary">
-            {{ act.label }}
-          </span>
-        </button>
-      </div>
+          <span :class="act.icon"></span>
+        </span>
+        <span class="text-[10px] font-semibold leading-tight text-secondary">
+          {{ act.label }}
+        </span>
+      </button>
     </div>
-  </el-drawer>
+  </OverlayDrawer>
 </template>
 
 <script setup lang="ts">
@@ -52,6 +45,7 @@ import { computed } from "vue";
 import type { Task } from "@/types";
 import type { TaskMobileActionCommand } from "../../composables/taskPageTypes";
 import { getEnvIcon } from "../../composables/useTaskPresentation";
+import OverlayDrawer from "../common/OverlayDrawer.vue";
 
 const props = defineProps<{
   task: Task | null;

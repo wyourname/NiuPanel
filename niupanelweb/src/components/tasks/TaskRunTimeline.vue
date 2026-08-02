@@ -1,9 +1,7 @@
 <template>
   <div
     :class="containerClass"
-    v-infinite-scroll="() => emit('load-more')"
-    :infinite-scroll-disabled="loading || !hasMore"
-    :infinite-scroll-distance="20"
+    @scroll.passive="handleScroll"
   >
     <div :class="headerClass">
       <h3 :class="titleClass">时间轴</h3>
@@ -158,6 +156,14 @@ const emit = defineEmits<{
   (event: "refresh"): void;
   (event: "select", runId: number | null): void;
 }>();
+
+const handleScroll = (event: Event) => {
+  if (props.loading || !props.hasMore) return;
+
+  const target = event.currentTarget as HTMLElement;
+  const remaining = target.scrollHeight - target.scrollTop - target.clientHeight;
+  if (remaining <= 20) emit("load-more");
+};
 
 const isMobile = computed(() => props.variant === "mobile");
 

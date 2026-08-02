@@ -1,15 +1,15 @@
 <template>
-  <el-dialog
-    v-model="visibleValue"
+  <ResponsiveDialog
+    v-model:visible="visibleValue"
     :title="title"
-    :width="width"
+    desktop-size="md"
+    content-preset="form"
+    size="88%"
     append-to-body
-    align-center
     :show-close="!executingUpdate"
     :close-on-click-modal="!executingUpdate"
-    class="release-notes-dialog custom-dialog"
   >
-    <div class="p-1">
+    <div class="min-h-0 flex-1">
       <template v-if="!executingUpdate && !updateFailed">
         <div
           class="mb-5 flex items-center justify-between rounded-md border p-4"
@@ -177,13 +177,14 @@
         </div>
       </template>
     </div>
-  </el-dialog>
+  </ResponsiveDialog>
 </template>
 
 <script setup lang="ts">
 import { computed } from "vue";
 import type { UpdateInfo } from "@/types";
 import { formatFileSize } from "@/utils/format";
+import ResponsiveDialog from "@/components/common/ResponsiveDialog.vue";
 
 const props = defineProps<{
   canCancel: boolean;
@@ -195,7 +196,6 @@ const props = defineProps<{
   updateProgress: number;
   updateStatusMessage: string;
   visible: boolean;
-  width: string;
 }>();
 
 const emit = defineEmits<{
@@ -210,9 +210,3 @@ const visibleValue = computed({
   set: (visible: boolean) => emit("update:visible", visible),
 });
 </script>
-
-<style scoped>
-.release-notes-dialog :deep(.el-dialog__body) {
-  padding-top: 0 !important;
-}
-</style>

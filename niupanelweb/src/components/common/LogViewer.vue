@@ -18,14 +18,19 @@
       <DynamicScroller
         ref="scrollerRef"
         :items="filteredChunks"
-        :min-item-size="24"
+        :min-item-size="compact ? 20 : 24"
         :buffer="800"
-        class="h-full custom-scrollbar !px-1 md:!px-4 py-2"
+        class="h-full custom-scrollbar"
+        :class="compact ? '!px-1 !py-1' : '!px-1 py-2 md:!px-4'"
         key-field="id"
         @scroll.passive="handleScroll"
       >
         <template #before>
-          <div ref="topSentinelRef" class="w-full h-4"></div>
+          <div
+            ref="topSentinelRef"
+            class="w-full"
+            :class="compact ? 'h-2' : 'h-4'"
+          ></div>
         </template>
         <template #default="{ item, index, active }">
           <DynamicScrollerItem
@@ -53,8 +58,9 @@
               <!-- Chat Bubble Style for Output -->
               <div
                 v-else
-                class="relative w-full overflow-hidden border-l-2 border-transparent px-2.5 py-1 font-mono text-[12px] leading-5 break-words transition-colors hover:bg-soft/45"
+                class="relative w-full overflow-hidden border-l-2 border-transparent font-mono text-[12px] leading-5 break-words transition-colors hover:bg-soft/45"
                 :class="[
+                  compact ? 'px-1.5 py-0.5' : 'px-2.5 py-1',
                   isWrap
                     ? 'whitespace-pre-wrap'
                     : 'whitespace-pre overflow-x-auto',
@@ -120,6 +126,7 @@ type LogViewerProps = {
   maxChunks?: number;
   isMobile?: boolean;
   disableUi?: boolean;
+  compact?: boolean;
 };
 
 type DynamicScrollerRef = {
@@ -132,6 +139,7 @@ const props = withDefaults(defineProps<LogViewerProps>(), {
   maxChunks: 10000,
   isMobile: false,
   disableUi: false,
+  compact: false,
 });
 
 const emit = defineEmits<{

@@ -120,6 +120,13 @@ export default defineConfig({
   rules: [],
 
   theme: {
+    breakpoints: {
+      sm: '640px',
+      md: '769px',
+      lg: '1024px',
+      xl: '1280px',
+      '2xl': '1536px',
+    },
     colors: {
       primary: 'rgb(var(--brand-primary-rgb) / %alpha)',
       secondary: 'var(--text-secondary)',

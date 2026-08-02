@@ -1,9 +1,10 @@
 <template>
-  <el-dialog
-    v-model="visible"
+  <ResponsiveDialog
+    v-model:visible="visible"
     :title="form.id ? '编辑指令' : '新建指令'"
-    :width="isMobile ? '95%' : '480px'"
-    class="om-dialog"
+    desktop-size="sm"
+    content-preset="form"
+    append-to-body
   >
     <el-form :model="form" label-position="top">
       <el-form-item label="指令名称 (不含/)">
@@ -23,15 +24,12 @@
       <el-button @click="visible = false">取消</el-button>
       <el-button type="primary" @click="$emit('save')">保存</el-button>
     </template>
-  </el-dialog>
+  </ResponsiveDialog>
 </template>
 
 <script setup lang="ts">
 import type { TelegramCommandForm } from "../composables/useTelegramCommands";
-
-defineProps<{
-  isMobile: boolean;
-}>();
+import ResponsiveDialog from "@/components/common/ResponsiveDialog.vue";
 
 defineEmits<{
   (e: "save"): void;
@@ -40,16 +38,3 @@ defineEmits<{
 const visible = defineModel<boolean>("visible", { required: true });
 const form = defineModel<TelegramCommandForm>("form", { required: true });
 </script>
-
-<style scoped>
-@media (max-width: 768px) {
-  .om-dialog :deep(.el-dialog__body) {
-    padding: 15px !important;
-  }
-
-  .om-dialog :deep(.el-dialog__header) {
-    margin-right: 0;
-    padding-bottom: 10px;
-  }
-}
-</style>

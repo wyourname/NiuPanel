@@ -18,6 +18,7 @@
     "dev": "vite",
     "build": "vite build",
     "verify:file-scroll-ui": "node scripts/verify-file-scroll-ui.mjs",
+    "verify:mobile-responsive-ui": "node scripts/verify-mobile-responsive-ui.mjs",
     "verify:plugin-host-contract": "node scripts/verify-plugin-host-contract.mjs",
     "verify:plugin-route-contract": "node scripts/verify-plugin-route-contract.mjs",
     "verify:public-build": "node scripts/verify-public-build.mjs",

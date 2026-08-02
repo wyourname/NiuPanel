@@ -1,11 +1,13 @@
 <template>
-  <el-dialog
-    v-model="visible"
+  <ResponsiveDialog
+    v-model:visible="visible"
     title="选择文件"
-    :width="isMobile ? '95%' : '600px'"
-    class="om-dialog"
+    desktop-size="lg"
+    content-preset="list"
+    mobile-mode="fullscreen"
+    append-to-body
   >
-    <div class="space-y-3">
+    <div class="flex min-h-0 flex-1 flex-col gap-3">
       <div
         class="flex items-center justify-between rounded-lg border border-light bg-subtle p-2.5"
       >
@@ -19,7 +21,7 @@
           <div class="i-ep-back"></div>
         </el-button>
       </div>
-      <div class="max-h-[400px] overflow-hidden overflow-y-auto rounded-lg border border-light">
+      <div class="min-h-0 flex-1 overflow-hidden overflow-y-auto rounded-lg border border-light">
         <el-table
           :data="serverFiles"
           size="small"
@@ -65,11 +67,12 @@
         </el-table>
       </div>
     </div>
-  </el-dialog>
+  </ResponsiveDialog>
 </template>
 
 <script setup lang="ts">
 import type { FileItem } from "@/types";
+import ResponsiveDialog from "@/components/common/ResponsiveDialog.vue";
 
 defineProps<{
   currentPath: string;
@@ -97,17 +100,8 @@ const visible = defineModel<boolean>("visible", { required: true });
 }
 
 @media (max-width: 768px) {
-  .om-dialog :deep(.el-dialog__body) {
-    padding: 15px !important;
-  }
-
   .om-table :deep(.el-table__cell) {
     padding: 8px 0 !important;
-  }
-
-  .om-dialog :deep(.el-dialog__header) {
-    margin-right: 0;
-    padding-bottom: 10px;
   }
 }
 </style>

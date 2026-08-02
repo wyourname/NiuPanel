@@ -1,31 +1,15 @@
 <template>
-  <el-drawer
-    v-model="visibleValue"
-    direction="btt"
-    size="auto"
-    :with-header="false"
-    class="action-sheet-drawer"
+  <OverlayDrawer
+    v-model:visible="visibleValue"
+    title="创建新任务"
+    variant="sheet"
+    content-preset="list"
     append-to-body
   >
-    <div class="rounded-t-md bg-card px-4 pb-8 pt-3 text-center">
-      <div class="mx-auto mb-4 h-1 w-9 rounded-full bg-muted/30"></div>
-      <div class="mb-4 flex items-center gap-3 border-b border-light pb-4 text-left">
-        <div
-          class="accent-subtle h-10 w-10 rounded-md flex-center"
-        >
-          <div class="i-ep-plus"></div>
-        </div>
-        <div class="flex flex-col min-w-0">
-          <span class="text-base font-bold text-default truncate">创建新任务</span>
-          <span class="text-[10px] font-medium text-muted">
-            选择任务创建方式
-          </span>
-        </div>
-      </div>
-      <div class="grid gap-2">
+    <div class="grid gap-2">
         <button
           type="button"
-          class="flex min-h-14 items-center gap-3 rounded-md border border-light bg-base px-4 text-left transition-colors hover:bg-soft"
+          class="flex min-h-14 cursor-pointer items-center gap-3 rounded-md border border-light bg-base px-3 text-left transition-colors hover:bg-soft focus-visible:outline-2 focus-visible:outline-primary"
           @click="selectCreateMode('create')"
         >
           <div class="accent-subtle h-8 w-8 rounded-md flex-center">
@@ -39,7 +23,7 @@
         </button>
         <button
           type="button"
-          class="flex min-h-14 items-center gap-3 rounded-md border border-light bg-base px-4 text-left transition-colors hover:bg-soft"
+          class="flex min-h-14 cursor-pointer items-center gap-3 rounded-md border border-light bg-base px-3 text-left transition-colors hover:bg-soft focus-visible:outline-2 focus-visible:outline-primary"
           @click="selectCreateMode('quick-create')"
         >
           <div class="h-8 w-8 rounded-md bg-amber-500/10 text-amber-500 flex-center">
@@ -51,13 +35,13 @@
           </span>
           <span class="i-ep-arrow-right text-muted"></span>
         </button>
-      </div>
     </div>
-  </el-drawer>
+  </OverlayDrawer>
 </template>
 
 <script setup lang="ts">
 import { computed } from "vue";
+import OverlayDrawer from "../common/OverlayDrawer.vue";
 
 type CreateMode = "create" | "quick-create";
 

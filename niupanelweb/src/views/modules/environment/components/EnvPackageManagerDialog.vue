@@ -2,79 +2,88 @@
   <ResponsiveDialog
     v-model:visible="visible"
     :title="dialogTitle"
-    width="920px"
+    desktop-size="xl"
+    content-preset="workspace"
     size="100%"
     destroy-on-close
     append-to-body
   >
-    <div class="flex h-full min-h-[420px] flex-col overflow-hidden bg-[var(--editor-bg)] md:h-[min(680px,75vh)]">
-      <div class="flex flex-col gap-3 border-b border-[var(--editor-border)] px-5 py-3.5 sm:flex-row sm:items-center sm:justify-between">
-        <div class="flex min-w-0 items-center gap-3">
-          <span class="h-9 w-9 shrink-0 rounded-md accent-subtle flex-center">
-            <span class="i-ep-box text-[16px]"></span>
-          </span>
-          <div class="min-w-0">
-            <div class="text-[12px] font-semibold text-[var(--editor-text)]">
-              管理已安装依赖
+    <div
+      class="dependency-manager-shell flex h-full min-h-[420px] flex-col overflow-hidden bg-[var(--editor-bg)] md:h-[min(680px,75vh)]"
+    >
+      <section
+        class="min-h-0 flex flex-1 flex-col overflow-hidden bg-card"
+        aria-labelledby="dependency-manager-list-title"
+      >
+        <div class="dependency-manager-toolbar shrink-0 p-3">
+          <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div class="min-w-0">
+              <div class="flex items-center gap-2">
+                <h3
+                  id="dependency-manager-list-title"
+                  class="text-[12px] font-semibold text-default"
+                >
+                  已安装依赖
+                </h3>
+                <span class="rounded-md bg-soft px-2 py-0.5 text-[10px] font-semibold text-secondary">
+                  {{ filteredPackages.length }}
+                </span>
+              </div>
+              <p
+                v-if="packageStatusLabel"
+                class="mt-1 text-[10px] text-muted"
+                aria-live="polite"
+              >
+                {{ packageStatusLabel }}
+              </p>
             </div>
-            <div class="mt-0.5 text-[10px] leading-4 text-[var(--editor-text)]/55">
-              Node.js 依赖按运行时版本隔离；Python 依赖归属当前虚拟环境。
+
+            <div class="flex w-full items-center gap-2 sm:w-auto">
+              <button
+                type="button"
+                class="dependency-manager-refresh !h-11 !w-11 shrink-0 rounded-lg bg-soft text-secondary flex-center transition-colors hover:text-default disabled:cursor-not-allowed disabled:opacity-50"
+                title="刷新依赖列表"
+                aria-label="刷新依赖列表"
+                :disabled="loading"
+                @click="loadPackages()"
+              >
+                <span :class="['i-ep-refresh', loading ? 'animate-spin' : '']"></span>
+              </button>
+              <ToolbarButton
+                variant="primary"
+                class="!min-h-11 flex-1 sm:flex-none"
+                @click="showInstallDialog"
+              >
+                <template #icon>
+                  <span class="i-ep-plus"></span>
+                </template>
+                安装依赖
+              </ToolbarButton>
             </div>
           </div>
-        </div>
 
-        <div class="flex items-center gap-2 sm:shrink-0 sm:self-end">
-          <ToolbarButton variant="soft" @click="showInstallDialog">
-            <template #icon>
-              <div class="i-ep-download"></div>
-            </template>
-            安装依赖
-          </ToolbarButton>
-          <ToolbarButton @click="showUninstallDialog">
-            <template #icon>
-              <div class="i-ep-delete"></div>
-            </template>
-            手动卸载
-          </ToolbarButton>
-          <button
-            type="button"
-            class="btn-icon !w-9 !h-9"
-            title="刷新依赖列表"
-            aria-label="刷新依赖列表"
-            @click="loadPackages()"
-          >
-            <div :class="['i-ep-refresh', loading ? 'animate-spin' : '']"></div>
-          </button>
-        </div>
-      </div>
-
-      <div class="border-b border-[var(--editor-border)] px-5 py-4">
-        <div class="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_220px] gap-3">
           <el-input
             v-model="searchQuery"
-            size="small"
             clearable
-            placeholder="搜索已安装依赖"
-            class="modern-input"
+            placeholder="搜索包名或版本"
+            class="dependency-manager-search modern-input mt-3 w-full"
           >
             <template #prefix>
-              <div class="i-ep-search"></div>
+              <span class="i-ep-search"></span>
             </template>
           </el-input>
-
-          <div class="rounded-md border border-[var(--editor-border)] bg-black/5 px-4 py-3 dark:bg-white/5">
-            <div class="text-[11px] text-[var(--editor-text)]/45">已安装数量</div>
-            <div class="text-2xl font-semibold text-[var(--editor-text)] mt-1">{{ filteredPackages.length }}</div>
-          </div>
         </div>
-      </div>
 
-      <EnvPackageList
-        :loading="loading"
-        :packages="filteredPackages"
-        :search-query="searchQuery"
-        @uninstall="handleUninstallPackage"
-      />
+        <EnvPackageList
+          :loading="loading"
+          :packages="filteredPackages"
+          :search-query="searchQuery"
+          :uninstalling-package="uninstallingPackage"
+          @clear-search="searchQuery = ''"
+          @install="showInstallDialog"
+          @uninstall="handleUninstallPackage"
+        />
+      </section>
     </div>
 
     <EnvPackageInstallDialog
@@ -82,12 +91,6 @@
       v-model:visible="installDialogVisible"
       :installing="installing"
       @install="handleInstallPackages"
-    />
-
-    <EnvPackageUninstallDialog
-      v-model:package-name="uninstallForm.package"
-      v-model:visible="uninstallDialogVisible"
-      @uninstall="handleManualUninstall"
     />
   </ResponsiveDialog>
 </template>
@@ -99,7 +102,6 @@ import ResponsiveDialog from "../../../../components/common/ResponsiveDialog.vue
 import ToolbarButton from "../../../../components/common/ToolbarButton.vue";
 import EnvPackageInstallDialog from "./EnvPackageInstallDialog.vue";
 import EnvPackageList from "./EnvPackageList.vue";
-import EnvPackageUninstallDialog from "./EnvPackageUninstallDialog.vue";
 import { useEnvPackageManager } from "../composables/useEnvPackageManager";
 
 const props = withDefaults(
@@ -127,21 +129,33 @@ const {
   dialogTitle,
   filteredPackages,
   handleInstallPackages,
-  handleManualUninstall,
   handleUninstallPackage,
   installDialogVisible,
   installForm,
   installing,
   loadPackages,
   loading,
+  packages,
   searchQuery,
   showInstallDialog,
-  showUninstallDialog,
-  uninstallDialogVisible,
-  uninstallForm,
+  uninstallingPackage,
 } = useEnvPackageManager({
   env: () => props.env,
   isVisible: visible,
   onShowLog: (id, name) => emit("show-log", id, name),
 });
+
+const packageStatusLabel = computed(() => {
+  if (loading.value) return "正在更新依赖列表…";
+  if (searchQuery.value) {
+    return `找到 ${filteredPackages.value.length} 项，共 ${packages.value.length} 项`;
+  }
+  return "";
+});
 </script>
+
+<style scoped>
+.dependency-manager-search :deep(.el-input__wrapper) {
+  min-height: 44px;
+}
+</style>

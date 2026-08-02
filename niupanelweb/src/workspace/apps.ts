@@ -111,6 +111,13 @@ export const workspaceApps: WorkspaceAppDefinition[] = [
     launchPolicy: "multi",
     mobileMode: "stack",
   },
+  {
+    id: "file-editor",
+    title: "文件编辑器",
+    icon: "i-ep-document",
+    launchPolicy: "multi",
+    mobileMode: "stack",
+  },
 ];
 
 export const workspaceAppMap = new Map(

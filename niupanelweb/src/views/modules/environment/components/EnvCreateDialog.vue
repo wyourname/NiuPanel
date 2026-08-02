@@ -2,13 +2,14 @@
   <ResponsiveDialog
     v-model:visible="visible"
     title="创建运行环境"
-    width="520px"
+    desktop-size="md"
+    content-preset="form"
     size="auto"
     destroy-on-close
     append-to-body
   >
     <form class="flex min-h-0 flex-col" @submit.prevent="handleSubmit">
-      <div class="flex min-h-0 flex-col gap-5 p-5 sm:p-6">
+      <div class="flex min-h-0 flex-col gap-4">
         <div class="flex items-start gap-3 rounded-lg border border-light bg-soft/50 p-3.5">
           <span class="h-8 w-8 shrink-0 rounded-md accent-subtle flex-center">
             <span :class="envTypeMeta.icon" class="text-[16px]"></span>

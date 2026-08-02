@@ -77,14 +77,15 @@
       </el-button>
     </div>
 
-    <el-dialog
-      v-model="historyVisible"
+    <ResponsiveDialog
+      v-model:visible="historyVisible"
       title="Panel 版本记录"
-      width="min(560px, 92vw)"
+      desktop-size="md"
+      content-preset="list"
+      size="82%"
       append-to-body
-      class="custom-dialog"
     >
-      <div class="overflow-hidden rounded-md border border-light">
+      <div class="m-3 overflow-y-auto rounded-md border border-light md:m-4">
         <div
           v-for="release in runtime?.releases || []"
           :key="release.version"
@@ -112,7 +113,7 @@
           暂无版本记录
         </div>
       </div>
-    </el-dialog>
+    </ResponsiveDialog>
   </section>
 </template>
 
@@ -121,6 +122,7 @@ import { computed, onMounted, ref } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { getPanelReleases, getSystemMeta, rollbackPanelRelease } from "@/api/system";
 import type { PanelReleaseList, PluginSandboxMode } from "@/types";
+import ResponsiveDialog from "@/components/common/ResponsiveDialog.vue";
 
 const runtime = ref<PanelReleaseList>();
 const sandboxMode = ref<PluginSandboxMode>("unsupported");

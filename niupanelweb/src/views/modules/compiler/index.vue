@@ -80,11 +80,12 @@
   <ResponsiveDialog
     v-model:visible="showMobileOps"
     title="编译设置"
-    width="420px"
+    desktop-size="sm"
+    content-preset="form"
     size="78%"
     append-to-body
   >
-    <div class="min-h-0 flex-1 overflow-y-auto p-4 custom-scrollbar">
+    <div class="min-h-0 flex-1 custom-scrollbar">
       <ConfigPanel
         v-model:function-name="form.function_name"
         v-model:obfuscate="form.obfuscate"
@@ -103,11 +104,12 @@
   <ResponsiveDialog
     v-model:visible="showFilePicker"
     title="服务器代码浏览"
-    width="600px"
-    size="78%"
+    desktop-size="lg"
+    content-preset="list"
+    mobile-mode="fullscreen"
     append-to-body
   >
-    <div class="flex h-[70vh] max-h-[520px] flex-col">
+    <div class="flex h-full min-h-0 flex-col md:h-[70vh] md:max-h-[520px]">
       <div class="flex shrink-0 items-center gap-2 overflow-x-auto whitespace-nowrap border-b border-light bg-subtle px-3 py-2 text-xs text-muted">
         <button
           type="button"

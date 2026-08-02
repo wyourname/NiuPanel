@@ -2,10 +2,11 @@
   <ResponsiveDialog
     v-model:visible="visibleValue"
     title="MCP 工具目录"
-    width="860px"
+    desktop-size="xl"
+    content-preset="list"
+    mobile-mode="fullscreen"
     append-to-body
     destroy-on-close
-    custom-class="cloud-dialog"
   >
     <div class="flex h-full min-h-[320px] flex-col bg-card md:h-[min(640px,72vh)]">
       <div class="flex shrink-0 items-center justify-between gap-3 border-b border-light px-4 py-3">

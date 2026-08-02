@@ -3,7 +3,7 @@
     <div class="flex flex-col shrink-0 bg-card border-b border-base z-20">
       <div class="flex h-12 items-center justify-between gap-2 px-3">
         <label
-          class="flex h-9 min-w-0 flex-1 items-center rounded-md border border-light bg-base px-2.5 transition-colors focus-within:border-primary/50 focus-within:bg-card"
+          class="flex h-11 min-w-0 flex-1 items-center rounded-md border border-light bg-base px-2.5 transition-colors focus-within:border-primary/50 focus-within:bg-card"
         >
           <span class="i-ep-search mr-2 shrink-0 text-xs text-muted"></span>
           <input
@@ -12,7 +12,7 @@
             inputmode="search"
             aria-label="搜索任务名称或脚本"
             placeholder="搜索任务名称或脚本"
-            class="min-w-0 flex-1 appearance-none border-none bg-transparent text-xs text-default outline-none placeholder:text-muted/60"
+            class="task-mobile-search-input min-w-0 flex-1 appearance-none border-none bg-transparent text-xs text-default outline-none"
           />
           <span
             v-if="loading && totalTasks > 0"
@@ -23,7 +23,7 @@
         <button
           v-if="!selectionMode"
           type="button"
-          class="accent-subtle h-9 w-9 shrink-0 rounded-md flex-center transition-[filter,box-shadow] duration-200 hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/25"
+          class="accent-subtle h-11 w-11 shrink-0 rounded-md flex-center transition-[filter,box-shadow] duration-200 hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/25"
           title="新建任务"
           aria-label="新建任务"
           @click="emit('open-create-sheet')"
@@ -35,7 +35,7 @@
         <button
           v-for="item in statusPills"
           :key="item.value"
-          class="h-7 shrink-0 px-2.5 rounded-md text-[10px] font-semibold transition-colors border-none outline-none"
+          class="h-11 shrink-0 px-2.5 rounded-md text-[11px] font-semibold transition-colors border-none outline-none"
           :class="
             statusValue === item.value
               ? 'accent-subtle'
@@ -111,7 +111,7 @@
         >
           <div class="flex flex-col items-center gap-0.5">
             <div class="i-ep-video-play text-[22px]"></div>
-            <span class="text-[10px] opacity-80 mt-0.5">运行</span>
+            <span class="mt-0.5 text-[11px] opacity-80">运行</span>
           </div>
         </el-button>
         <el-button
@@ -122,7 +122,7 @@
         >
           <div class="flex flex-col items-center gap-0.5">
             <div class="i-ep-video-pause text-[22px]"></div>
-            <span class="text-[10px] opacity-80 mt-0.5">暂停</span>
+            <span class="mt-0.5 text-[11px] opacity-80">暂停</span>
           </div>
         </el-button>
         <el-button
@@ -133,7 +133,7 @@
         >
           <div class="flex flex-col items-center gap-0.5">
             <div class="i-ep-switch-button text-[20px]"></div>
-            <span class="text-[10px] opacity-80 mt-0.5">停止</span>
+            <span class="mt-0.5 text-[11px] opacity-80">停止</span>
           </div>
         </el-button>
       </template>
@@ -259,3 +259,10 @@ const statusValue = computed({
 const statusCount = (status: string) =>
   status === "all" ? props.allTasks.length : props.allTasks.filter((task) => task.status === status).length;
 </script>
+
+<style scoped>
+.task-mobile-search-input::placeholder {
+  color: var(--text-muted);
+  opacity: 0.6;
+}
+</style>

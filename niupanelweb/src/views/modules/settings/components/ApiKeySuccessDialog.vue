@@ -2,10 +2,11 @@
   <ResponsiveDialog
     v-model:visible="visibleValue"
     title="密钥已生成"
-    width="500px"
+    desktop-size="md"
+    content-preset="form"
     append-to-body
   >
-    <div class="flex flex-col gap-4 p-4">
+    <div class="flex flex-col gap-4">
       <div class="flex items-center gap-3">
         <div
           class="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-emerald-300/50 bg-emerald-50 text-emerald-600 dark:border-emerald-400/20 dark:bg-emerald-500/10 dark:text-emerald-300"
@@ -37,15 +38,13 @@
         </el-button>
       </div>
 
-      <el-button
-        type="primary"
-        size="large"
-        class="w-full !h-9 !rounded-md !text-sm font-bold"
-        @click="visibleValue = false"
-      >
+    </div>
+
+    <template #footer>
+      <el-button type="primary" @click="visibleValue = false">
         我已妥善保存
       </el-button>
-    </div>
+    </template>
   </ResponsiveDialog>
 </template>
 

@@ -10,7 +10,7 @@
         :window="item"
         :active="workspace.activeWindowId === item.id"
         class="pointer-events-auto"
-        @close="workspace.closeWindow(item.id)"
+        @close="workspace.requestCloseWindow(item.id)"
         @focus="workspace.focusWindow(item.id)"
         @minimize="workspace.minimizeWindow(item.id)"
         @place="workspace.placeWindow(item.id, $event)"
@@ -24,6 +24,11 @@
         <TaskEditorWorkspaceWindow
           v-else-if="item.appId === 'task-editor'"
           :payload="taskEditorPayload(item.payload)"
+          :window-id="item.id"
+        />
+        <FileEditorWorkspaceWindow
+          v-else-if="item.appId === 'file-editor'"
+          :payload="fileEditorPayload(item.payload)"
           :window-id="item.id"
         />
         <PluginHostView
@@ -50,7 +55,7 @@
             type="button"
             class="accent-subtle h-9 w-9 rounded-md flex-center transition-colors"
             aria-label="关闭窗口"
-            @click="workspace.closeWindow(workspace.activeWindow.id)"
+            @click="workspace.requestCloseWindow(workspace.activeWindow.id)"
           >
             <div class="i-ep-arrow-left text-base"></div>
           </button>
@@ -95,6 +100,11 @@
             :payload="taskEditorPayload(workspace.activeWindow.payload)"
             :window-id="workspace.activeWindow.id"
           />
+          <FileEditorWorkspaceWindow
+            v-else-if="workspace.activeWindow.appId === 'file-editor'"
+            :payload="fileEditorPayload(workspace.activeWindow.payload)"
+            :window-id="workspace.activeWindow.id"
+          />
           <PluginHostView
             v-else-if="isPluginWindow(workspace.activeWindow.appId)"
             :plugin-id="pluginPayload(workspace.activeWindow.payload).pluginId"
@@ -116,6 +126,7 @@
 import { useAppStore } from "@/stores/app";
 import { useWorkspaceStore } from "@/stores/workspace";
 import type {
+  FileEditorWindowPayload,
   PluginWorkspaceWindowPayload,
   TaskEditorWindowPayload,
   TaskLogWindowPayload,
@@ -124,6 +135,7 @@ import type {
 } from "@/types/workspace";
 import { workspaceAppComponents } from "@/workspace/components";
 import PluginHostView from "@/views/plugins/PluginHostView.vue";
+import FileEditorWorkspaceWindow from "./FileEditorWorkspaceWindow.vue";
 import TaskEditorWorkspaceWindow from "./TaskEditorWorkspaceWindow.vue";
 import TaskLogWorkspaceWindow from "./TaskLogWorkspaceWindow.vue";
 import WorkspaceWindow from "./WorkspaceWindow.vue";
@@ -136,6 +148,9 @@ const taskLogPayload = (payload: WorkspaceWindowPayload) =>
 
 const taskEditorPayload = (payload: WorkspaceWindowPayload) =>
   payload as TaskEditorWindowPayload;
+
+const fileEditorPayload = (payload: WorkspaceWindowPayload) =>
+  payload as FileEditorWindowPayload;
 
 const pluginPayload = (payload: WorkspaceWindowPayload) =>
   payload as PluginWorkspaceWindowPayload;

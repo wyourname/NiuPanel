@@ -17,7 +17,8 @@ export type BuiltinWorkspaceAppId =
   | "settings"
   | "more"
   | "task-log"
-  | "task-editor";
+  | "task-editor"
+  | "file-editor";
 
 export type WorkspaceAppId = BuiltinWorkspaceAppId | `plugin:${string}`;
 
@@ -65,6 +66,19 @@ export type TaskEditorWindowPayload = {
   uploadedFile?: File;
 };
 
+export type FileEditorWindowPayload = {
+  fileName: string;
+  filePath: string;
+  session: {
+    content: string;
+    initialized: boolean;
+    loadError: string;
+    loading: boolean;
+    savedContent: string;
+    saving: boolean;
+  };
+};
+
 export type PluginWorkspaceWindowPayload = {
   pluginId: string;
   routePath: string;
@@ -74,6 +88,7 @@ export type PluginWorkspaceWindowPayload = {
 export type WorkspaceWindowPayload =
   | TaskLogWindowPayload
   | TaskEditorWindowPayload
+  | FileEditorWindowPayload
   | PluginWorkspaceWindowPayload
   | Record<string, never>;
 

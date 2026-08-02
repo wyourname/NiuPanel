@@ -8,6 +8,19 @@
     </div>
 
     <div
+      v-else-if="mobileUnsupported"
+      class="h-full min-h-[260px] flex flex-col items-center justify-center gap-3 px-6 text-center"
+    >
+      <div class="h-12 w-12 rounded-md bg-soft text-primary flex-center">
+        <div class="i-ep-monitor text-2xl"></div>
+      </div>
+      <div class="text-sm font-bold text-default">该插件暂未适配移动端</div>
+      <div class="max-w-[420px] text-[12px] leading-5 text-secondary">
+        插件清单未启用 <code class="font-mono">ui.display.mobile</code>，请在桌面工作区中打开。
+      </div>
+    </div>
+
+    <div
       v-else-if="error"
       class="h-full min-h-[260px] flex flex-col items-center justify-center gap-3 px-6 text-center"
     >
@@ -16,7 +29,7 @@
       <div class="max-w-[520px] text-xs leading-5 text-muted">{{ error }}</div>
       <button
         type="button"
-        class="rounded-lg bg-primary px-3 py-2 text-xs font-bold text-white transition-opacity hover:opacity-90"
+        class="h-11 rounded-lg bg-primary px-4 text-xs font-bold text-white transition-opacity hover:opacity-90 md:h-auto md:py-2"
         @click="mountPlugin"
       >
         重试
@@ -24,7 +37,7 @@
     </div>
 
     <div
-      v-show="!loading && !error"
+      v-show="!loading && !error && !mobileUnsupported"
       ref="containerRef"
       class="h-full min-h-0"
     ></div>
@@ -38,6 +51,7 @@ import { useRoute, useRouter } from "vue-router";
 import request from "@/utils/request";
 import { resolvePluginAssetUrl } from "@/api/plugins";
 import { hasPluginAppPermissions, usePluginAppsStore } from "@/stores/pluginApps";
+import { useAppStore } from "@/stores/app";
 import { hasPermission } from "@/utils/permission";
 import type {
   NiuPanelPluginApp,
@@ -61,6 +75,7 @@ const emit = defineEmits<{
 const route = useRoute();
 const router = useRouter();
 const pluginApps = usePluginAppsStore();
+const appStore = useAppStore();
 const containerRef = ref<HTMLElement | null>(null);
 const loading = ref(false);
 const error = ref<string | null>(null);
@@ -91,6 +106,15 @@ const pluginEntrySignature = computed(() => {
   if (!app) return null;
   return `${app.plugin_id}:${app.version}:${app.ui.entry_url}`;
 });
+
+const currentPluginApp = computed(() => {
+  const id = pluginId.value;
+  return id ? pluginApps.getApp(id) : null;
+});
+
+const mobileUnsupported = computed(
+  () => appStore.isMobile && currentPluginApp.value?.ui.display.mobile === false,
+);
 
 const currentPluginRouteSnapshot = (): NiuPanelPluginRouteSnapshot => ({
   path: pluginRoutePath.value,
@@ -342,6 +366,7 @@ const mountPlugin = async () => {
     if (!hasPluginAppPermissions(app)) {
       throw new Error("当前用户没有访问该插件应用的权限");
     }
+    if (appStore.isMobile && !app.ui.display.mobile) return;
 
     const entryUrl = resolvePluginAssetUrl(app.ui.entry_url);
     const versionedUrl = `${entryUrl}${entryUrl.includes("?") ? "&" : "?"}v=${encodeURIComponent(app.version)}`;

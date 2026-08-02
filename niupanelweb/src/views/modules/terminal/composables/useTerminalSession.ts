@@ -62,6 +62,8 @@ export function useTerminalSession(terminalRef: Ref<HTMLElement | null>) {
   let webglAddon: WebglAddon | null = null;
   let ws: WebSocket | null = null;
   let terminalElement: HTMLElement | null = null;
+  let resizeObserver: ResizeObserver | null = null;
+  let resizeFrame = 0;
 
   const sendInput = (data: string) => {
     if (ws?.readyState === WebSocket.OPEN) {
@@ -148,6 +150,17 @@ export function useTerminalSession(terminalRef: Ref<HTMLElement | null>) {
     };
   };
 
+  const fitTerminal = () => {
+    if (document.hidden || !fitAddon || !terminalElement) return;
+    window.cancelAnimationFrame(resizeFrame);
+    resizeFrame = window.requestAnimationFrame(() => {
+      if (!fitAddon || !terminalElement?.isConnected) return;
+      const { width, height } = terminalElement.getBoundingClientRect();
+      if (width <= 0 || height <= 0) return;
+      fitAddon.fit();
+    });
+  };
+
   const initTerminal = () => {
     term = new Terminal({
       cursorBlink: true,
@@ -172,7 +185,7 @@ export function useTerminalSession(terminalRef: Ref<HTMLElement | null>) {
       } catch {
         webglAddon = null;
       }
-      fitAddon.fit();
+      fitTerminal();
       terminalElement.addEventListener("click", handleContainerClick);
       terminalElement.addEventListener("contextmenu", handleContextMenu);
     }
@@ -224,12 +237,20 @@ export function useTerminalSession(terminalRef: Ref<HTMLElement | null>) {
   };
 
   const handleResize = () => {
-    if (document.hidden) return;
-    fitAddon?.fit();
+    fitTerminal();
+  };
+
+  const handleVisibilityChange = () => {
+    if (!document.hidden) fitTerminal();
   };
 
   const cleanupTerminal = () => {
     window.removeEventListener("resize", handleResize);
+    window.visualViewport?.removeEventListener("resize", handleResize);
+    document.removeEventListener("visibilitychange", handleVisibilityChange);
+    resizeObserver?.disconnect();
+    resizeObserver = null;
+    window.cancelAnimationFrame(resizeFrame);
     terminalElement?.removeEventListener("click", handleContainerClick);
     terminalElement?.removeEventListener("contextmenu", handleContextMenu);
     disposeWebSocket(true);
@@ -249,7 +270,13 @@ export function useTerminalSession(terminalRef: Ref<HTMLElement | null>) {
 
   onMounted(() => {
     initTerminal();
+    if (terminalRef.value) {
+      resizeObserver = new ResizeObserver(fitTerminal);
+      resizeObserver.observe(terminalRef.value);
+    }
     window.addEventListener("resize", handleResize);
+    window.visualViewport?.addEventListener("resize", handleResize);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
   });
 
   onUnmounted(cleanupTerminal);

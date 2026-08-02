@@ -101,6 +101,18 @@ export const usePluginAppsStore = defineStore("pluginApps", () => {
     ),
   );
 
+  const mobileApps = computed(() =>
+    sortPluginApps(
+      apps.value.filter(
+        (item) =>
+          item.ui.mode === "vue_app" &&
+          item.ui.display.mobile &&
+          visiblePluginRoutes(item).length > 0 &&
+          hasPluginAppPermissions(item),
+      ),
+    ),
+  );
+
   const workspaceApps = computed(() =>
     sortPluginApps(
       apps.value.filter(
@@ -121,6 +133,7 @@ export const usePluginAppsStore = defineStore("pluginApps", () => {
     loaded,
     loading,
     menuApps,
+    mobileApps,
     workspaceApps,
   };
 });

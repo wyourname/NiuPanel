@@ -2,11 +2,12 @@
   <ResponsiveDialog
     v-model:visible="visibleValue"
     title="定时规则"
-    width="480px"
+    desktop-size="sm"
+    content-preset="form"
     append-to-body
     destroy-on-close
   >
-    <div class="flex flex-col gap-5 p-5 md:p-6">
+    <div class="flex flex-col gap-4">
       <div class="space-y-4">
         <div class="flex items-center justify-between">
           <span class="label-sm">定时表达式</span>
@@ -74,18 +75,14 @@
         </transition>
       </div>
 
-      <div class="flex justify-end gap-3 pt-4">
-        <el-button @click="visibleValue = false">取消</el-button>
-        <el-button
-          type="primary"
-          :loading="saving"
-          class="!px-8 font-bold"
-          @click="emit('save')"
-        >
-          应用更改
-        </el-button>
-      </div>
     </div>
+
+    <template #footer>
+      <el-button @click="visibleValue = false">取消</el-button>
+      <el-button type="primary" :loading="saving" @click="emit('save')">
+        应用更改
+      </el-button>
+    </template>
   </ResponsiveDialog>
 </template>
 

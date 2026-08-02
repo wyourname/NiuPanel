@@ -1,118 +1,136 @@
 <template>
-  <WorkspaceAppFrame
-    v-if="!appStore.isMobile"
-    content-class="overflow-hidden"
-  >
-    <template #toolbar>
-      <SharePageHeader
-        v-model:active-tab="activeTab"
-        :is-mobile="appStore.isMobile"
-        @open-import="importDialogVisible = true"
-        @open-sources="marketSourceDialogVisible = true"
-      />
-    </template>
-
-    <div v-if="activeTab === 'market'" class="h-full overflow-hidden">
-      <ShareMarketTable
-        :data="marketScripts"
-        :loading="loadingMarket"
-        @install="handleInstallFromMarket"
-        @open-sources="marketSourceDialogVisible = true"
-      />
-    </div>
-
-    <div v-if="activeTab === 'import'" class="h-full overflow-hidden">
-      <ShareImportHistory ref="historyRef" @update="handleReimport" />
-    </div>
-
-    <div v-else-if="activeTab === 'manage'" class="h-full overflow-hidden">
-      <ShareStationPanel
-        :config-form="configForm"
-        :is-mobile="appStore.isMobile"
-        :loading-list="loadingList"
-        :on-refresh="fetchStationList"
-        :saving-config="savingConfig"
-        :station-list="stationList"
-        :station-stats="stationStats"
-        @configure="showStationConfig"
-        @copy-link="copyLink"
-        @delete="handleDelete"
-        @edit="openEditDialog"
-        @save-config="handleSaveConfig"
-        @update-content="handleUpdateContent"
-      />
-    </div>
-  </WorkspaceAppFrame>
-
-  <div v-else class="flex flex-col h-full bg-base p-4 md:p-3 relative overflow-hidden" :class="[appStore.isMobile ? 'gap-1' : 'gap-4']">
-    <div class="flex-1 overflow-hidden relative flex flex-col">
-      <div class="w-full max-w-5xl mx-auto flex flex-col h-full" :class="[appStore.isMobile ? '' : 'gap-4']">
+  <div class="h-full min-h-0">
+    <WorkspaceAppFrame
+      v-if="!appStore.isMobile"
+      content-class="overflow-hidden"
+    >
+      <template #toolbar>
         <SharePageHeader
           v-model:active-tab="activeTab"
           :is-mobile="appStore.isMobile"
           @open-import="importDialogVisible = true"
           @open-sources="marketSourceDialogVisible = true"
         />
+      </template>
 
-        <div class="relative flex flex-1 flex-col overflow-hidden bg-card sm:border sm:border-b-0 sm:border-light"
-             :class="[appStore.isMobile ? 'mt-2' : '']">
-          <div v-if="activeTab === 'market'" class="h-full flex flex-col overflow-hidden bg-subtle dark:bg-subtle">
-            <ShareMarketTable
-              :data="marketScripts"
-              :loading="loadingMarket"
-              @install="handleInstallFromMarket"
-              @open-sources="marketSourceDialogVisible = true"
-            />
-          </div>
+      <div v-if="activeTab === 'market'" class="h-full overflow-hidden">
+        <ShareMarketTable
+          :data="marketScripts"
+          :loading="loadingMarket"
+          @install="handleInstallFromMarket"
+          @open-sources="marketSourceDialogVisible = true"
+        />
+      </div>
 
-          <div v-if="activeTab === 'import'" class="h-full flex flex-col overflow-hidden">
-            <div class="flex-1 flex flex-col overflow-hidden relative bg-subtle dark:bg-subtle">
-              <div class="flex-1 overflow-hidden relative min-h-0">
-                <ShareImportHistory ref="historyRef" @update="handleReimport" />
+      <div v-if="activeTab === 'import'" class="h-full overflow-hidden">
+        <ShareImportHistory ref="historyRef" @update="handleReimport" />
+      </div>
+
+      <div v-else-if="activeTab === 'manage'" class="h-full overflow-hidden">
+        <ShareStationPanel
+          :config-form="configForm"
+          :is-mobile="appStore.isMobile"
+          :loading-list="loadingList"
+          :on-refresh="fetchStationList"
+          :saving-config="savingConfig"
+          :station-list="stationList"
+          :station-stats="stationStats"
+          @configure="showStationConfig"
+          @copy-link="copyLink"
+          @delete="handleDelete"
+          @edit="openEditDialog"
+          @save-config="handleSaveConfig"
+          @update-content="handleUpdateContent"
+        />
+      </div>
+    </WorkspaceAppFrame>
+
+    <div
+      v-else
+      class="relative flex h-full flex-col overflow-hidden bg-base p-4 md:p-3"
+      :class="[appStore.isMobile ? 'gap-1' : 'gap-4']"
+    >
+      <div class="flex-1 overflow-hidden relative flex flex-col">
+        <div
+          class="mx-auto flex h-full w-full max-w-5xl flex-col"
+          :class="[appStore.isMobile ? '' : 'gap-4']"
+        >
+          <SharePageHeader
+            v-model:active-tab="activeTab"
+            :is-mobile="appStore.isMobile"
+            @open-import="importDialogVisible = true"
+            @open-sources="marketSourceDialogVisible = true"
+          />
+
+          <div
+            class="relative flex flex-1 flex-col overflow-hidden bg-card sm:border sm:border-b-0 sm:border-light"
+            :class="[appStore.isMobile ? 'mt-2' : '']"
+          >
+            <div
+              v-if="activeTab === 'market'"
+              class="flex h-full flex-col overflow-hidden bg-subtle dark:bg-subtle"
+            >
+              <ShareMarketTable
+                :data="marketScripts"
+                :loading="loadingMarket"
+                @install="handleInstallFromMarket"
+                @open-sources="marketSourceDialogVisible = true"
+              />
+            </div>
+
+            <div
+              v-if="activeTab === 'import'"
+              class="flex h-full flex-col overflow-hidden"
+            >
+              <div class="flex-1 flex flex-col overflow-hidden relative bg-subtle dark:bg-subtle">
+                <div class="flex-1 overflow-hidden relative min-h-0">
+                  <ShareImportHistory ref="historyRef" @update="handleReimport" />
+                </div>
               </div>
             </div>
-          </div>
 
-          <div v-else-if="activeTab === 'manage'" class="h-full flex flex-col overflow-hidden">
-            <ShareStationPanel
-              :config-form="configForm"
-              :is-mobile="appStore.isMobile"
-              :loading-list="loadingList"
-              :on-refresh="fetchStationList"
-              :saving-config="savingConfig"
-              :station-list="stationList"
-              :station-stats="stationStats"
-              @configure="showStationConfig"
-              @copy-link="copyLink"
-              @delete="handleDelete"
-              @edit="openEditDialog"
-              @save-config="handleSaveConfig"
-              @update-content="handleUpdateContent"
-            />
+            <div
+              v-else-if="activeTab === 'manage'"
+              class="flex h-full flex-col overflow-hidden"
+            >
+              <ShareStationPanel
+                :config-form="configForm"
+                :is-mobile="appStore.isMobile"
+                :loading-list="loadingList"
+                :on-refresh="fetchStationList"
+                :saving-config="savingConfig"
+                :station-list="stationList"
+                :station-stats="stationStats"
+                @configure="showStationConfig"
+                @copy-link="copyLink"
+                @delete="handleDelete"
+                @edit="openEditDialog"
+                @save-config="handleSaveConfig"
+                @update-content="handleUpdateContent"
+              />
+            </div>
           </div>
         </div>
       </div>
     </div>
 
+    <MarketSourceDialog
+      v-model="marketSourceDialogVisible"
+      @update-scripts="fetchMarketScripts"
+    />
+
+    <ShareEditDialog
+      v-model="editDialogVisible"
+      :share="currentShare"
+      @success="fetchStationList"
+    />
+
+    <ShareImportDialog
+      ref="importDialogRef"
+      v-model="importDialogVisible"
+      @success="handleImportSuccess"
+    />
   </div>
-
-  <MarketSourceDialog
-    v-model="marketSourceDialogVisible"
-    @update-scripts="fetchMarketScripts"
-  />
-
-  <ShareEditDialog
-    v-model="editDialogVisible"
-    :share="currentShare"
-    @success="fetchStationList"
-  />
-
-  <ShareImportDialog
-    ref="importDialogRef"
-    v-model="importDialogVisible"
-    :is-mobile="appStore.isMobile"
-    @success="handleImportSuccess"
-  />
 </template>
 
 <script setup lang="ts">

@@ -1,34 +1,29 @@
 <template>
-  <el-dialog
-    v-model="visible"
-    width="80%"
-    align-center
+  <ResponsiveDialog
+    v-model:visible="visible"
+    title="图片预览"
+    desktop-size="fluid"
+    content-preset="workspace"
+    mobile-mode="fullscreen"
     append-to-body
-    class="bg-transparent"
-    :show-close="false"
   >
     <div
-      class="relative flex items-center justify-center p-4 animate-fade-in"
+      class="relative flex min-h-0 flex-1 items-center justify-center overflow-auto p-3 animate-fade-in md:p-4"
       @click="visible = false"
     >
       <img
         :src="src"
-        class="max-h-[85vh] max-w-full rounded-md border border-white/10 bg-checkboard object-contain"
+        alt="图片预览"
+        class="max-w-full rounded-md border border-white/10 bg-checkboard object-contain"
+        style="max-height: calc(var(--app-viewport-height) - 120px)"
       />
-      <div
-        class="absolute right-4 top-4 h-9 w-9 cursor-pointer rounded-md bg-black/55 text-white flex-center transition-colors hover:bg-black/70"
-        title="关闭预览"
-        aria-label="关闭图片预览"
-        @click.stop="visible = false"
-      >
-        <div class="i-ep-close text-2xl"></div>
-      </div>
     </div>
-  </el-dialog>
+  </ResponsiveDialog>
 </template>
 
 <script setup lang="ts">
 import { computed } from "vue";
+import ResponsiveDialog from "@/components/common/ResponsiveDialog.vue";
 
 const props = defineProps<{
   modelValue: boolean;

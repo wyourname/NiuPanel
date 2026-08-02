@@ -2,11 +2,12 @@
   <ResponsiveDialog
     :visible="visible"
     title="安装新依赖"
-    width="560px"
+    desktop-size="md"
+    content-preset="form"
     @update:visible="emit('update:visible', $event)"
   >
-    <div class="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-5">
-      <div class="flex items-start gap-3 rounded-lg border border-light bg-soft/50 p-3.5">
+    <div class="flex min-h-0 flex-1 flex-col gap-2">
+      <div class="flex items-start gap-3 rounded-lg border border-light bg-soft/50">
         <span class="h-8 w-8 shrink-0 rounded-md accent-subtle flex-center">
           <span class="i-ep-download text-[15px]"></span>
         </span>

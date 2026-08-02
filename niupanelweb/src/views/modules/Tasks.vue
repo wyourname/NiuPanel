@@ -52,7 +52,6 @@
         @load-more="taskStore.loadMoreTasks"
         @load-more-timeline="loadMoreTimeline"
         @more-actions="openActionSheet"
-        @open-log-window="openCurrentTaskLogWindow"
         @quick-create="openQuickCreate"
         @refresh-timeline="fetchRunTimeline(currentTask?.id)"
         @run="taskStore.runTask"
@@ -395,11 +394,6 @@ const setDesktopWorkspaceRef = (instance: unknown) => {
   logSearchInputRef.value = instance;
 };
 
-const openCurrentTaskLogWindow = () => {
-  if (!currentTask.value) return;
-  workspaceStore.openTaskLogWindow(currentTask.value, selectedHistoryRunId.value);
-};
-
 const handleHistoryLogViewRequest = (_logPath: string, runId: number) => {
   if (!currentTask.value || appStore.isMobile) {
     handleHistoryLogView(_logPath, runId);
@@ -571,22 +565,4 @@ useTasksPageLifecycle({
   font-weight: 600;
 }
 
-.modern-dialog .el-dialog__header {
-  margin-right: 0;
-  padding: 1rem 1.5rem;
-  border-bottom: 1px solid var(--border-light);
-}
-
-@media (max-width: 768px) {
-  .el-drawer__header {
-    margin-bottom: 0 !important;
-    padding-bottom: 16px !important;
-  }
-}
-
-.action-sheet-drawer .el-drawer__body {
-  padding: 0 !important;
-  overflow: visible !important;
-  background: transparent !important;
-}
 </style>

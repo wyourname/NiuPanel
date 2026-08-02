@@ -2,12 +2,13 @@
   <ResponsiveDialog
     v-model:visible="visible"
     title="获取资源"
-    :size="isMobile ? '100%' : 'auto'"
-    :width="isMobile ? '100%' : '550px'"
+    desktop-size="md"
+    content-preset="form"
+    mobile-mode="fullscreen"
     destroy-on-close
     append-to-body
   >
-    <div class="p-4 sm:p-5 h-full overflow-y-auto">
+    <div class="h-full">
       <ShareImportWizard ref="wizardRef" @success="emit('success')" />
     </div>
   </ResponsiveDialog>
@@ -23,7 +24,6 @@ type ShareImportWizardExpose = {
 };
 
 const props = defineProps<{
-  isMobile: boolean;
   modelValue: boolean;
 }>();
 

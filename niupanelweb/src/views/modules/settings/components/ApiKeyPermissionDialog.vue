@@ -2,10 +2,11 @@
   <ResponsiveDialog
     v-model:visible="visibleValue"
     :title="isEdit ? '编辑 API 访问密钥' : '配置 API 访问密钥'"
-    width="800px"
+    desktop-size="xl"
+    content-preset="form"
+    mobile-mode="fullscreen"
     append-to-body
     destroy-on-close
-    custom-class="cloud-dialog"
   >
     <div class="flex h-full flex-col overflow-hidden bg-white dark:bg-[#0d1724] md:h-[520px]">
       <ApiKeyBasicFields

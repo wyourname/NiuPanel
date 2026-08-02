@@ -1,9 +1,7 @@
 <template>
   <div
     class="h-full overflow-y-auto custom-scrollbar p-0 md:p-2"
-    v-infinite-scroll="loadMore"
-    :infinite-scroll-disabled="loading || noMore"
-    :infinite-scroll-distance="10"
+    @scroll.passive="handleScroll"
   >
     <TaskCardItem
       v-for="task in tasks"
@@ -105,7 +103,11 @@ const isSelected = (task: Task) => {
   return props.selectedTasks.some((t) => t.id === task.id);
 };
 
-const loadMore = () => {
-  emit("load-more");
+const handleScroll = (event: Event) => {
+  if (props.loading || props.noMore) return;
+
+  const target = event.currentTarget as HTMLElement;
+  const remaining = target.scrollHeight - target.scrollTop - target.clientHeight;
+  if (remaining <= 10) emit("load-more");
 };
 </script>

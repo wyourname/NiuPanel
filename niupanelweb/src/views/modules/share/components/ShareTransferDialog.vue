@@ -1,16 +1,12 @@
 <template>
-  <component
-    :is="appStore.isMobile ? 'el-drawer' : 'el-dialog'"
-    v-model="visible"
+  <ResponsiveDialog
+    v-model:visible="visible"
     title="中转站上传"
-    :size="appStore.isMobile ? 'auto' : '500px'"
-    :width="appStore.isMobile ? '90%' : '500px'"
-    :align-center="!appStore.isMobile"
-    direction="btt"
+    desktop-size="md"
+    content-preset="form"
     append-to-body
-    class="task-wizard-dialog"
   >
-    <div class="p-4 flex flex-col h-full">
+    <div class="flex h-full flex-col">
       <div v-if="step === 0" class="flex flex-col gap-4">
         <div
           class="bg-base p-3 rounded text-sm text-secondary border border-base"
@@ -31,12 +27,6 @@
             <el-input v-model="form.password" placeholder="留空无密码" />
           </el-form-item>
         </el-form>
-        <div class="flex justify-end pt-4">
-          <el-button @click="visible = false">取消</el-button>
-          <el-button type="primary" @click="handleStart" :loading="loading"
-            >开始上传</el-button
-          >
-        </div>
       </div>
       <div v-else class="flex flex-col items-center justify-center py-8">
         <el-progress
@@ -63,16 +53,23 @@
         </div>
       </div>
     </div>
-  </component>
+
+    <template v-if="step === 0" #footer>
+      <el-button @click="visible = false">取消</el-button>
+      <el-button type="primary" :loading="loading" @click="handleStart">
+        开始上传
+      </el-button>
+    </template>
+  </ResponsiveDialog>
 </template>
 
 <script setup lang="ts">
 import { ref, reactive, watch, onUnmounted } from "vue";
 import { ElMessage } from "element-plus";
 import * as shareApi from "../../../../api/share";
-import { useAppStore } from "../../../../stores/app";
 import useClipboard from "vue-clipboard3";
 import type { TransferStatus } from "@/types";
+import ResponsiveDialog from "../../../../components/common/ResponsiveDialog.vue";
 
 const props = withDefaults(
   defineProps<{
@@ -88,7 +85,6 @@ const props = withDefaults(
 const emit = defineEmits<{
   (event: "update:modelValue", visible: boolean): void;
 }>();
-const appStore = useAppStore();
 const { toClipboard } = useClipboard();
 
 const visible = ref(false);

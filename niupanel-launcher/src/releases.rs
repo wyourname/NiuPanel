@@ -3,9 +3,11 @@ const BOOTSTRAP_INSTALLED_AT: &str = "1970-01-01T00:00:00Z";
 
 pub(crate) async fn ensure_panel_runtime(config: &LauncherConfig) -> Result<PanelRuntimeState> {
     if runtime_database_path(&config.system_root).exists() {
-        return read_panel_runtime_state(&config.system_root)
-            .await
-            .map_err(|error| anyhow!(error));
+        match read_panel_runtime_state(&config.system_root).await {
+            Ok(state) => return Ok(state),
+            Err(error) if error == PANEL_RUNTIME_NOT_INITIALIZED => {}
+            Err(error) => return Err(anyhow!(error)),
+        }
     }
     let bootstrap = install_bootstrap_release(config)?;
     initialize_runtime(&config.system_root, &bootstrap)

@@ -17,7 +17,6 @@
       :cancelling-update="cancellingUpdate"
       :executing-update="executingUpdate"
       :title="dialogTitle"
-      :width="dialogWidth"
       :update-failed="updateFailed"
       :update-info="updateInfo"
       :update-progress="updateProgress"
@@ -30,14 +29,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from "vue";
-import { useAppStore } from "../../../stores/app";
 import AboutOverviewCard from "./components/AboutOverviewCard.vue";
 import SystemUpdateDialog from "./components/SystemUpdateDialog.vue";
 import ReleaseManagementPanel from "./components/ReleaseManagementPanel.vue";
 import { useSystemUpdate } from "./composables/useSystemUpdate";
-
-const appStore = useAppStore();
 
 const {
   canCancel,
@@ -60,8 +55,4 @@ const {
   updatingUpdateChannel,
 } = useSystemUpdate();
 
-const dialogWidth = computed(() => {
-  if (appStore.isMobile) return "92%";
-  return executingUpdate.value || updateFailed.value ? "400px" : "550px";
-});
 </script>

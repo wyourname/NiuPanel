@@ -2,6 +2,7 @@ import { computed, ref } from "vue";
 import { defineStore } from "pinia";
 import { workspaceAppMap } from "@/workspace/apps";
 import type {
+  FileEditorWindowPayload,
   PluginWorkspaceWindowPayload,
   TaskEditorWindowMode,
   TaskEditorWindowPayload,
@@ -11,12 +12,13 @@ import type {
   WorkspaceWindowBounds,
   WorkspaceWindowPlacement,
 } from "@/types/workspace";
-import type { Task } from "@/types";
-import type { PluginAppRecord } from "@/types";
+import type { FileItem, PluginAppRecord, Task } from "@/types";
 import { primaryPluginRoute, usePluginAppsStore } from "@/stores/pluginApps";
 import { normalizePluginRoute, pluginRoutePath } from "@/utils/pluginRoutes";
 
 const taskWizardWindowWidth = 480;
+
+type WorkspaceCloseGuard = () => boolean | Promise<boolean>;
 
 const defaultBounds = (offset: number): WorkspaceWindowBounds => ({
   x: 120 + offset,
@@ -45,7 +47,7 @@ const getViewportBounds = (): WorkspaceWindowBounds => {
     x: 12,
     y: 12,
     width: Math.max(320, window.innerWidth - 24),
-    height: Math.max(480, window.innerHeight - 104),
+    height: Math.max(240, window.innerHeight - 104),
   };
 };
 
@@ -106,6 +108,19 @@ const getTaskEditorBounds = (
   };
 };
 
+const getFileEditorBounds = (offset: number): WorkspaceWindowBounds => {
+  const area = getWorkspaceArea();
+  const width = Math.max(560, Math.min(1120, area.width - 24 - offset));
+  const height = Math.max(420, Math.min(760, area.height - 24 - offset));
+
+  return {
+    x: area.x + Math.max(0, Math.floor((area.width - width) / 2)) + offset,
+    y: area.y + 12 + offset,
+    width,
+    height,
+  };
+};
+
 const getTaskEditorWindowMode = (
   target: WorkspaceWindow,
 ): TaskEditorWindowMode | null => {
@@ -127,6 +142,7 @@ const getRestoredWindowBounds = (
 ): WorkspaceWindowBounds => {
   const taskEditorMode = getTaskEditorWindowMode(target);
   if (taskEditorMode) return getTaskEditorBounds(taskEditorMode, offset);
+  if (target.appId === "file-editor") return getFileEditorBounds(offset);
   return defaultBounds(offset);
 };
 
@@ -135,6 +151,7 @@ export const useWorkspaceStore = defineStore("workspace", () => {
   const activeWindowId = ref<string | null>(null);
   const zCounter = ref(80);
   const windowSeq = ref(0);
+  const closeGuards = new Map<string, WorkspaceCloseGuard>();
 
   const activeWindow = computed(() =>
     windows.value.find((item) => item.id === activeWindowId.value) ?? null,
@@ -176,6 +193,7 @@ export const useWorkspaceStore = defineStore("workspace", () => {
     if (index === -1) return;
 
     windows.value.splice(index, 1);
+    closeGuards.delete(id);
     if (activeWindowId.value === id) {
       const next = windows.value.at(-1);
       activeWindowId.value = next?.id ?? null;
@@ -188,9 +206,46 @@ export const useWorkspaceStore = defineStore("workspace", () => {
     closeWindow(activeWindowId.value);
   };
 
+  const registerCloseGuard = (id: string, guard: WorkspaceCloseGuard) => {
+    closeGuards.set(id, guard);
+
+    return () => {
+      if (closeGuards.get(id) === guard) closeGuards.delete(id);
+    };
+  };
+
+  const requestCloseWindow = async (id: string) => {
+    const guard = closeGuards.get(id);
+    if (guard && !(await guard())) return false;
+
+    closeWindow(id);
+    return true;
+  };
+
+  const requestCloseActiveWindow = async () => {
+    if (!activeWindowId.value) return false;
+    return requestCloseWindow(activeWindowId.value);
+  };
+
+  const requestCloseAll = async () => {
+    const targets = [...windows.value].sort((a, b) => b.zIndex - a.zIndex);
+
+    for (const target of targets) {
+      const guard = closeGuards.get(target.id);
+      if (guard && !(await guard())) return false;
+    }
+
+    targets.forEach((target) => closeWindow(target.id));
+    return true;
+  };
+
   const closeWindowsByApp = (appId: WorkspaceAppId) => {
     const shouldPickNext = activeWindow.value?.appId === appId;
+    const closingIds = windows.value
+      .filter((item) => item.appId === appId)
+      .map((item) => item.id);
     windows.value = windows.value.filter((item) => item.appId !== appId);
+    closingIds.forEach((id) => closeGuards.delete(id));
     if (shouldPickNext) {
       const next = windows.value.at(-1);
       activeWindowId.value = next?.id ?? null;
@@ -284,14 +339,18 @@ export const useWorkspaceStore = defineStore("workspace", () => {
       };
     } else if (placement === "center") {
       const taskEditorMode = getTaskEditorWindowMode(target);
-      target.bounds = taskEditorMode
-        ? getTaskEditorBounds(taskEditorMode, 0)
-        : {
-            x: area.x + Math.max(0, Math.floor((area.width - 980) / 2)),
-            y: area.y + 18,
-            width: Math.min(980, area.width),
-            height: Math.min(680, area.height - 20),
-          };
+      if (target.appId === "file-editor") {
+        target.bounds = getFileEditorBounds(0);
+      } else if (taskEditorMode) {
+        target.bounds = getTaskEditorBounds(taskEditorMode, 0);
+      } else {
+        target.bounds = {
+          x: area.x + Math.max(0, Math.floor((area.width - 980) / 2)),
+          y: area.y + 18,
+          width: Math.min(980, area.width),
+          height: Math.min(680, area.height - 20),
+        };
+      }
     } else {
       target.bounds = getRestoredWindowBounds(
         target,
@@ -454,13 +513,42 @@ export const useWorkspaceStore = defineStore("workspace", () => {
     });
   };
 
+  const openFileEditorWindow = (file: Pick<FileItem, "name" | "path">) => {
+    const payload: FileEditorWindowPayload = {
+      fileName: file.name,
+      filePath: file.path,
+      session: {
+        content: "",
+        initialized: false,
+        loadError: "",
+        loading: false,
+        savedContent: "",
+        saving: false,
+      },
+    };
+    const offset = (windows.value.length % 5) * 22;
+
+    return openWindow("file-editor", `file-editor:${file.path}`, payload, {
+      title: file.name,
+      subtitle: file.path,
+      icon: "i-ep-document",
+      bounds: getFileEditorBounds(offset),
+    });
+  };
+
   const openAppWindow = (
     appId: WorkspaceAppId,
     options: {
       forceNew?: boolean;
     } = {},
   ) => {
-    if (appId === "task-log" || appId === "task-editor") return null;
+    if (
+      appId === "task-log" ||
+      appId === "task-editor" ||
+      appId === "file-editor"
+    ) {
+      return null;
+    }
 
     const app = workspaceAppMap.get(appId);
     if (!app) return null;
@@ -543,6 +631,7 @@ export const useWorkspaceStore = defineStore("workspace", () => {
   const closeAll = () => {
     windows.value = [];
     activeWindowId.value = null;
+    closeGuards.clear();
   };
 
   const minimizeAll = () => {
@@ -568,12 +657,17 @@ export const useWorkspaceStore = defineStore("workspace", () => {
     minimizeWindowsByApp,
     navigatePluginWindow,
     openAppWindow,
+    openFileEditorWindow,
     openPluginAppWindow,
     openTaskCreateWindow,
     openTaskEditorWindow,
     openTaskLogWindow,
     openWindow,
     placeWindow,
+    registerCloseGuard,
+    requestCloseActiveWindow,
+    requestCloseAll,
+    requestCloseWindow,
     taskLogWindows,
     toggleMaximizeWindow,
     tileVisibleWindows,

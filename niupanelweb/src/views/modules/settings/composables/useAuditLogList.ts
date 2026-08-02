@@ -21,12 +21,30 @@ const ACTION_LABELS: Record<string, string> = {
   SETTINGS_UPDATE: "更新设置",
 };
 
+const RESOURCE_LABELS: Record<string, string> = {
+  api_key: "API 密钥",
+  environment: "运行环境",
+  file: "文件",
+  plugin: "插件",
+  session: "会话",
+  settings: "系统设置",
+  task: "任务",
+  telegram: "Telegram",
+  user: "用户",
+  variable: "变量",
+  webhook: "Webhook",
+};
+
 const DEFAULT_ACTION_STYLE =
   "bg-slate-100 text-slate-500 dark:bg-slate-800/40 dark:text-slate-400";
 
+const normalizeAction = (action: string) =>
+  action.trim().replace(/[.\s-]+/g, "_").toUpperCase();
+
 const formatFallbackAction = (action: string) =>
   action
-    .split("_")
+    .split(/[.\s_-]+/)
+    .filter(Boolean)
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
     .join(" ");
 
@@ -49,13 +67,13 @@ const formatDateOnly = (dateStr: string) => {
 
 const formatActionText = (action: string) => {
   if (!action) return "UNKNOWN";
-  return ACTION_LABELS[action] || formatFallbackAction(action);
+  return ACTION_LABELS[normalizeAction(action)] || formatFallbackAction(action);
 };
 
 const getActionStyle = (action: string) => {
   if (!action) return DEFAULT_ACTION_STYLE;
 
-  const normalizedAction = action.toUpperCase();
+  const normalizedAction = normalizeAction(action);
 
   if (
     normalizedAction.includes("DELETE") ||
@@ -84,6 +102,26 @@ const getActionStyle = (action: string) => {
 
   return DEFAULT_ACTION_STYLE;
 };
+
+const formatActorText = (row: AuditLog) => {
+  if (row.actor_type === "User") {
+    return row.user_id !== undefined && row.user_id !== null
+      ? `用户 ${row.user_id}`
+      : "系统";
+  }
+
+  return row.user_id !== undefined && row.user_id !== null
+    ? `密钥 ${row.user_id}`
+    : "API 密钥";
+};
+
+const formatResourceText = (resource: string) => {
+  const normalized = resource.trim().toLowerCase().replace(/[.\s-]+/g, "_");
+  return RESOURCE_LABELS[normalized] || resource || "未知资源";
+};
+
+const canOpenResource = (row: AuditLog) =>
+  row.resource.trim().toLowerCase() === "task" && Boolean(row.resource_id);
 
 export function useAuditLogList() {
   const { isMobile } = useMobile();
@@ -140,7 +178,7 @@ export function useAuditLogList() {
   };
 
   const openResource = (row: AuditLog) => {
-    if (row.resource === "task") {
+    if (canOpenResource(row)) {
       void router.push("/tasks");
     }
   };
@@ -166,8 +204,11 @@ export function useAuditLogList() {
   });
 
   return {
+    canOpenResource,
+    formatActorText,
     formatActionText,
     formatDateOnly,
+    formatResourceText,
     formatTime,
     getActionStyle,
     isMobile,

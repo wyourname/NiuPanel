@@ -1,89 +1,105 @@
 <template>
-  <WorkspaceAppFrame
-    v-if="!appStore.isMobile"
-    content-class="overflow-hidden"
-  >
-    <template #toolbar>
-      <EnvironmentToolbar
-        v-model:filter-type="filterType"
-        :is-mobile="appStore.isMobile"
-        :loading="loading"
-        @create="createDialogVisible = true"
-        @open-jobs="jobListVisible = true"
-        @open-mirror="mirrorDialogVisible = true"
-      />
-    </template>
+  <div class="h-full min-h-0">
+    <WorkspaceAppFrame
+      v-if="!appStore.isMobile"
+      content-class="overflow-hidden"
+    >
+      <template #toolbar>
+        <EnvironmentToolbar
+          v-model:filter-type="filterType"
+          :is-mobile="appStore.isMobile"
+          :loading="loading"
+          @create="createDialogVisible = true"
+          @open-jobs="jobListVisible = true"
+          @open-mirror="mirrorDialogVisible = true"
+        />
+      </template>
 
-    <PullToRefresh :on-refresh="loadEnvironments" disabled class="flex min-h-0 flex-1 flex-col">
-      <EnvTable
-        :data="filteredEnvironments"
-        :loading="loading"
-        @view-logs="handleViewLogs"
-        @manage-packages="showPackages"
-        @delete="deleteEnvironment"
-        @create="handleRestoreEnvironment"
-        @set-default="handleSetNodeDefault"
-      />
-    </PullToRefresh>
-
-    <template #status>
-      <div class="flex items-center justify-between gap-3">
-        <span>{{ environmentFilterLabel }} · {{ filteredEnvironments.length }} 个条目</span>
-        <span v-if="loading" class="text-primary">加载中</span>
-      </div>
-    </template>
-  </WorkspaceAppFrame>
-
-  <PageShell v-else compact>
-    <div class="module-panel flex-1 min-h-0 overflow-hidden flex flex-col">
-      <EnvironmentToolbar
-        v-model:filter-type="filterType"
-        :is-mobile="appStore.isMobile"
-        :loading="loading"
-        @create="createDialogVisible = true"
-        @open-jobs="jobListVisible = true"
-        @open-mirror="mirrorDialogVisible = true"
-      />
-
-      <EnvironmentSummaryBar
-        :count="filteredEnvironments.length"
-        :filter-type="filterType"
-        :is-mobile="appStore.isMobile"
-      />
-
-      <PullToRefresh :on-refresh="loadEnvironments" :disabled="!appStore.isMobile" class="flex-1 flex flex-col min-h-0">
-        <EnvTable :data="filteredEnvironments" :loading="loading" @view-logs="handleViewLogs"
-          @manage-packages="showPackages" @delete="deleteEnvironment" @create="handleRestoreEnvironment"
-          @set-default="handleSetNodeDefault" />
+      <PullToRefresh
+        :on-refresh="loadEnvironments"
+        disabled
+        class="flex min-h-0 flex-1 flex-col"
+      >
+        <EnvTable
+          :data="filteredEnvironments"
+          :loading="loading"
+          @view-logs="handleViewLogs"
+          @manage-packages="showPackages"
+          @delete="deleteEnvironment"
+          @create="handleRestoreEnvironment"
+          @set-default="handleSetNodeDefault"
+        />
       </PullToRefresh>
-    </div>
-  </PageShell>
 
-  <EnvJobListDialog
-    v-model="jobListVisible"
-    @show-log="showInstallLogDialog"
-  />
+      <template #status>
+        <div class="flex items-center justify-between gap-3">
+          <span>{{ environmentFilterLabel }} · {{ filteredEnvironments.length }} 个条目</span>
+          <span v-if="loading" class="text-primary">加载中</span>
+        </div>
+      </template>
+    </WorkspaceAppFrame>
 
-  <EnvCreateDialog
-    v-model="createDialogVisible"
-    :default-env-type="filterType === 'node' ? 'node' : 'python'"
-    @show-log="showInstallLogDialog"
-  />
+    <PageShell v-else compact>
+      <div class="module-panel flex min-h-0 flex-1 flex-col overflow-hidden">
+        <EnvironmentToolbar
+          v-model:filter-type="filterType"
+          :is-mobile="appStore.isMobile"
+          :loading="loading"
+          @create="createDialogVisible = true"
+          @open-jobs="jobListVisible = true"
+          @open-mirror="mirrorDialogVisible = true"
+        />
 
-  <EnvMirrorDialog v-model="mirrorDialogVisible" :filter-type="filterType" />
+        <EnvironmentSummaryBar
+          :count="filteredEnvironments.length"
+          :filter-type="filterType"
+          :is-mobile="appStore.isMobile"
+        />
 
-  <EnvPackageManagerDialog
-    v-model="packageDialogVisible"
-    :env="currentEnv"
-    @show-log="showInstallLogDialog"
-  />
+        <PullToRefresh
+          :on-refresh="loadEnvironments"
+          :disabled="!appStore.isMobile"
+          class="flex min-h-0 flex-1 flex-col"
+        >
+          <EnvTable
+            :data="filteredEnvironments"
+            :loading="loading"
+            @view-logs="handleViewLogs"
+            @manage-packages="showPackages"
+            @delete="deleteEnvironment"
+            @create="handleRestoreEnvironment"
+            @set-default="handleSetNodeDefault"
+          />
+        </PullToRefresh>
+      </div>
+    </PageShell>
 
-  <EnvLogDialog
-    ref="logDialogRef"
-    v-model="logDialogVisible"
-    :title="currentLogTitle"
-    :is-mobile="appStore.isMobile"
-  />
+    <EnvJobListDialog
+      v-model="jobListVisible"
+      @show-log="showInstallLogDialog"
+    />
+
+    <EnvCreateDialog
+      v-model="createDialogVisible"
+      :default-env-type="filterType === 'node' ? 'node' : 'python'"
+      @show-log="showInstallLogDialog"
+    />
+
+    <EnvMirrorDialog v-model="mirrorDialogVisible" :filter-type="filterType" />
+
+    <EnvPackageManagerDialog
+      v-model="packageDialogVisible"
+      :env="currentEnv"
+      @show-log="showInstallLogDialog"
+    />
+
+    <EnvLogDialog
+      ref="logDialogRef"
+      v-model="logDialogVisible"
+      :title="currentLogTitle"
+      :is-mobile="appStore.isMobile"
+    />
+  </div>
 </template>
 
 <script setup lang="ts">

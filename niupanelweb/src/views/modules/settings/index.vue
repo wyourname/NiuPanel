@@ -49,7 +49,7 @@
 
   <PageShell v-else :padded="false">
     <div class="flex h-full min-h-0 flex-col overflow-hidden">
-      <div class="mobile-dock-safe flex-1 overflow-y-auto p-4 custom-scrollbar">
+      <div class="flex-1 overflow-y-auto p-4 custom-scrollbar">
         <div class="mb-4">
           <h2 class="text-[20px] font-bold text-default">设置</h2>
           <p class="mt-1 text-[12px] font-medium text-muted">{{ versionLabel }}</p>
@@ -83,9 +83,9 @@
       v-if="appStore.isMobile && drawerVisible"
       class="mobile-dock-safe fixed inset-0 z-[45] flex flex-col bg-base"
     >
-      <div class="h-14 shrink-0 border-b border-light bg-card px-4 flex items-center gap-3">
+      <div class="safe-top-header shrink-0 border-b border-light bg-card px-4 pt-safe flex items-center gap-3">
         <button
-          class="h-9 w-9 rounded-md bg-soft text-primary flex-center transition-colors hover:bg-primary/15"
+          class="h-11 w-11 rounded-md bg-soft text-primary flex-center transition-colors hover:bg-primary/15"
           @click="drawerVisible = false"
         >
           <div class="i-ep-back text-lg"></div>
@@ -95,8 +95,10 @@
           <p class="truncate text-[10px] font-medium text-muted">{{ currentMenuItem?.desc }}</p>
         </div>
       </div>
-      <div class="min-h-0 flex-1 overflow-y-auto p-5 custom-scrollbar">
-        <component :is="currentComponent" />
+      <div class="min-h-0 flex-1 overflow-hidden p-4">
+        <div class="h-full overflow-y-auto custom-scrollbar">
+          <component :is="currentComponent" />
+        </div>
       </div>
     </section>
   </PageShell>
@@ -210,7 +212,10 @@ const menuItems = [
 
 const syncSectionFromRoute = () => {
   const section = typeof route.query.section === "string" ? route.query.section : "";
-  if (menuItems.some((item) => item.id === section)) activeSection.value = section;
+  if (menuItems.some((item) => item.id === section)) {
+    activeSection.value = section;
+    if (appStore.isMobile) drawerVisible.value = true;
+  }
 };
 
 watch(() => route.query.section, syncSectionFromRoute, { immediate: true });

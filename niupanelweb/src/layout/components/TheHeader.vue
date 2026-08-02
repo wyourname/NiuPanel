@@ -1,21 +1,21 @@
 <template>
   <header
-    class="flex items-center justify-between sticky top-0 z-30 transition-all duration-300 px-4"
-    :class="[appStore.isMobile ? 'h-14' : 'h-16']"
+    class="sticky top-0 z-30 flex shrink-0 items-center justify-between px-3 transition-colors duration-200 pt-safe md:px-4"
+    :class="[appStore.isMobile ? 'safe-top-header' : 'h-16']"
   >
-    <div class="flex items-center gap-1 sm:gap-3">
+    <div class="flex min-w-0 items-center gap-1 sm:gap-3">
       <span
-        class="max-w-[150px] truncate select-none font-bold md:max-w-none"
+        class="min-w-0 max-w-[min(52vw,240px)] truncate select-none font-bold md:max-w-none"
         :class="
-          appStore.isMobile ? 'text-[22px] ml-1 text-primary' : 'text-[15px] text-default'
+          appStore.isMobile ? 'ml-1 text-[16px] text-default' : 'text-[15px] text-default'
         "
       >
-        {{ appStore.isMobile ? "NiuPanel" : pageTitle }}
+        {{ pageTitle }}
       </span>
     </div>
 
     <!-- Right: Actions -->
-    <div class="flex items-center gap-1.5 md:gap-3">
+    <div class="flex shrink-0 items-center gap-1 md:gap-3">
       <!-- Desktop Search (Cmd+K) -->
       <div
         v-if="!appStore.isMobile && route.name !== 'tasks'"
@@ -32,12 +32,27 @@
         >
       </div>
 
-      <!-- Mobile Search Icon -->
-      <div v-if="appStore.isDark" class="w-px h-4 bg-dark mx-1"></div>
-      <div v-else class="w-px h-4 bg-light mx-1"></div>
+      <button
+        v-if="appStore.isMobile"
+        type="button"
+        class="btn-icon"
+        title="搜索"
+        aria-label="打开全局搜索"
+        @click="emit('open-search')"
+      >
+        <div class="i-ep-search h-5 w-5"></div>
+      </button>
+
+      <div class="mx-0.5 h-5 w-px bg-light"></div>
 
       <!-- Theme Toggle -->
-      <button class="btn-icon" @click="appStore.toggleDark()">
+      <button
+        type="button"
+        class="btn-icon"
+        :title="appStore.isDark ? '切换到浅色模式' : '切换到深色模式'"
+        :aria-label="appStore.isDark ? '切换到浅色模式' : '切换到深色模式'"
+        @click="appStore.toggleDark()"
+      >
         <div v-if="appStore.isDark" class="i-ep-sunny h-5 w-5 text-yellow-400"></div>
         <div v-else class="i-ep-moon h-5 w-5 text-slate-500"></div>
       </button>
@@ -49,26 +64,21 @@
 import { computed } from "vue";
 import { useRoute } from "vue-router";
 import { useAppStore } from "../../stores/app";
+import { usePluginAppsStore, primaryPluginRoute } from "../../stores/pluginApps";
 
 const emit = defineEmits(["open-search"]);
 const route = useRoute();
 const appStore = useAppStore();
+const pluginApps = usePluginAppsStore();
 
 const pageTitle = computed(() => {
-  const map: Record<string, string> = {
-    overview: "系统概览",
-    tasks: "任务列表",
-    variables: "环境变量",
-    files: "文件管理",
-    environments: "环境管理",
-    compiler: "代码加密",
-    share: "分享中心",
-    settings: "系统设置",
-    git: "Git 管理",
-    telegram: "电报机器人",
-    terminal: "系统终端",
-    more: "更多",
-  };
-  return map[route.name as string] || "Dashboard";
+  if (route.name === "plugin-app") {
+    const rawPluginId = route.params.pluginId;
+    const pluginId = Array.isArray(rawPluginId) ? rawPluginId[0] : rawPluginId;
+    const app = pluginId ? pluginApps.getApp(pluginId) : null;
+    return app ? primaryPluginRoute(app)?.title || app.name : "插件应用";
+  }
+
+  return typeof route.meta.title === "string" ? route.meta.title : "NiuPanel";
 });
 </script>

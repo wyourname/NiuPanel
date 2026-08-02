@@ -1,9 +1,9 @@
 <template>
-  <div class="flex h-[700px] flex-col overflow-hidden rounded-md border border-light bg-card">
-    <div class="flex items-center justify-between border-b border-light/50 px-4 py-3">
-      <div class="flex items-center gap-3">
+  <div class="flex h-full min-h-[420px] flex-col overflow-hidden rounded-md border border-light bg-card">
+    <div class="flex shrink-0 items-center justify-between gap-2 border-b border-light/50 px-3 py-2.5 md:px-4 md:py-3">
+      <div class="flex min-w-0 items-center gap-2 md:gap-3">
         <div class="i-ep-document text-primary text-xl"></div>
-        <span class="text-sm font-bold text-default">开发者文档（Scalar）</span>
+        <span class="truncate text-[13px] font-bold text-default md:text-sm">开发者文档（Scalar）</span>
       </div>
       <div class="flex items-center gap-2">
         <el-button
@@ -50,9 +50,10 @@ const scalarHtml = computed(() => {
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <style>
+      html, body { height: 100%; }
       body { margin: 0; }
       /* 隐藏 Scalar 默认的一些边距，使其更像内嵌组件 */
-      .scalar-api-reference { height: 100vh; }
+      .scalar-api-reference { min-height: 100%; height: 100%; }
     </style>
   </head>
   <body>

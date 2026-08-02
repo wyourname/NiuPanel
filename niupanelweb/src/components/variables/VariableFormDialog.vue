@@ -2,13 +2,14 @@
   <ResponsiveDialog
     v-model:visible="visibleValue"
     :title="editingId ? '编辑变量配置' : '新建变量'"
-    :width="isMobile ? '100%' : '480px'"
-    :size="isMobile ? '100%' : 'auto'"
+    desktop-size="sm"
+    content-preset="form"
+    mobile-mode="fullscreen"
     modal-class="!bg-transparent"
     append-to-body
     destroy-on-close
   >
-    <div class="flex flex-1 flex-col gap-4 overflow-y-auto p-4 sm:p-5">
+    <div class="flex flex-1 flex-col gap-4">
       <el-form ref="formRef" :model="form" label-position="top" :rules="rules">
         <el-form-item v-if="activeTab === 'Script'" prop="scope_ids">
           <template #label>

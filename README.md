@@ -260,7 +260,7 @@ openssl rand -base64 64
 | Vue/Vite | `http://127.0.0.1:7787` |
 | Rust API | `http://127.0.0.1:7788` |
 
-开发容器会将 Cargo、pnpm、构建产物和运行数据放入 Docker Volume，源码通过 bind mount 实时同步。
+开发容器和生产容器统一由 `niupanel-launcher` 启动。开发 API 启动时会构建 Core 与 Launcher，使用带时间戳的 `*-dev.*` 版本初始化并激活 `data/system/runtime.db`；因此 `/api/v1/system/releases`、更新状态和回退行为与生产环境一致。前端仍由 Vite 在 `7787` 提供热更新，源码通过 bind mount 实时同步。开发运行数据保存在 Docker Volume 中，不需要删除数据卷即可重启。
 
 常用检查：
 

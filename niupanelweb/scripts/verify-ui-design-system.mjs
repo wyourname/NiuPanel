@@ -117,6 +117,21 @@ if (!/case "edit_script":[\s\S]*?activeDetailTab\.value = "script";/.test(taskDe
   fail("desktop edit-script command must switch to the script detail tab");
 }
 
+const taskDetailHeader = read("src/components/tasks/TaskDetailHeader.vue");
+if (
+  taskDetailHeader.includes("open-log-window") ||
+  taskDetailHeader.includes("打开日志窗口")
+) {
+  fail("task detail header must not expose the redundant open-log-window action");
+}
+if (
+  taskDetailHeader.indexOf('aria-label="搜索日志"') === -1 ||
+  taskDetailHeader.indexOf('aria-label="搜索日志"') >
+    taskDetailHeader.indexOf('<nav class="hidden lg:flex')
+) {
+  fail("task log search must appear before the desktop detail tabs");
+}
+
 const responsiveDialog = read("src/components/common/ResponsiveDialog.vue");
 if (!responsiveDialog.includes(':show-close="false"')) {
   fail("mobile responsive drawers with a custom header must disable the built-in close button");
@@ -131,11 +146,35 @@ if (!taskMobileListPane.includes('aria-label="新建任务"')) {
 }
 
 const taskCardContent = read("src/components/tasks/TaskCardContent.vue");
+const taskCardItem = read("src/components/tasks/TaskCardItem.vue");
 if (!taskCardContent.includes("下次 {{ nextRunText }}")) {
   fail("mobile task rows must display the next scheduled run");
 }
 if (!taskCardContent.includes("v-if=\"task.status !== 'Failed'\"")) {
   fail("mobile failed status must be moved out of the task title row");
+}
+if (
+  !taskCardContent.includes('(event: "logs"): void;') ||
+  !taskCardContent.includes('emit("logs");') ||
+  !taskCardItem.includes('@logs="emit(\'logs\', task)"')
+) {
+  fail("task primary log action must emit logs directly through the card event chain");
+}
+const taskPrimaryActionHandler =
+  taskCardContent.match(
+    /const handlePrimaryAction = \(\) => \{[\s\S]*?\n\};/,
+  )?.[0] ?? "";
+if (
+  !taskPrimaryActionHandler ||
+  taskPrimaryActionHandler.includes('emit("more-actions");')
+) {
+  fail("task primary action must not route view-log clicks through the more-actions menu");
+}
+if (
+  !taskCardContent.includes('class="h-11 rounded-md') ||
+  !taskCardContent.includes('class="h-11 w-11 rounded-md')
+) {
+  fail("mobile task primary and more actions must preserve 44px touch targets");
 }
 
 for (const file of [

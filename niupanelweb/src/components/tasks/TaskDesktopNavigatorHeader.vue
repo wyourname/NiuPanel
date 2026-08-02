@@ -68,7 +68,7 @@
         <input
           v-model="searchValue"
           placeholder="搜索任务名称、脚本或环境"
-          class="h-full min-w-0 flex-1 border-none bg-transparent text-[12px] font-medium text-default outline-none placeholder:text-muted/70"
+          class="task-search-input h-full min-w-0 flex-1 border-none bg-transparent text-[12px] font-medium text-default outline-none"
         />
       </label>
     </div>
@@ -105,3 +105,10 @@ const selectionModeValue = computed({
   set: (value: boolean) => emit("update:selectionMode", value),
 });
 </script>
+
+<style scoped>
+.task-search-input::placeholder {
+  color: var(--text-muted);
+  opacity: 0.7;
+}
+</style>

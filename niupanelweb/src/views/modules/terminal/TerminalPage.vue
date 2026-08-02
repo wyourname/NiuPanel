@@ -3,20 +3,20 @@
     class="flex h-full min-h-0 flex-col overflow-hidden bg-[#0b0e14]"
   >
     <div
-      class="flex h-11 shrink-0 select-none items-center justify-between border-b border-white/10 bg-white/[0.035] px-3 sm:px-4"
+      class="flex min-h-14 shrink-0 select-none items-center justify-between border-b border-white/10 bg-white/[0.035] px-3 md:min-h-11 md:px-4"
     >
       <div class="flex min-w-0 items-center gap-2.5">
-        <div class="h-7 w-7 shrink-0 rounded-md bg-white/8 text-slate-200 flex-center">
+        <div class="h-9 w-9 shrink-0 rounded-md bg-white/8 text-slate-200 flex-center md:h-7 md:w-7">
           <div class="i-carbon-terminal text-[14px]"></div>
         </div>
         <div class="min-w-0">
           <div class="truncate text-xs font-semibold text-slate-100">系统终端</div>
-          <div class="truncate text-[10px] text-slate-500">交互式 Shell 会话</div>
+          <div class="truncate text-[11px] text-slate-400">交互式 Shell 会话</div>
         </div>
       </div>
 
       <div class="flex shrink-0 items-center gap-2">
-        <div class="flex h-7 items-center gap-1.5 rounded-md bg-white/6 px-2 text-[11px] font-medium text-slate-300">
+        <div class="flex h-11 items-center gap-1.5 rounded-md bg-white/6 px-2 text-[11px] font-medium text-slate-300 md:h-7">
           <span
             class="h-1.5 w-1.5 rounded-full"
             :class="connected ? 'bg-emerald-400' : 'bg-rose-400'"
@@ -25,7 +25,7 @@
         </div>
         <button
           type="button"
-          class="h-7 w-7 cursor-pointer rounded-md text-slate-400 flex-center transition-colors hover:bg-white/10 hover:text-white"
+          class="h-11 w-11 cursor-pointer rounded-md text-slate-400 flex-center transition-colors hover:bg-white/10 hover:text-white md:h-7 md:w-7"
           title="重新连接"
           aria-label="重新连接终端"
           @click="reconnect"

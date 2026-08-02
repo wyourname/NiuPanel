@@ -73,8 +73,9 @@
     <div v-if="!selectionMode" class="shrink-0 flex items-center gap-0.5">
       <button
         type="button"
-        class="h-8 rounded-md px-2 text-[11px] font-semibold text-primary transition-colors hover:bg-soft"
+        class="h-11 rounded-md px-2 text-[11px] font-semibold text-primary transition-colors hover:bg-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/25"
         :title="primaryActionLabel"
+        :aria-label="primaryActionLabel"
         @click.stop="handlePrimaryAction"
       >
         <span :class="primaryActionIcon" class="mr-1 align-[-1px]"></span>
@@ -82,8 +83,9 @@
       </button>
       <button
         type="button"
-        class="h-8 w-8 rounded-md text-muted flex-center transition-colors hover:bg-soft hover:text-default"
+        class="h-11 w-11 rounded-md text-muted flex-center transition-colors hover:bg-soft hover:text-default focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/25"
         title="更多操作"
+        aria-label="更多操作"
         @click.stop="emit('more-actions')"
       >
         <span class="i-ep-more-filled"></span>
@@ -190,6 +192,7 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
+  (event: "logs"): void;
   (event: "more-actions"): void;
   (event: "run"): void;
   (event: "selection-change", selected: boolean): void;
@@ -245,7 +248,7 @@ const desktopActivityText = computed(() => {
 
 const handlePrimaryAction = () => {
   if (props.task.status === "Running" || props.task.status === "Paused" || !props.task.enabled) {
-    emit("more-actions");
+    emit("logs");
     return;
   }
   emit("run");
