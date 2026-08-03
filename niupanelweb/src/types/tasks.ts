@@ -1,5 +1,3 @@
-import type { Variable, VariableListResponse } from "./variable";
-
 export type TaskStatus =
   | "Pending"
   | "Running"
@@ -115,7 +113,3 @@ export interface TaskRunHistoryResponse {
   items: TaskRunHistoryItem[];
   total: number;
 }
-
-export type TaskVariableListResponse = VariableListResponse;
-
-export type TaskVariable = Variable;

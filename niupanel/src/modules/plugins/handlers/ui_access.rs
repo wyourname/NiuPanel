@@ -254,6 +254,7 @@ pub(super) fn permission_for_plugin_api_request(
         "variables" => match method {
             &Method::GET => match segments.get(1).copied() {
                 Some("with-values") | Some("by-key") => Permission::VarRead,
+                Some("tasks") if segments.get(2).copied() != Some("all") => Permission::VarRead,
                 Some(_) if segments.get(2).copied() == Some("value") => Permission::VarRead,
                 _ => Permission::VarList,
             },

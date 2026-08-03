@@ -7,7 +7,6 @@ import type {
   TaskLogResponse,
   TaskRunHistoryResponse,
   TaskRunResult,
-  TaskVariableListResponse,
   UpdateTaskRequest,
 } from '@/types'
 
@@ -143,15 +142,6 @@ export const streamTaskRunLogs = (id: number, runId: number): EventSource => {
 
 export const streamTaskStatus = (): EventSource => {
   return new EventSource(`${request.defaults.baseURL}/tasks/status`)
-}
-
-export const getTaskVariables = (taskId: number): Promise<ApiResponse<TaskVariableListResponse>> => {
-  return request.get('/variables', {
-    params: {
-        scope: 'Script',
-        scope_id: taskId
-    }
-  })
 }
 
 // Pagination Settings

@@ -30,14 +30,8 @@ export const getVariableValue = (id: number): Promise<ApiResponse<VariableValue>
 /**
  * 获取特定任务的变量
  */
-export const getVariablesByTaskId = (taskId: number): Promise<ApiResponse<VariableListResponse>> => {
-  return request.get('/variables/with-values', {
-    params: {
-      scope: 'Script',
-      scope_id: taskId,
-      page_size: 1000
-    }
-  })
+export const getVariablesByTaskId = (taskId: number): Promise<ApiResponse<Variable[]>> => {
+  return request.get(`/variables/tasks/${taskId}`)
 }
 
 /**

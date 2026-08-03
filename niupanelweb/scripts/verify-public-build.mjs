@@ -177,7 +177,7 @@ const releaseManifest = JSON.parse(readFileSync(releaseManifestSource, "utf8"));
 const frontendPackage = JSON.parse(readFileSync(packageSource, "utf8"));
 const versionContract = readFileSync(versionContractSource, "utf8");
 const minimumCoreVersion = versionContract.match(
-  /pub const MINIMUM_UPDATE_CORE_VERSION: &str = "([^"]+)";/,
+  /pub const MINIMUM_WEB_CORE_VERSION: &str = "([^"]+)";/,
 )?.[1];
 if (
   releaseManifest.component !== "web" ||

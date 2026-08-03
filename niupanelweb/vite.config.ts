@@ -25,9 +25,9 @@ if (!Number.isFinite(apiContractVersion)) {
   throw new Error('Unable to read API_CONTRACT_VERSION from niupanel-common/src/version.rs')
 }
 const minimumCoreVersion =
-  versionContractSource.match(/pub const MINIMUM_UPDATE_CORE_VERSION: &str = "([^"]+)";/)?.[1] || ''
+  versionContractSource.match(/pub const MINIMUM_WEB_CORE_VERSION: &str = "([^"]+)";/)?.[1] || ''
 if (!minimumCoreVersion) {
-  throw new Error('Unable to read MINIMUM_UPDATE_CORE_VERSION from niupanel-common/src/version.rs')
+  throw new Error('Unable to read MINIMUM_WEB_CORE_VERSION from niupanel-common/src/version.rs')
 }
 const webCoreMinVersion = process.env.NIUPANEL_WEB_CORE_MIN || minimumCoreVersion
 const webCoreMaxVersion = process.env.NIUPANEL_WEB_CORE_MAX || null

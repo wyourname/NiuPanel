@@ -2,7 +2,7 @@ import { computed, ref, type ComputedRef, type Ref } from "vue";
 import * as envApi from "../api/environment";
 import * as taskApi from "../api/tasks";
 import * as variableApi from "../api/variable";
-import type { Env, Task, TaskVariableListResponse } from "@/types";
+import type { Env, Task, Variable } from "@/types";
 import {
   defaultRandomConfig,
   normalizeEnvVersion,
@@ -33,8 +33,8 @@ type UseTaskWizardDataOptions = {
   setVariables: (items: TaskVariableItem[]) => void;
 };
 
-const toVariableItems = (data: TaskVariableListResponse): TaskVariableItem[] =>
-  data.items.map((variable) => ({
+const toVariableItems = (data: Variable[]): TaskVariableItem[] =>
+  data.map((variable) => ({
     key: variable.key,
     value: variable.value,
   }));
@@ -115,7 +115,7 @@ export function useTaskWizardData({
       }
 
       try {
-        const res = await taskApi.getTaskVariables(data.id);
+        const res = await variableApi.getVariablesByTaskId(data.id);
         setVariables(toVariableItems(res.data));
       } catch {
         // Variable hydration is best-effort; task editing should still open.

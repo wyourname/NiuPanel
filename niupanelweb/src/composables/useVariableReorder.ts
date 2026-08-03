@@ -84,15 +84,18 @@ export function useVariableReorder({
   };
 
   const handleTouchStart = (_event: TouchEvent, index: number) => {
-    if (searchQuery.value || hasMore.value) {
-      if (hasMore.value) ElMessage.warning("请先加载全部变量，再进行排序");
-      return;
-    }
+    if (searchQuery.value) return;
 
     isLongPressActive.value = false;
-    touchOriginalItems.value = [...variables.value];
     clearLongPressTimer();
     longPressTimer.value = setTimeout(() => {
+      longPressTimer.value = null;
+      if (hasMore.value) {
+        ElMessage.warning("请先加载全部变量，再进行排序");
+        return;
+      }
+
+      touchOriginalItems.value = [...variables.value];
       isLongPressActive.value = true;
       touchDragIndex.value = index;
       haptics.impact();

@@ -161,6 +161,16 @@ mod tests {
             Some(Permission::VarRead)
         );
         assert_eq!(
+            permission_for_plugin_api_request(&Method::GET, "/variables/tasks/42")
+                .expect("task value route is allowed"),
+            Some(Permission::VarRead)
+        );
+        assert_eq!(
+            permission_for_plugin_api_request(&Method::GET, "/variables/tasks/all")
+                .expect("task metadata route is allowed"),
+            Some(Permission::VarList)
+        );
+        assert_eq!(
             permission_for_plugin_api_request(&Method::POST, "/variables/batch-save")
                 .expect("batch save route is allowed"),
             Some(Permission::VarUpdate)

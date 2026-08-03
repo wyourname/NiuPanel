@@ -185,6 +185,19 @@ pub async fn list_variables(
     Ok(PaginatedData { items: dtos, total })
 }
 
+pub async fn list_task_variables(
+    db: &DatabaseConnection,
+    task_id: i32,
+) -> Result<Vec<VariableDto>> {
+    tasks::Entity::find_by_id(task_id)
+        .one(db)
+        .await?
+        .ok_or_else(|| AppError::NotFound("Task not found".to_string()))?;
+
+    let rows = list_task_scoped_variables(db, task_id, None).await?;
+    build_variable_dtos(db, rows).await
+}
+
 pub async fn list_tasks_simple(db: &DatabaseConnection) -> Result<Vec<TaskSimpleResponse>> {
     tasks::Entity::find()
         .select_only()
@@ -1145,5 +1158,26 @@ mod tests {
             .unwrap()
             .id;
         assert!(get_variable_value(&db, internal_id).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn task_variable_list_is_complete_without_pagination() {
+        let db = setup_db().await;
+        let task_id = create_task(&db, "task with many variables").await;
+
+        for index in 0..25 {
+            let key = format!("TASK_VAR_{index:02}");
+            let value = format!("value-{index:02}");
+            create_variable(&db, request(&key, &value, "Script", vec![task_id]))
+                .await
+                .unwrap();
+        }
+
+        let variables = list_task_variables(&db, task_id).await.unwrap();
+        assert_eq!(variables.len(), 25);
+        assert_eq!(variables[0].inner.key, "TASK_VAR_00");
+        assert_eq!(variables[0].inner.value, "value-00");
+        assert_eq!(variables[24].inner.key, "TASK_VAR_24");
+        assert_eq!(variables[24].inner.value, "value-24");
     }
 }

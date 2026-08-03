@@ -158,6 +158,7 @@ pub struct ApiDocAuth;
         tasks::handlers::quick_create_task_from_url,
         variable::handlers::list_variables,
         variable::handlers::list_variables_with_values,
+        variable::handlers::list_task_variables,
         variable::handlers::get_variable_value,
         variable::handlers::create_variable,
         variable::handlers::update_variable,

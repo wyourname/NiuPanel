@@ -10,6 +10,7 @@ pub const WEB_RELEASE_MANIFEST_FILE: &str = "release-manifest.json";
 pub const CORE_RELEASE_MANIFEST_FILE: &str = "core-release.json";
 pub const UPDATE_CHANNEL_INDEX_SCHEMA_VERSION: u32 = 2;
 pub const MINIMUM_UPDATE_CORE_VERSION: &str = "0.8.0";
+pub const MINIMUM_WEB_CORE_VERSION: &str = "0.8.4";
 pub const RELEASE_PROTOCOL_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]

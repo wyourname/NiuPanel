@@ -20,6 +20,7 @@ pub fn create_router() -> Router<AppState> {
         .merge(
             Router::new()
                 .route("/with-values", get(handlers::list_variables_with_values))
+                .route("/tasks/{task_id}", get(handlers::list_task_variables))
                 .route("/{id}/value", get(handlers::get_variable_value))
                 .route("/by-key", get(handlers::get_variable_by_key))
                 .require(Permission::VarRead),
@@ -47,4 +48,14 @@ pub fn create_router() -> Router<AppState> {
                 .route("/", delete(handlers::batch_delete_variables))
                 .require(Permission::VarDelete),
         )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::create_router;
+
+    #[test]
+    fn variable_routes_build_without_conflicts() {
+        let _ = create_router();
+    }
 }

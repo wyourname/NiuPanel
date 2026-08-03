@@ -65,6 +65,34 @@ pub async fn list_variables_with_values(
 
 #[utoipa::path(
     get,
+    path = "/api/v1/variables/tasks/{task_id}",
+    params(("task_id" = i32, Path, description = "Task ID")),
+    responses(
+        (status = 200, description = "List all variables assigned to a task, including sensitive values", body = ApiResponse<Vec<VariableDto>>)
+    ),
+    tag = "Variables",
+    security(("session_cookie" = []))
+)]
+pub async fn list_task_variables(
+    State(state): State<AppState>,
+    Extension(user): Extension<AuthenticatedUser>,
+    Path(task_id): Path<i32>,
+) -> Result<ApiResponse<Vec<VariableDto>>> {
+    let variables = service::list_task_variables(&state.db, task_id).await?;
+    AuditService::log_user(
+        &state.db,
+        &user,
+        "读取任务变量明文",
+        "task",
+        Some(task_id.to_string()),
+        Some(format!("读取了 {} 个任务变量的明文", variables.len())),
+    )
+    .await;
+    Ok(ApiResponse::success(variables))
+}
+
+#[utoipa::path(
+    get,
     path = "/api/v1/variables/{id}/value",
     params(("id" = i32, Path, description = "Variable ID")),
     responses(

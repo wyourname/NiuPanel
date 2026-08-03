@@ -105,7 +105,7 @@ export function useTaskVariableEditorRows({
 
     try {
       const res = await variableApi.getVariablesByTaskId(taskId.value);
-      const list = res.data.items || [];
+      const list = res.data || [];
       variables.value = list.map((variable) =>
         hydrateTaskVariableRow(variable, taskId.value),
       );
