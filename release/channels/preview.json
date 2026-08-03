@@ -1,17 +1,17 @@
 {
   "schema_version": 2,
   "channel": "preview",
-  "updated_at": "2026-08-02T12:58:39.812Z",
+  "updated_at": "2026-08-03T01:53:43.647Z",
   "release": {
-    "version": "0.8.3",
-    "tag": "v0.8.3",
-    "release_url": "https://github.com/wyourname/NiuPanel/releases/tag/v0.8.3",
-    "notes": "**Full Changelog**: https://github.com/wyourname/NiuPanel/compare/v0.8.0...v0.8.3",
+    "version": "0.8.4",
+    "tag": "v0.8.4",
+    "release_url": "https://github.com/wyourname/NiuPanel/releases/tag/v0.8.4",
+    "notes": "**Full Changelog**: https://github.com/wyourname/NiuPanel/compare/v0.8.3...v0.8.4",
     "launcher_protocol": 1,
     "core": {
-      "version": "0.8.3",
-      "tag": "Core-v0.8.3",
-      "release_url": "https://github.com/wyourname/NiuPanel/releases/tag/Core-v0.8.3",
+      "version": "0.8.4",
+      "tag": "Core-v0.8.4",
+      "release_url": "https://github.com/wyourname/NiuPanel/releases/tag/Core-v0.8.4",
       "notes": "",
       "launcher_protocol": 1,
       "api_contract": 1,
@@ -20,42 +20,42 @@
       "assets": {
         "x86_64": {
           "name": "niupanel_linux_x86_64.tar.gz",
-          "url": "https://github.com/wyourname/NiuPanel/releases/download/Core-v0.8.3/niupanel_linux_x86_64.tar.gz",
+          "url": "https://github.com/wyourname/NiuPanel/releases/download/Core-v0.8.4/niupanel_linux_x86_64.tar.gz",
           "target": "x86_64-unknown-linux-musl",
-          "sha256": "24a20ff94d067085642107bab530278411a48d3dfe5b50bd4e70f8b3f113e100",
-          "size": 89299941
+          "sha256": "d172f441887626dc3eaccf464878ff43d8a3d592dc9d511a1bc3eb63a44f6ac5",
+          "size": 89309153
         },
         "aarch64": {
           "name": "niupanel_linux_aarch64.tar.gz",
-          "url": "https://github.com/wyourname/NiuPanel/releases/download/Core-v0.8.3/niupanel_linux_aarch64.tar.gz",
+          "url": "https://github.com/wyourname/NiuPanel/releases/download/Core-v0.8.4/niupanel_linux_aarch64.tar.gz",
           "target": "aarch64-unknown-linux-musl",
-          "sha256": "596d856438f230a970d4a605b70875e39ef6db175e9e036893b376fd8de5aa96",
-          "size": 87082075
+          "sha256": "cab747cf89f83941ac6672945156a391faa380eaee26eccb205c7128d7659284",
+          "size": 87086642
         },
         "armv7": {
           "name": "niupanel_linux_armv7.tar.gz",
-          "url": "https://github.com/wyourname/NiuPanel/releases/download/Core-v0.8.3/niupanel_linux_armv7.tar.gz",
+          "url": "https://github.com/wyourname/NiuPanel/releases/download/Core-v0.8.4/niupanel_linux_armv7.tar.gz",
           "target": "armv7-unknown-linux-musleabihf",
-          "sha256": "11e7c4a2ee9b48ad7355bbb77e8e66b2767b8fbfc67de5f896432a47792b8031",
-          "size": 92061736
+          "sha256": "113307a0e9a4b4bd5949fc236884bcfa3e1556c2203d6c386b58fc4fb3a37bbc",
+          "size": 92062938
         }
       }
     },
     "web": {
-      "version": "2.0.3",
-      "tag": "web-v2.0.3",
-      "release_url": "https://github.com/wyourname/NiuPanel/releases/tag/web-v2.0.3",
+      "version": "2.0.4",
+      "tag": "web-v2.0.4",
+      "release_url": "https://github.com/wyourname/NiuPanel/releases/tag/web-v2.0.4",
       "notes": "",
       "api_contract": 1,
       "core": {
-        "min": "0.8.0",
+        "min": "0.8.4",
         "max": null
       },
       "asset": {
-        "name": "niupanel_web_2.0.3.tar.gz",
-        "url": "https://github.com/wyourname/NiuPanel/releases/download/web-v2.0.3/niupanel_web_2.0.3.tar.gz",
-        "sha256": "386ebbcae265304af4575f49e2ed900c1c7058caa49b3b724615f37c45b14a79",
-        "size": 9321139
+        "name": "niupanel_web_2.0.4.tar.gz",
+        "url": "https://github.com/wyourname/NiuPanel/releases/download/web-v2.0.4/niupanel_web_2.0.4.tar.gz",
+        "sha256": "3767b216c174e72c4ae4c289ba20a98b4382773707e2de34b2920cfcdc0becbb",
+        "size": 9322086
       }
     }
   }
