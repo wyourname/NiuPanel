@@ -1,17 +1,17 @@
 {
   "schema_version": 2,
   "channel": "preview",
-  "updated_at": "2026-08-03T01:53:43.647Z",
+  "updated_at": "2026-09-05T10:13:34.450Z",
   "release": {
-    "version": "0.8.4",
-    "tag": "v0.8.4",
-    "release_url": "https://github.com/wyourname/NiuPanel/releases/tag/v0.8.4",
-    "notes": "**Full Changelog**: https://github.com/wyourname/NiuPanel/compare/v0.8.3...v0.8.4",
+    "version": "0.8.5",
+    "tag": "v0.8.5",
+    "release_url": "https://github.com/wyourname/NiuPanel/releases/tag/v0.8.5",
+    "notes": "## NiuPanel 0.8.5 预览版\n\n本次预览重点完善了插件平台、NiuPanel Agent 接入能力和移动端体验。\n\n### 用户可以做什么\n\n- 在面板中安装和使用带独立页面的插件，并通过任务脚本或 API Key 调用插件 Action。\n- 使用支持流式响应的 NiuPanel Agent，通过对话查询状态、诊断问题并执行经确认的面板操作。\n- 将 Telegram 通道绑定到 Agent，用自然语言远程管理面板；旧版 Telegram 命令、工作流和登录 2FA 已移除。\n- 在安全、平衡和 YOLO 模式之间选择操作批准策略，低风险操作可按策略自动批准。\n- 在移动端更顺畅地浏览、选择和批量管理文件。\n\n### 新功能与改进\n\n- 插件 Action API 支持 UI、任务、API Key 和 Telegram 调用方，以及完整 SSE 流式事件。\n- 插件上传支持分段传输、进度恢复和原子安装，更适合大文件；插件 Action 请求体上限调整为 1 MiB。\n- 改进插件进程并发排队、取消、超时、输出限制和错误日志，不再只显示空的 stderr。\n- 完善插件图标预加载、页面缓存刷新、移动端布局和扩展管理界面。\n- 改进 Node.js 运行时安装诊断、任务变量一致性和发布更新流程。\n\n### 面向插件开发者\n\n- `schema_version: 2` 提供声明式 Actions、JSON Schema 输入校验、调用方权限和流式能力。\n- Plugin SDK 增加宿主 API、Action 调用、流式事件和审批集成接口。\n- 新增插件工作区开发模式，可直接加载源码并通过 Vite HMR 实时调试，无需反复打包安装。\n- 插件网络权限、宿主 API allowlist、签名信息和进程沙箱边界更加明确。\n\n这是预览版本，建议升级前备份数据，并重点验证现有任务和第三方插件兼容性。",
     "launcher_protocol": 1,
     "core": {
-      "version": "0.8.4",
-      "tag": "Core-v0.8.4",
-      "release_url": "https://github.com/wyourname/NiuPanel/releases/tag/Core-v0.8.4",
+      "version": "0.8.5",
+      "tag": "Core-v0.8.5",
+      "release_url": "https://github.com/wyourname/NiuPanel/releases/tag/Core-v0.8.5",
       "notes": "",
       "launcher_protocol": 1,
       "api_contract": 1,
@@ -20,31 +20,31 @@
       "assets": {
         "x86_64": {
           "name": "niupanel_linux_x86_64.tar.gz",
-          "url": "https://github.com/wyourname/NiuPanel/releases/download/Core-v0.8.4/niupanel_linux_x86_64.tar.gz",
+          "url": "https://github.com/wyourname/NiuPanel/releases/download/Core-v0.8.5/niupanel_linux_x86_64.tar.gz",
           "target": "x86_64-unknown-linux-musl",
-          "sha256": "d172f441887626dc3eaccf464878ff43d8a3d592dc9d511a1bc3eb63a44f6ac5",
-          "size": 89309153
+          "sha256": "41dd04a4ac713da510265a0bb81f911cecbe143c60534facdbec46cdfc861f09",
+          "size": 90653245
         },
         "aarch64": {
           "name": "niupanel_linux_aarch64.tar.gz",
-          "url": "https://github.com/wyourname/NiuPanel/releases/download/Core-v0.8.4/niupanel_linux_aarch64.tar.gz",
+          "url": "https://github.com/wyourname/NiuPanel/releases/download/Core-v0.8.5/niupanel_linux_aarch64.tar.gz",
           "target": "aarch64-unknown-linux-musl",
-          "sha256": "cab747cf89f83941ac6672945156a391faa380eaee26eccb205c7128d7659284",
-          "size": 87086642
+          "sha256": "e1134443bf8247877ed0e038a8d435f50189689d77fa83bf88c8d2881981ef0b",
+          "size": 88248836
         },
         "armv7": {
           "name": "niupanel_linux_armv7.tar.gz",
-          "url": "https://github.com/wyourname/NiuPanel/releases/download/Core-v0.8.4/niupanel_linux_armv7.tar.gz",
+          "url": "https://github.com/wyourname/NiuPanel/releases/download/Core-v0.8.5/niupanel_linux_armv7.tar.gz",
           "target": "armv7-unknown-linux-musleabihf",
-          "sha256": "113307a0e9a4b4bd5949fc236884bcfa3e1556c2203d6c386b58fc4fb3a37bbc",
-          "size": 92062938
+          "sha256": "7c3595c853ce7a3d26a624b53e12d48cfea6442b02d2580977c8b6363da339fc",
+          "size": 93360327
         }
       }
     },
     "web": {
-      "version": "2.0.4",
-      "tag": "web-v2.0.4",
-      "release_url": "https://github.com/wyourname/NiuPanel/releases/tag/web-v2.0.4",
+      "version": "2.0.5",
+      "tag": "web-v2.0.5",
+      "release_url": "https://github.com/wyourname/NiuPanel/releases/tag/web-v2.0.5",
       "notes": "",
       "api_contract": 1,
       "core": {
@@ -52,10 +52,10 @@
         "max": null
       },
       "asset": {
-        "name": "niupanel_web_2.0.4.tar.gz",
-        "url": "https://github.com/wyourname/NiuPanel/releases/download/web-v2.0.4/niupanel_web_2.0.4.tar.gz",
-        "sha256": "3767b216c174e72c4ae4c289ba20a98b4382773707e2de34b2920cfcdc0becbb",
-        "size": 9322086
+        "name": "niupanel_web_2.0.5.tar.gz",
+        "url": "https://github.com/wyourname/NiuPanel/releases/download/web-v2.0.5/niupanel_web_2.0.5.tar.gz",
+        "sha256": "eb7e2c357b9d6e19092a95bd358307198fd465c634f6077c4e030d7238e62fe0",
+        "size": 9304980
       }
     }
   }
