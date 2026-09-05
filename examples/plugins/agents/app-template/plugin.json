@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "id": "agent-app-template",
   "name": "Agent App Template",
   "version": "0.1.0",
@@ -19,7 +19,23 @@
     "idle_timeout_sec": 300
   },
   "capability_level": "read_only",
-  "capabilities": ["agents.dashboard", "agents.invoke"],
+  "capabilities": ["agents.dashboard"],
+  "actions": [
+    {
+      "name": "summarize",
+      "description": "Summarize input for the native UI and task scripts.",
+      "callers": ["ui", "task", "api_key"],
+      "timeout_sec": 20,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "note": { "type": "string", "maxLength": 10000 },
+          "route": { "type": "string", "maxLength": 500 }
+        },
+        "additionalProperties": false
+      }
+    }
+  ],
   "tools": [
     {
       "name": "summarize",

@@ -44,14 +44,18 @@ const environmentLogDialog = read(
 );
 const fileView = read("src/views/modules/File.vue");
 const fileToolbar = read("src/views/modules/file/components/FileToolbar.vue");
-const telegramCommands = read("src/views/modules/telegram/components/TelegramCommandsTab.vue");
-const telegramWorkflows = read("src/views/modules/telegram/components/TelegramWorkflowsTab.vue");
 const auditLog = read("src/views/modules/settings/AuditLogTab.vue");
 const terminalSession = read("src/views/modules/terminal/composables/useTerminalSession.ts");
 const overview = read("src/views/modules/overview/index.vue");
 const shareView = read("src/views/modules/share/index.vue");
 const pluginHost = read("src/views/plugins/PluginHostView.vue");
 const extensionManager = read("src/views/modules/extensions/components/ExtensionManager.vue");
+const extensionManagerDialogs = read(
+  "src/views/modules/extensions/components/ExtensionManagerDialogs.vue",
+);
+const extensionImpactPreviewDialog = read(
+  "src/views/modules/extensions/components/ExtensionImpactPreviewDialog.vue",
+);
 const extensionManagerState = read("src/views/modules/extensions/composables/useExtensionManager.ts");
 const router = read("src/router/index.ts");
 
@@ -268,8 +272,6 @@ check(
 check(fileView.includes(':items="sortedFileList"'), "mobile Files list must use sorted items");
 check(fileToolbar.includes("handleSortCommand"), "mobile Files toolbar must expose sorting");
 check(fileToolbar.includes('placeholder="搜索文件"'), "mobile Files toolbar must keep search visible");
-check(telegramCommands.includes('v-if="isMobile"'), "Telegram commands need a mobile card layout");
-check(telegramWorkflows.includes('v-if="isMobile"'), "Telegram workflows need a mobile card layout");
 check(!auditLog.includes("calc(100vh"), "audit log must use remaining flex height");
 check(
   auditLog.includes("audit-mobile-card") &&
@@ -319,7 +321,9 @@ check(
   "environment logs must keep a bounded viewer and mobile-sized toolbar action",
 );
 check(
-  extensionManager.includes("<ExtensionImpactPreviewDialog") &&
+  extensionManager.includes("<ExtensionManagerDialogs") &&
+    extensionManagerDialogs.includes("<ExtensionImpactPreviewDialog") &&
+    extensionImpactPreviewDialog.includes("<ResponsiveDialog") &&
     extensionManagerState.includes("impactDialog") &&
     extensionManagerState.includes("resolveImpactPreview") &&
     !extensionManagerState.includes("extension-impact-preview-dialog"),

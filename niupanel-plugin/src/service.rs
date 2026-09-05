@@ -16,6 +16,19 @@ impl PluginService {
         }
     }
 
+    pub fn validate_package_dir(&self, source_dir: impl AsRef<Path>) -> Result<PluginManifest> {
+        self.ensure_dirs()?;
+        let source_dir = source_dir.as_ref();
+        let manifest = read_plugin_manifest(source_dir)?;
+        self.validate_manifest(&manifest, source_dir)?;
+        if matches!(manifest.runtime, PluginRuntime::Builtin) {
+            return Err(AppError::ValidationError(
+                "Builtin plugins cannot be installed from packages".to_string(),
+            ));
+        }
+        Ok(manifest)
+    }
+
     pub fn list_plugins(&self) -> Result<Vec<PluginRecord>> {
         self.ensure_dirs()?;
         let mut plugins = Vec::new();
@@ -46,15 +59,8 @@ impl PluginService {
         source_dir: impl AsRef<Path>,
         enable: bool,
     ) -> Result<PluginRecord> {
-        self.ensure_dirs()?;
         let source_dir = source_dir.as_ref();
-        let manifest = read_plugin_manifest(source_dir)?;
-        self.validate_manifest(&manifest, source_dir)?;
-        if matches!(manifest.runtime, PluginRuntime::Builtin) {
-            return Err(AppError::ValidationError(
-                "Builtin plugins cannot be installed from packages".to_string(),
-            ));
-        }
+        let manifest = self.validate_package_dir(source_dir)?;
 
         self.replace_plugin_dir(source_dir, &manifest)?;
         self.write_state(
@@ -71,12 +77,34 @@ impl PluginService {
         self.get_plugin(&manifest.id)
     }
 
+    pub fn install_prepared_dir(
+        &self,
+        source_dir: impl AsRef<Path>,
+        enable: bool,
+        package_sha256: String,
+    ) -> Result<PluginRecord> {
+        let source_dir = source_dir.as_ref();
+        let manifest = self.validate_package_dir(source_dir)?;
+
+        self.replace_plugin_dir_prepared(source_dir, &manifest)?;
+        self.write_state(
+            &manifest.id,
+            PluginState {
+                enabled: enable,
+                installed_at: now_rfc3339(),
+                updated_at: now_rfc3339(),
+                active_version: Some(manifest.version.clone()),
+                package_sha256: Some(package_sha256),
+                history: vec![],
+            },
+        )?;
+        self.get_plugin(&manifest.id)
+    }
+
     pub fn update_from_dir(&self, id: &str, source_dir: impl AsRef<Path>) -> Result<PluginRecord> {
-        self.ensure_dirs()?;
         validate_plugin_id(id)?;
         let source_dir = source_dir.as_ref();
-        let manifest = read_plugin_manifest(source_dir)?;
-        self.validate_manifest(&manifest, source_dir)?;
+        let manifest = self.validate_package_dir(source_dir)?;
         if manifest.id != id {
             return Err(AppError::ValidationError(format!(
                 "Plugin package id '{}' does not match target id '{}'",
@@ -110,6 +138,53 @@ impl PluginService {
         source_dir: impl AsRef<Path>,
     ) -> Result<PluginRecord> {
         let record = self.update_from_dir(id, source_dir)?;
+        self.process_runtime.stop_plugin(id).await;
+        Ok(record)
+    }
+
+    pub fn update_prepared_dir(
+        &self,
+        id: &str,
+        source_dir: impl AsRef<Path>,
+        package_sha256: String,
+    ) -> Result<PluginRecord> {
+        validate_plugin_id(id)?;
+        let source_dir = source_dir.as_ref();
+        let manifest = self.validate_package_dir(source_dir)?;
+        if manifest.id != id {
+            return Err(AppError::ValidationError(format!(
+                "Plugin package id '{}' does not match target id '{}'",
+                manifest.id, id
+            )));
+        }
+
+        let mut previous_state = self.read_state(id)?;
+        let archived =
+            self.replace_plugin_dir_with_history_prepared(source_dir, &manifest, &previous_state)?;
+        if let Some(archived) = archived {
+            previous_state.history.push(archived);
+        }
+        self.write_state(
+            id,
+            PluginState {
+                enabled: previous_state.enabled,
+                installed_at: previous_state.installed_at,
+                updated_at: now_rfc3339(),
+                active_version: Some(manifest.version.clone()),
+                package_sha256: Some(package_sha256),
+                history: previous_state.history,
+            },
+        )?;
+        self.get_plugin(id)
+    }
+
+    pub async fn update_prepared_dir_async(
+        &self,
+        id: &str,
+        source_dir: impl AsRef<Path>,
+        package_sha256: String,
+    ) -> Result<PluginRecord> {
+        let record = self.update_prepared_dir(id, source_dir, package_sha256)?;
         self.process_runtime.stop_plugin(id).await;
         Ok(record)
     }
@@ -233,6 +308,305 @@ impl PluginService {
         self.read_local_plugin(&path)
     }
 
+    pub fn list_action_plugins(
+        &self,
+        caller: PluginActionCaller,
+    ) -> Result<Vec<PluginActionPlugin>> {
+        let mut plugins = self
+            .list_plugins()?
+            .into_iter()
+            .filter(|plugin| {
+                plugin.enabled
+                    && matches!(plugin.status, PluginStatus::Enabled)
+                    && plugin
+                        .manifest
+                        .actions
+                        .iter()
+                        .any(|action| action.callers.contains(&caller))
+            })
+            .map(|plugin| PluginActionPlugin {
+                id: plugin.manifest.id,
+                name: plugin.manifest.name,
+                version: plugin.manifest.version,
+                description: plugin.manifest.description,
+            })
+            .collect::<Vec<_>>();
+        plugins.sort_by(|left, right| left.name.cmp(&right.name).then(left.id.cmp(&right.id)));
+        Ok(plugins)
+    }
+
+    pub fn list_plugin_actions(
+        &self,
+        id: &str,
+        caller: PluginActionCaller,
+    ) -> Result<Vec<PluginActionManifest>> {
+        let plugin = self.enabled_plugin(id)?;
+        Ok(plugin
+            .manifest
+            .actions
+            .into_iter()
+            .filter(|action| action.callers.contains(&caller))
+            .collect())
+    }
+
+    pub async fn invoke_action(
+        &self,
+        id: &str,
+        caller: PluginActionCaller,
+        request: PluginActionInvokeRequest,
+    ) -> Result<PluginInvokeResponse> {
+        let plugin = self.enabled_plugin(id)?;
+        let action = plugin
+            .manifest
+            .actions
+            .iter()
+            .find(|action| action.name == request.action)
+            .ok_or_else(|| AppError::NotFound("Plugin action not found".to_string()))?;
+        if !action.callers.contains(&caller) {
+            return Err(AppError::Forbidden(format!(
+                "Plugin action '{}' is not available to caller '{}'",
+                action.name,
+                action_caller_name(caller)
+            )));
+        }
+        validate_plugin_action_input(action, &request.input)?;
+        let invocation = PluginInvokeRequest {
+            action: request.action,
+            input: request.input,
+            timeout_sec: Some(action.timeout_sec),
+        };
+        self.invoke_plugin_record(plugin, invocation).await
+    }
+
+    pub async fn invoke_action_with_tools<F>(
+        &self,
+        id: &str,
+        caller: PluginActionCaller,
+        request: PluginActionInvokeRequest,
+        tools: Vec<serde_json::Value>,
+        tool_handler: F,
+    ) -> Result<PluginInvokeResponse>
+    where
+        F: Fn(ProcessPluginToolCall) -> PluginToolFuture + Send + Sync,
+    {
+        self.invoke_action_with_tools_context(id, caller, request, None, tools, tool_handler)
+            .await
+    }
+
+    pub async fn invoke_action_with_tools_context<F>(
+        &self,
+        id: &str,
+        caller: PluginActionCaller,
+        request: PluginActionInvokeRequest,
+        invocation_context: Option<PluginInvocationContext>,
+        tools: Vec<serde_json::Value>,
+        tool_handler: F,
+    ) -> Result<PluginInvokeResponse>
+    where
+        F: Fn(ProcessPluginToolCall) -> PluginToolFuture + Send + Sync,
+    {
+        let plugin = self.enabled_plugin(id)?;
+        let action = plugin
+            .manifest
+            .actions
+            .iter()
+            .find(|action| action.name == request.action)
+            .ok_or_else(|| AppError::NotFound("Plugin action not found".to_string()))?;
+        if !action.callers.contains(&caller) {
+            return Err(AppError::Forbidden(format!(
+                "Plugin action '{}' is not available to caller '{}'",
+                action.name,
+                action_caller_name(caller)
+            )));
+        }
+        validate_plugin_action_input(action, &request.input)?;
+        let invocation = PluginInvokeRequest {
+            action: request.action,
+            input: request.input,
+            timeout_sec: Some(action.timeout_sec),
+        };
+        let mut spec = self.process_spec_for(&plugin)?;
+        spec.tools = tools;
+        spec.invocation_context = invocation_context;
+        match plugin.manifest.protocol {
+            PluginProcessProtocol::SingleShot => {
+                self.process_runtime
+                    .invoke_single_shot(spec, invocation)
+                    .await
+            }
+            PluginProcessProtocol::JsonLines => {
+                self.process_runtime
+                    .invoke_json_lines(spec, invocation, tool_handler)
+                    .await
+            }
+        }
+    }
+
+    pub async fn invoke_action_with_tools_cancellable<F>(
+        &self,
+        id: &str,
+        caller: PluginActionCaller,
+        request: PluginActionInvokeRequest,
+        tools: Vec<serde_json::Value>,
+        tool_handler: F,
+        cancellation: CancellationToken,
+    ) -> Result<PluginInvokeResponse>
+    where
+        F: Fn(ProcessPluginToolCall) -> PluginToolFuture + Send + Sync,
+    {
+        self.invoke_action_with_tools_context_cancellable(
+            id,
+            caller,
+            request,
+            None,
+            tools,
+            tool_handler,
+            cancellation,
+        )
+        .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub async fn invoke_action_with_tools_context_cancellable<F>(
+        &self,
+        id: &str,
+        caller: PluginActionCaller,
+        request: PluginActionInvokeRequest,
+        invocation_context: Option<PluginInvocationContext>,
+        tools: Vec<serde_json::Value>,
+        tool_handler: F,
+        cancellation: CancellationToken,
+    ) -> Result<PluginInvokeResponse>
+    where
+        F: Fn(ProcessPluginToolCall) -> PluginToolFuture + Send + Sync,
+    {
+        let plugin = self.enabled_plugin(id)?;
+        let action = plugin
+            .manifest
+            .actions
+            .iter()
+            .find(|action| action.name == request.action)
+            .ok_or_else(|| AppError::NotFound("Plugin action not found".to_string()))?;
+        if !action.callers.contains(&caller) {
+            return Err(AppError::Forbidden(format!(
+                "Plugin action '{}' is not available to caller '{}'",
+                action.name,
+                action_caller_name(caller)
+            )));
+        }
+        validate_plugin_action_input(action, &request.input)?;
+        let invocation = PluginInvokeRequest {
+            action: request.action,
+            input: request.input,
+            timeout_sec: Some(action.timeout_sec),
+        };
+        let mut spec = self.process_spec_for(&plugin)?;
+        spec.tools = tools;
+        spec.invocation_context = invocation_context;
+        match plugin.manifest.protocol {
+            PluginProcessProtocol::SingleShot => {
+                self.process_runtime
+                    .invoke_single_shot_cancellable(spec, invocation, cancellation)
+                    .await
+            }
+            PluginProcessProtocol::JsonLines => {
+                self.process_runtime
+                    .invoke_json_lines_cancellable(spec, invocation, tool_handler, cancellation)
+                    .await
+            }
+        }
+    }
+
+    pub async fn invoke_action_stream_with_tools_cancellable<F, S>(
+        &self,
+        id: &str,
+        caller: PluginActionCaller,
+        request: PluginActionInvokeRequest,
+        tools: Vec<serde_json::Value>,
+        handlers: PluginStreamHandlers<F, S>,
+        cancellation: CancellationToken,
+    ) -> Result<PluginInvokeResponse>
+    where
+        F: Fn(ProcessPluginToolCall) -> PluginToolFuture + Send + Sync,
+        S: Fn(ProcessPluginStreamEvent) -> PluginStreamFuture + Send + Sync,
+    {
+        self.invoke_action_stream_with_tools_context_cancellable(
+            id,
+            caller,
+            request,
+            None,
+            tools,
+            handlers,
+            cancellation,
+        )
+        .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub async fn invoke_action_stream_with_tools_context_cancellable<F, S>(
+        &self,
+        id: &str,
+        caller: PluginActionCaller,
+        request: PluginActionInvokeRequest,
+        invocation_context: Option<PluginInvocationContext>,
+        tools: Vec<serde_json::Value>,
+        handlers: PluginStreamHandlers<F, S>,
+        cancellation: CancellationToken,
+    ) -> Result<PluginInvokeResponse>
+    where
+        F: Fn(ProcessPluginToolCall) -> PluginToolFuture + Send + Sync,
+        S: Fn(ProcessPluginStreamEvent) -> PluginStreamFuture + Send + Sync,
+    {
+        let plugin = self.enabled_plugin(id)?;
+        let action = plugin
+            .manifest
+            .actions
+            .iter()
+            .find(|action| action.name == request.action)
+            .ok_or_else(|| AppError::NotFound("Plugin action not found".to_string()))?;
+        if !action.callers.contains(&caller) {
+            return Err(AppError::Forbidden(format!(
+                "Plugin action '{}' is not available to caller '{}'",
+                action.name,
+                action_caller_name(caller)
+            )));
+        }
+        if !action.streaming {
+            return Err(AppError::ValidationError(format!(
+                "Plugin action '{}' does not support streaming",
+                action.name
+            )));
+        }
+        if !matches!(plugin.manifest.protocol, PluginProcessProtocol::JsonLines) {
+            return Err(AppError::ValidationError(
+                "Streaming plugin actions require the json_lines protocol".to_string(),
+            ));
+        }
+        validate_plugin_action_input(action, &request.input)?;
+        let invocation = PluginInvokeRequest {
+            action: request.action,
+            input: request.input,
+            timeout_sec: Some(action.timeout_sec),
+        };
+        let mut spec = self.process_spec_for(&plugin)?;
+        spec.tools = tools;
+        spec.invocation_context = invocation_context;
+        let PluginStreamHandlers { tool, stream } = handlers;
+        self.process_runtime
+            .invoke_json_lines_streaming(spec, invocation, tool, stream, cancellation)
+            .await
+    }
+
+    fn enabled_plugin(&self, id: &str) -> Result<PluginRecord> {
+        let plugin = self.get_plugin(id)?;
+        if !plugin.enabled || !matches!(plugin.status, PluginStatus::Enabled) {
+            return Err(AppError::ValidationError(
+                "Plugin is not enabled".to_string(),
+            ));
+        }
+        Ok(plugin)
+    }
+
     pub async fn invoke_first_enabled(
         &self,
         request: PluginInvokeRequest,
@@ -332,5 +706,14 @@ impl PluginService {
                     .await
             }
         }
+    }
+}
+
+fn action_caller_name(caller: PluginActionCaller) -> &'static str {
+    match caller {
+        PluginActionCaller::Ui => "ui",
+        PluginActionCaller::Task => "task",
+        PluginActionCaller::ApiKey => "api_key",
+        PluginActionCaller::Telegram => "telegram",
     }
 }

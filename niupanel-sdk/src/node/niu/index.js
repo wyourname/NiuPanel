@@ -322,6 +322,27 @@ class NiuPanelSDK {
         return await this._request('DELETE', `/tasks/`, { ids }, params);
     }
 
+    // --- Plugins ---
+
+    async listPlugins() {
+        return await this._request('GET', '/plugins');
+    }
+
+    async listPluginActions(pluginId) {
+        return await this._request(
+            'GET',
+            `/plugins/${encodeURIComponent(String(pluginId))}/actions`,
+        );
+    }
+
+    async invokePlugin(pluginId, action, input = null) {
+        return await this._request(
+            'POST',
+            `/plugins/${encodeURIComponent(String(pluginId))}/invoke`,
+            { action, input },
+        );
+    }
+
     /**
      * 获取最新任务日志
      * @param {number|string} taskId - 任务 ID

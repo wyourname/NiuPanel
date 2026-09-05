@@ -179,7 +179,6 @@ const desktopAppIds = [
   "share",
   "extensions",
   "git",
-  "telegram",
   "terminal",
   "settings",
 ] as const;

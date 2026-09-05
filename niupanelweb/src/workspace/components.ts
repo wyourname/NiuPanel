@@ -16,7 +16,6 @@ export const workspaceAppLoaders = {
   share: () => import("@/views/modules/share/index.vue"),
   extensions: () => import("@/views/modules/extensions/index.vue"),
   git: () => import("@/views/modules/git/index.vue"),
-  telegram: () => import("@/views/modules/telegram/index.vue"),
   terminal: () => import("@/views/modules/terminal/index.vue"),
   settings: () => import("@/views/modules/settings/index.vue"),
   more: () => import("@/views/modules/more/index.vue"),

@@ -72,13 +72,6 @@
       @verify-code="handleVerifyCode"
     />
 
-    <TelegramTwoFactorDialog
-      v-model:code="verifyCode"
-      v-model:visible="show2faDialog"
-      :loading="verifying2fa"
-      @verify="handleVerify2FA"
-    />
-
     <ServerSettingsDialog
       v-model:server-url="serverUrl"
       v-model:visible="showServerSettings"
@@ -94,20 +87,9 @@ import LoginBrandHeader from "./login/components/LoginBrandHeader.vue";
 import LoginCredentialForm from "./login/components/LoginCredentialForm.vue";
 import LoginResetPasswordForm from "./login/components/LoginResetPasswordForm.vue";
 import ServerSettingsDialog from "./login/components/ServerSettingsDialog.vue";
-import TelegramTwoFactorDialog from "./login/components/TelegramTwoFactorDialog.vue";
 import { useLoginForm } from "./login/composables/useLoginForm";
 import { usePasswordResetFlow } from "./login/composables/usePasswordResetFlow";
 import { useServerSettings } from "./login/composables/useServerSettings";
-import { useTelegramLogin2fa } from "./login/composables/useTelegramLogin2fa";
-
-
-const {
-  handleVerify2FA,
-  openTwoFactorDialog,
-  show2faDialog,
-  verifyCode,
-  verifying2fa,
-} = useTelegramLogin2fa();
 
 const {
   form,
@@ -116,9 +98,7 @@ const {
   loading,
   rules,
   showSmtpConfig,
-} = useLoginForm({
-  onTwoFactorRequired: openTwoFactorDialog,
-});
+} = useLoginForm();
 
 const {
   countdown,

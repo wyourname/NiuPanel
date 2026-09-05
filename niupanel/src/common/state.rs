@@ -35,7 +35,6 @@ pub struct AppStateInner {
     pub system_metrics: Arc<tokio::sync::RwLock<SystemMetrics>>,
     pub public_ip: Arc<RwLock<Option<(String, Instant)>>>,
     pub api_key_cache: moka::future::Cache<String, CachedApiKey>,
-    pub login_2fa_cache: moka::future::Cache<String, (String, i32)>, // ticket -> (code, user_id)
 }
 
 impl AppState {
@@ -49,7 +48,6 @@ impl AppState {
         system_metrics: Arc<tokio::sync::RwLock<SystemMetrics>>,
         public_ip: Arc<RwLock<Option<(String, Instant)>>>,
         api_key_cache: moka::future::Cache<String, CachedApiKey>,
-        login_2fa_cache: moka::future::Cache<String, (String, i32)>,
     ) -> Self {
         Self {
             inner: Arc::new(AppStateInner {
@@ -62,7 +60,6 @@ impl AppState {
                 system_metrics,
                 public_ip,
                 api_key_cache,
-                login_2fa_cache,
             }),
         }
     }

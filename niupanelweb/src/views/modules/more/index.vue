@@ -140,15 +140,6 @@ const allMenuItems: MoreMenuItem[] = [
     colorClass: "bg-indigo-500/10 text-indigo-500",
   },
   {
-    label: "电报机器人",
-    desc: "TG 消息推送配置",
-    path: "/telegram",
-    name: "telegram",
-    perm: "setting:read",
-    icon: "i-ep-promotion",
-    colorClass: "bg-sky-500/10 text-sky-500",
-  },
-  {
     label: "系统终端",
     desc: "Shell 访问",
     path: "/terminal",

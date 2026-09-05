@@ -16,27 +16,19 @@ default = []
 tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-tracing = { workspace = true }
 anyhow = { workspace = true }
-thiserror = { workspace = true }
+futures = { workspace = true }
 teloxide = { version = "0.17.0", default-features = false, features = ["macros", "rustls", "ctrlc_handler"] }
-reqwest = { workspace = true }
 # Teloxide 0.17 is the latest release but still accepts Reqwest 0.12 clients.
 # Keep the application on Reqwest 0.13 while using this alias only at Bot::with_client.
 teloxide-reqwest = { package = "reqwest", version = "0.12.28", default-features = false, features = ["rustls-tls", "socks"] }
-openssl = { workspace = true }
 tokio-util = { workspace = true }
 sea-orm = { workspace = true }
-tower = { workspace = true }
 niupanel-common = { path = "../niupanel-common" }
 niupanel-entity = { path = "../niupanel-entity" }
 niupanel-proxy = { path = "../niupanel-proxy" }
 niupanel-core = { path = "../niupanel-core" }
-futures.workspace = true
-tempfile.workspace = true
-flate2.workspace = true
-tar.workspace = true
-walkdir.workspace = true
-nanoid = { workspace = true }
-rmp-serde = { workspace = true }
-chrono.workspace = true
+
+[dev-dependencies]
+axum = { workspace = true }
+tempfile = { workspace = true }

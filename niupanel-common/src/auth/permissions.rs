@@ -151,6 +151,14 @@ pub enum Permission {
     #[strum(serialize = "terminal:*")]
     TerminalAll,
 
+    // 插件调用 (Plugin)
+    #[strum(serialize = "plugin:invoke")]
+    PluginInvoke,
+    #[strum(serialize = "plugin:approve")]
+    PluginApprove,
+    #[strum(serialize = "plugin:*")]
+    PluginAll,
+
     // 全局通配符
     #[strum(serialize = "*:*")]
     All,
@@ -227,6 +235,10 @@ impl Permission {
 
             Permission::TerminalAccess | Permission::TerminalAll => "terminal",
 
+            Permission::PluginInvoke | Permission::PluginApprove | Permission::PluginAll => {
+                "plugin"
+            }
+
             Permission::All => "*",
         }
     }
@@ -246,6 +258,7 @@ impl Permission {
             "webhook" => Some(Permission::WebhookAll),
             "git" => Some(Permission::GitAll),
             "terminal" => Some(Permission::TerminalAll),
+            "plugin" => Some(Permission::PluginAll),
             _ => None,
         }
     }

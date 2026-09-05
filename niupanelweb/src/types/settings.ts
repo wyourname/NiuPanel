@@ -44,7 +44,6 @@ export interface BackupOptions {
   variables: boolean;
   settings: boolean;
   environments: boolean;
-  telegram: boolean;
 }
 
 export type MaintenanceTaskStatus =

@@ -1,13 +1,37 @@
 use super::*;
 
+mod archive;
+pub(super) use archive::*;
+
 pub(super) struct UploadedPluginPackage {
     pub(super) file_name: String,
     pub(super) upload: UploadedTempFile,
     pub(super) enable: bool,
+    pub(super) operation: String,
+    pub(super) target_plugin_id: Option<String>,
+}
+
+async fn read_upload_text(field: &mut Field<'_>) -> Result<String> {
+    let mut value = Vec::new();
+    while let Some(chunk) = field
+        .chunk()
+        .await
+        .map_err(|err| AppError::ValidationError(err.to_string()))?
+    {
+        if value.len().saturating_add(chunk.len()) > MAX_PLUGIN_UPLOAD_METADATA_BYTES {
+            return Err(AppError::ValidationError(
+                "Plugin upload metadata field is too large".to_string(),
+            ));
+        }
+        value.extend_from_slice(&chunk);
+    }
+    String::from_utf8(value)
+        .map_err(|_| AppError::ValidationError("Plugin upload metadata must be UTF-8".to_string()))
 }
 
 pub(super) async fn read_plugin_package_upload(
     mut multipart: Multipart,
+    upload_directory: &Path,
 ) -> Result<UploadedPluginPackage> {
     let mut file_name = None;
     let mut upload = None;
@@ -15,6 +39,8 @@ pub(super) async fn read_plugin_package_upload(
     let mut checksum_sha256 = None;
     let mut signature_ed25519 = None;
     let mut public_key_ed25519 = None;
+    let mut operation = None;
+    let mut target_plugin_id = None;
 
     while let Some(mut field) = multipart
         .next_field()
@@ -23,18 +49,25 @@ pub(super) async fn read_plugin_package_upload(
     {
         let name = field.name().unwrap_or_default().to_string();
         if name == "enable" {
-            let value = field
-                .text()
-                .await
-                .map_err(|err| AppError::ValidationError(err.to_string()))?;
+            let value = read_upload_text(&mut field).await?;
             enable = matches!(value.as_str(), "true" | "1" | "on");
             continue;
         }
+        if name == "operation" {
+            let value = read_upload_text(&mut field).await?;
+            operation = Some(value.trim().to_string());
+            continue;
+        }
+        if name == "target_plugin_id" {
+            let value = read_upload_text(&mut field).await?;
+            let value = value.trim().to_string();
+            if !value.is_empty() {
+                target_plugin_id = Some(value);
+            }
+            continue;
+        }
         if name == "checksum_sha256" {
-            let value = field
-                .text()
-                .await
-                .map_err(|err| AppError::ValidationError(err.to_string()))?;
+            let value = read_upload_text(&mut field).await?;
             let value = value.trim().to_ascii_lowercase();
             if !value.is_empty() {
                 validate_sha256_hex(&value)?;
@@ -43,10 +76,7 @@ pub(super) async fn read_plugin_package_upload(
             continue;
         }
         if name == "signature_ed25519" {
-            let value = field
-                .text()
-                .await
-                .map_err(|err| AppError::ValidationError(err.to_string()))?;
+            let value = read_upload_text(&mut field).await?;
             let value = value.trim().to_string();
             if !value.is_empty() {
                 signature_ed25519 = Some(value);
@@ -54,10 +84,7 @@ pub(super) async fn read_plugin_package_upload(
             continue;
         }
         if name == "public_key_ed25519" {
-            let value = field
-                .text()
-                .await
-                .map_err(|err| AppError::ValidationError(err.to_string()))?;
+            let value = read_upload_text(&mut field).await?;
             let value = value.trim().to_string();
             if !value.is_empty() {
                 public_key_ed25519 = Some(value);
@@ -72,13 +99,18 @@ pub(super) async fn read_plugin_package_upload(
                 .unwrap_or_else(|| "plugin-package.tar.gz".to_string());
             let streamed = stream_field_to_temp_file(
                 &mut field,
-                TempUploadOptions::new(&std::env::temp_dir(), "niupanel-plugin-upload-")
+                TempUploadOptions::new(upload_directory, "package-")
                     .with_max_size(MAX_PLUGIN_PACKAGE_BYTES as u64),
             )
             .await?;
             file_name = Some(current_file_name);
             upload = Some(streamed);
+            continue;
         }
+
+        return Err(AppError::ValidationError(format!(
+            "Unknown plugin upload field '{name}'"
+        )));
     }
 
     let upload = upload
@@ -96,6 +128,9 @@ pub(super) async fn read_plugin_package_upload(
             .ok_or_else(|| AppError::ValidationError("Missing plugin package file".to_string()))?,
         upload,
         enable,
+        operation: operation
+            .ok_or_else(|| AppError::ValidationError("Missing upload operation".to_string()))?,
+        target_plugin_id,
     })
 }
 
@@ -119,7 +154,13 @@ async fn validate_admin_uploaded_file(
     }
     let upload_path: &Path = upload.path.as_ref();
     let bytes = tokio::fs::read(upload_path).await.map_err(AppError::Io)?;
-    verify_configured_package_signature(&bytes, signature_ed25519, public_key_ed25519)
+    let signature = signature_ed25519.map(str::to_string);
+    let public_key = public_key_ed25519.map(str::to_string);
+    tokio::task::spawn_blocking(move || {
+        verify_configured_package_signature(&bytes, signature.as_deref(), public_key.as_deref())
+    })
+    .await
+    .map_err(|err| AppError::Internal(format!("Plugin signature task failed: {err}")))?
 }
 
 pub(super) fn validate_package_integrity(
@@ -132,10 +173,8 @@ pub(super) fn validate_package_integrity(
     verify_configured_package_signature(bytes, signature_ed25519, public_key_ed25519)
 }
 
-/// A package selected by an authenticated administrator is already an explicit
-/// local trust decision. Keep checksum validation and verify a signature when
-/// an API client supplies one, but do not require operators to paste signing
-/// metadata into the upload form.
+/// A package selected by an authenticated administrator is an explicit local
+/// trust decision. Verify a signature when the client supplies signing data.
 #[cfg(test)]
 pub(super) fn validate_admin_upload_integrity(
     bytes: &[u8],
@@ -308,171 +347,6 @@ pub(super) fn validate_sha256_hex(value: &str) -> Result<()> {
     if value.len() != 64 || !value.chars().all(|ch| ch.is_ascii_hexdigit()) {
         return Err(AppError::ValidationError(
             "checksum_sha256 must be a 64-character hex SHA-256 digest".to_string(),
-        ));
-    }
-    Ok(())
-}
-
-pub(super) fn extract_plugin_package(file_name: &str, bytes: &[u8]) -> Result<TempDir> {
-    let temp_dir = tempfile::tempdir().map_err(AppError::Io)?;
-    let lower = file_name.to_lowercase();
-    if lower.ends_with(".zip") {
-        extract_zip(Cursor::new(bytes), temp_dir.path())?;
-    } else if lower.ends_with(".tar.gz") || lower.ends_with(".tgz") {
-        let decoder = GzDecoder::new(Cursor::new(bytes));
-        extract_tar(decoder, temp_dir.path())?;
-    } else if lower.ends_with(".tar") {
-        extract_tar(Cursor::new(bytes), temp_dir.path())?;
-    } else {
-        return Err(AppError::ValidationError(
-            "Unsupported plugin package format. Supported: .zip, .tar, .tar.gz, .tgz".to_string(),
-        ));
-    }
-    Ok(temp_dir)
-}
-
-pub(super) fn extract_plugin_package_file(file_name: &str, path: &Path) -> Result<TempDir> {
-    let temp_dir = tempfile::tempdir().map_err(AppError::Io)?;
-    let lower = file_name.to_lowercase();
-    let file = fs::File::open(path).map_err(AppError::Io)?;
-    if lower.ends_with(".zip") {
-        extract_zip(file, temp_dir.path())?;
-    } else if lower.ends_with(".tar.gz") || lower.ends_with(".tgz") {
-        extract_tar(GzDecoder::new(file), temp_dir.path())?;
-    } else if lower.ends_with(".tar") {
-        extract_tar(file, temp_dir.path())?;
-    } else {
-        return Err(AppError::ValidationError(
-            "Unsupported plugin package format. Supported: .zip, .tar, .tar.gz, .tgz".to_string(),
-        ));
-    }
-    Ok(temp_dir)
-}
-
-pub(super) fn resolve_plugin_package_root(
-    extracted_root: &Path,
-    compatibility: ManifestCompatibility,
-    package_label: &str,
-) -> Result<PathBuf> {
-    if has_plugin_manifest(extracted_root, compatibility) {
-        return Ok(extracted_root.to_path_buf());
-    }
-
-    let mut candidates = Vec::new();
-    for entry in fs::read_dir(extracted_root).map_err(AppError::Io)? {
-        let entry = entry.map_err(AppError::Io)?;
-        let path = entry.path();
-        if path.is_dir() && has_plugin_manifest(&path, compatibility) {
-            candidates.push(path);
-        }
-    }
-
-    match candidates.len() {
-        1 => Ok(candidates.remove(0)),
-        0 => Err(AppError::ValidationError(format!(
-            "{package_label} package must contain plugin.json at root or inside a single top-level directory"
-        ))),
-        _ => Err(AppError::ValidationError(format!(
-            "{package_label} package contains multiple top-level plugin.json files"
-        ))),
-    }
-}
-
-pub(super) fn has_plugin_manifest(path: &Path, compatibility: ManifestCompatibility) -> bool {
-    match compatibility {
-        ManifestCompatibility::PluginJsonOnly => path.join("plugin.json").is_file(),
-    }
-}
-
-pub(super) fn extract_tar<R>(reader: R, destination: &Path) -> Result<()>
-where
-    R: Read,
-{
-    let mut archive = tar::Archive::new(reader);
-    for entry in archive.entries().map_err(AppError::Io)? {
-        let mut entry = entry.map_err(AppError::Io)?;
-        let entry_type = entry.header().entry_type();
-        if entry_type.is_symlink() || entry_type.is_hard_link() {
-            return Err(AppError::ValidationError(
-                "Plugin packages cannot contain links".to_string(),
-            ));
-        }
-        if !(entry_type.is_file() || entry_type.is_dir()) {
-            continue;
-        }
-
-        let path = entry.path().map_err(AppError::Io)?;
-        let safe_path = sanitize_archive_path(&path)?;
-        let output_path = destination.join(safe_path);
-        ensure_within(destination, &output_path)?;
-        if entry_type.is_dir() {
-            fs::create_dir_all(&output_path).map_err(AppError::Io)?;
-        } else {
-            if let Some(parent) = output_path.parent() {
-                fs::create_dir_all(parent).map_err(AppError::Io)?;
-            }
-            entry.unpack(&output_path).map_err(AppError::Io)?;
-        }
-    }
-    Ok(())
-}
-
-pub(super) fn extract_zip<R>(reader: R, destination: &Path) -> Result<()>
-where
-    R: Read + Seek,
-{
-    let mut archive = ZipArchive::new(reader)
-        .map_err(|err| AppError::ValidationError(format!("Invalid zip package: {err}")))?;
-    for index in 0..archive.len() {
-        let mut file = archive
-            .by_index(index)
-            .map_err(|err| AppError::ValidationError(format!("Invalid zip entry: {err}")))?;
-        let Some(enclosed_name) = file.enclosed_name() else {
-            return Err(AppError::ValidationError(
-                "Plugin package contains an unsafe zip path".to_string(),
-            ));
-        };
-        let safe_path = sanitize_archive_path(&enclosed_name)?;
-        let output_path = destination.join(safe_path);
-        ensure_within(destination, &output_path)?;
-        if file.is_dir() {
-            fs::create_dir_all(&output_path).map_err(AppError::Io)?;
-        } else {
-            if let Some(parent) = output_path.parent() {
-                fs::create_dir_all(parent).map_err(AppError::Io)?;
-            }
-            let mut output = fs::File::create(&output_path).map_err(AppError::Io)?;
-            std::io::copy(&mut file, &mut output).map_err(AppError::Io)?;
-        }
-    }
-    Ok(())
-}
-
-pub(super) fn sanitize_archive_path(path: &Path) -> Result<PathBuf> {
-    let mut clean = PathBuf::new();
-    for component in path.components() {
-        match component {
-            Component::Normal(part) => clean.push(part),
-            Component::CurDir => {}
-            _ => {
-                return Err(AppError::ValidationError(
-                    "Plugin package contains an unsafe path".to_string(),
-                ));
-            }
-        }
-    }
-    if clean.as_os_str().is_empty() {
-        return Err(AppError::ValidationError(
-            "Plugin package contains an empty path".to_string(),
-        ));
-    }
-    Ok(clean)
-}
-
-pub(super) fn ensure_within(base: &Path, target: &Path) -> Result<()> {
-    if !target.starts_with(base) {
-        return Err(AppError::ValidationError(
-            "Plugin package entry escapes extraction directory".to_string(),
         ));
     }
     Ok(())

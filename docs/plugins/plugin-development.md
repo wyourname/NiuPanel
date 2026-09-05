@@ -20,11 +20,28 @@ ui/dist/assets/...
 
 ```json
 {
+  "schema_version": 2,
   "id": "my-plugin",
   "name": "My Plugin",
   "version": "0.1.0",
   "runtime": "process",
   "entry": "backend/run.sh",
+  "actions": [
+    {
+      "name": "query",
+      "description": "Query plugin data",
+      "callers": ["ui", "task", "api_key"],
+      "timeout_sec": 30,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "keyword": { "type": "string", "maxLength": 200 }
+        },
+        "required": ["keyword"],
+        "additionalProperties": false
+      }
+    }
+  ],
   "compatibility": {
     "panel": {
       "min_version": "0.8.0",
@@ -146,8 +163,9 @@ Plugins must not open or migrate the panel database. Persistent plugin state
 is limited to non-database files under `NIUPANEL_PLUGIN_DATA_DIR`; panel business
 data must be read or changed through an explicitly allowed host API or tool call.
 
-Telegram Bot 也将沿用同一扩展边界；迁移设计见
-[Telegram Bot 插件化计划](telegram-bot.md)。
+Telegram 使用 Core 管理的可信传输通道调用 Agent Action。自然语言处理与面板操作属于
+Agent 插件，Transport 不包含 Telegram 专属任务命令或 workflow；设计见
+[Telegram Agent 通道](telegram-bot.md)。
 
 ## Public Release Gate
 
@@ -276,9 +294,22 @@ Web API must request it explicitly:
 On kernels with Landlock ABI v4, this permission allows outbound TCP connections
 only to ports `80` and `443`. Older kernels keep the explicit outbound permission
 but cannot enforce the port allowlist, so the install preview reports this possible
-degradation. The permission never grants panel API credentials or filesystem
-access. Panel business data remains accessible only through the audited host API
-proxy and its manifest/user permission checks.
+degradation.
+
+A plugin that genuinely needs a user-configurable TCP port can instead request the
+mutually exclusive high-risk permission:
+
+```json
+{
+  "runtime_permissions": ["network_outbound_all_ports"]
+}
+```
+
+This permits outbound TCP connections to any destination port, including services
+on localhost and private networks. It does not grant panel API credentials or any
+additional filesystem access. Panel business data remains accessible only through
+the audited host API proxy and its manifest/user permission checks. Prefer an HTTPS
+reverse proxy on port `443` when the upstream supports one.
 
 The backend validates three things before forwarding the request to the internal
 API:
@@ -495,24 +526,120 @@ The host provides:
 - `context.route.onChange()` for in-app route changes without remounting
 - `context.api.request()`
 - `context.api.invoke()` for native apps with a process backend
+- `context.api.invokeStream()` for manifest-declared streaming actions
 - `context.ui.toast()`
 - `context.ui.confirm()`
 - `context.ui.navigate()`
 
 Native plugin apps that call their process backend through
-`context.api.invoke()` must declare the `ui.invoke` capability. The legacy
-`agents.invoke` capability remains accepted for existing agent plugins.
+`context.api.invoke()` must use `schema_version: 2` and declare the action with
+`"ui"` in `actions[].callers`. `ui.invoke` and `agents.invoke` are not action
+authorization; schema v1 packages that still use them must migrate before they
+can be installed or updated.
 
 ```json
 {
+  "schema_version": 2,
   "runtime": "process",
   "protocol": "json_lines",
-  "capabilities": ["ui.invoke", "my-plugin.actions"]
+  "actions": [
+    {
+      "name": "chat",
+      "callers": ["ui", "task", "api_key"],
+      "timeout_sec": 120,
+      "streaming": true,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "message": { "type": "string", "minLength": 1 }
+        },
+        "required": ["message"],
+        "additionalProperties": false
+      }
+    }
+  ]
 }
 ```
 
 ```ts
-const health = await context.api.invoke<{ ok: boolean }>("health", {});
+for await (const frame of context.api.invokeStream<{ message: string }>(
+  "chat",
+  { message: "检查失败任务" },
+  { signal: abortController.signal },
+)) {
+  if (frame.type === "event" && frame.event === "delta") {
+    renderDelta((frame.data as { text: string }).text);
+  } else if (frame.type === "result") {
+    renderFinal(frame.data.message);
+  }
+}
+```
+
+Streaming is opt-in per action with `"streaming": true` and requires
+`protocol: "json_lines"`. For a streaming request the host adds `"stream": true`
+to the process request. The plugin may emit ordered intermediate frames before
+its normal final response:
+
+```json
+{"type":"stream_event","request_id":"...","sequence":1,"event":"delta","data":{"text":"..."}}
+```
+
+`request_id` must match, `sequence` must be positive and strictly increasing,
+and event names use lowercase letters, digits, and underscores. The HTTP stream
+maps these frames to named SSE events and then emits exactly one terminal
+`result` or `error` event. Disconnecting the client cancels the invocation,
+discards its worker, and releases its concurrency permits.
+
+Each action has a manifest-owned timeout between 1 and 180 seconds. Callers
+cannot override it. Request bodies, process output, and each JSON Lines frame
+are limited to 1 MiB. The runtime allows at most 16 concurrent plugin calls
+globally and at most `worker.max` calls per plugin.
+
+## Task And External API Calls
+
+Task scripts use the bundled SDK and their injected internal token. External
+clients use an API Key with the exact `plugin:invoke` permission. In both cases,
+the host first filters actions by `actions[].callers` and then validates input
+against `input_schema`.
+
+```python
+from niu import niu
+
+plugins = niu.list_plugins()
+actions = niu.list_plugin_actions("my-plugin")
+result = niu.invoke_plugin("my-plugin", "query", {"keyword": "test"})
+```
+
+```js
+const niu = require("niu");
+
+const plugins = await niu.listPlugins();
+const actions = await niu.listPluginActions("my-plugin");
+const result = await niu.invokePlugin("my-plugin", "query", { keyword: "test" });
+```
+
+The corresponding Open API endpoints are:
+
+```text
+GET  /open/api/plugins
+GET  /open/api/plugins/{plugin_id}/actions
+POST /open/api/plugins/{plugin_id}/invoke
+POST /open/api/plugins/{plugin_id}/invoke/stream
+```
+
+The invoke body is `{ "action": "query", "input": { ... } }`. Discovery only
+returns plugins and actions callable by the current token (`task` for an
+injected SDK token, `api_key` for an external API Key, or `telegram` for the
+Core-managed Telegram Agent channel).
+
+External clients consume the streaming endpoint with normal POST SSE semantics:
+
+```bash
+curl -N https://panel.example.com/open/api/plugins/my-plugin/invoke/stream \
+  -H 'X-API-Key: <api-key>' \
+  -H 'Accept: text/event-stream' \
+  -H 'Content-Type: application/json' \
+  --data '{"action":"chat","input":{"message":"检查失败任务"}}'
 ```
 
 ## Template
@@ -729,8 +856,9 @@ uploaded archive before extraction and rejects the package if it does not match.
 Package extraction rejects absolute paths, parent-directory traversal, symlinks,
 and hard links. Only regular files and directories are extracted.
 
-Packages downloaded from a remote plugin market support detached Ed25519
-signatures. Configure trusted public keys on the server:
+Packages downloaded from a remote plugin market support optional detached
+Ed25519 signatures. Unsigned market packages are accepted by default. To require
+signatures, configure trusted public keys on the server and opt in explicitly:
 
 ```env
 PLUGIN_SIGNATURE_REQUIRED=true
@@ -747,7 +875,9 @@ public_key_ed25519=<PEM, base64 raw Ed25519 public key, or hex raw public key>
 
 The backend verifies that the submitted public key matches one configured in
 `TRUSTED_PLUGIN_PUBLIC_KEYS`, then verifies the signature over the exact archive
-bytes before extraction. A submitted public key is not trusted by itself.
+bytes before extraction. A submitted public key is not trusted by itself. When
+`PLUGIN_SIGNATURE_REQUIRED=false`, unsigned packages are accepted, but packages
+that submit signing metadata are still verified with the same trust policy.
 
 Direct package uploads from the authenticated administrator are treated as an
 explicit local trust action. The upload dialog only needs the package file and
@@ -783,3 +913,46 @@ running, the backend stops its worker pool after rollback so the next invocation
 uses the restored version.
 
 Built-in plugins cannot be updated, uninstalled, or rolled back.
+# Real-host UI Development
+
+Run the panel core separately and install/enable the plugin once. From the
+NiuPanel repository root, start the Web UI with local source overrides:
+
+```bash
+node scripts/dev-workspace.mjs \
+  --plugin ../NiuPanelPrivatePlugins/plugins/agents/niupanel-private-agents \
+  --plugin ../NiuPanelPrivatePlugins/plugins/yyb-protocol \
+  --api http://127.0.0.1:7788 --port 7787
+```
+
+Open `http://localhost:7787`, log in, and open the installed plugin normally.
+Each directory must contain `plugin.json` and `ui/src/plugin.ts`. Install the
+Web and plugin UI dependencies first. Repeat `--plugin` for multiple plugins.
+The equivalent Web package command is `pnpm dev:workspace`; directory arguments
+are relative to the current working directory.
+
+The panel's Vite server compiles these source entries, including Vue SFCs and
+CSS, and provides a single same-origin HMR connection. No package rebuild or
+reinstallation is needed for UI edits. Vue template/style updates use HMR;
+script updates may recreate components, and entry changes may reload the page.
+Do not assume unsent inputs survive every type of update. Plugin components must
+clean up timers, subscriptions and requests on unmount.
+
+API calls still use the real injected SDK, logged-in identity and installed
+plugin permissions. This override does not install a plugin, change its backend,
+or grant new permissions. Backend and manifest edits still require a rebuild
+and installation/reload through the existing plugin lifecycle. Automatic backend
+replacement and manifest synchronization are not part of this UI development mode.
+
+The launcher defaults to loopback and fails when the chosen port is occupied.
+For a remote machine, forward this single port over SSH (recommended), or use
+`--host 0.0.0.0` only on a trusted network. The Vite server exposes source code
+without panel authentication and must not be publicly exposed. Browser URLs and
+WebSockets use the panel origin, not the backend machine's `localhost`.
+
+Normal `pnpm dev` has no overrides unless `NIUPANEL_DEV_PLUGINS` is explicitly set
+to a JSON array of directories. Release builds ignore this variable entirely.
+Stop the workspace server to stop source overrides; installed plugin files are
+never modified. This mode currently supports the Vue/TypeScript entry convention
+above and uses the host's Vue and SDK. Plugin-specific Vite transforms are not
+automatically imported.

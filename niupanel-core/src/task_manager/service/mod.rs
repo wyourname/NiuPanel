@@ -39,7 +39,6 @@ pub struct TaskManagerService {
     scheduler: Arc<JobScheduler>,
     scheduled_jobs: Arc<dashmap::DashMap<i32, Uuid>>,
     task_schedule_lock: Arc<tokio::sync::Mutex<()>>,
-    workflow_schedule_lock: Arc<tokio::sync::Mutex<()>>,
     running_permits: Arc<tokio::sync::Semaphore>,
     current_max_concurrency: Arc<Mutex<usize>>,
     system_job_handles: Arc<dashmap::DashMap<i32, tokio::task::AbortHandle>>,
@@ -116,7 +115,6 @@ impl TaskManagerService {
             scheduler: Arc::new(scheduler),
             scheduled_jobs: Arc::new(dashmap::DashMap::new()),
             task_schedule_lock: Arc::new(tokio::sync::Mutex::new(())),
-            workflow_schedule_lock: Arc::new(tokio::sync::Mutex::new(())),
             running_permits: Arc::new(Semaphore::new(max_concurrency)),
             current_max_concurrency: Arc::new(Mutex::new(max_concurrency)),
             system_job_handles: Arc::new(dashmap::DashMap::new()),
@@ -147,10 +145,6 @@ impl TaskManagerService {
                 error_msg!("Failed to load scheduled tasks: {}", e);
             }
         };
-
-        if let Err(e) = service.load_scheduled_workflows().await {
-            error_msg!("Failed to load scheduled workflows: {}", e);
-        }
 
         Ok(service)
     }

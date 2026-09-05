@@ -19,8 +19,6 @@ pub mod system_jobs;
 pub mod task_runs;
 pub mod task_status;
 pub mod tasks;
-pub mod tg_commands;
-pub mod tg_workflows;
 pub mod users;
 pub mod variables;
 pub mod variables_tasks;

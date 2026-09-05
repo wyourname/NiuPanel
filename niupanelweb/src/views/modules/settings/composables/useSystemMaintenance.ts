@@ -43,7 +43,6 @@ export function useSystemMaintenance() {
     variables: true,
     settings: true,
     environments: false,
-    telegram: true,
   });
 
   const maintenanceProgress = ref<MaintenanceStatus>(
@@ -115,12 +114,11 @@ export function useSystemMaintenance() {
 
     if (
       backupOptions.value.variables ||
-      backupOptions.value.settings ||
-      backupOptions.value.telegram
+      backupOptions.value.settings
     ) {
       try {
         await ElMessageBox.confirm(
-          "备份包将包含变量、系统设置或 Telegram 配置的敏感明文。请仅保存到受信任位置，并避免上传到公开网盘。",
+          "备份包将包含变量或系统设置的敏感明文。请仅保存到受信任位置，并避免上传到公开网盘。",
           "备份包含敏感数据",
           {
             confirmButtonText: "继续备份",

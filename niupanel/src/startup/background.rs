@@ -3,7 +3,7 @@ use niupanel_common::constants::settings::{
     NPM_REGISTRY_MIRROR, PNPM_NODE_DIST_MIRROR, UV_PYPI_MIRROR, UV_PYTHON_MIRROR,
 };
 use niupanel_common::{error, info, warn};
-use niupanel_core as core;
+use niupanel_core::audit::service::AuditService;
 use niupanel_core::event_bus::{EventBus, SystemEvent, SystemNotification};
 use niupanel_core::handlers::{db_sync::DbSyncHandler, notification::NotificationHandler};
 use sea_orm::{
@@ -15,15 +15,10 @@ use sysinfo::{CpuRefreshKind, MemoryRefreshKind, RefreshKind, System};
 
 pub type SharedSystemMetrics = Arc<tokio::sync::RwLock<niupanel_common::metrics::SystemMetrics>>;
 
-pub async fn spawn_background_tasks(
-    db: DatabaseConnection,
-    event_bus: EventBus,
-    http_client: reqwest::Client,
-    task_manager: core::task_manager::service::TaskManagerService,
-    update_service: core::settings::update::UpdateService,
-    system_metrics: SharedSystemMetrics,
-) -> Result<()> {
-    spawn_notification_handler(db.clone(), event_bus.clone(), http_client);
+pub async fn spawn_background_tasks(state: crate::common::state::AppState) -> Result<()> {
+    let db = state.db.clone();
+    let event_bus = state.event_bus.clone();
+    spawn_notification_handler(db.clone(), event_bus.clone(), state.http_client.clone());
     spawn_db_sync_handler(db.clone(), event_bus.clone());
 
     crate::modules::settings::service::start_log_cleanup_scheduler(db.clone()).await;
@@ -32,7 +27,7 @@ pub async fn spawn_background_tasks(
     start_api_keys_cleanup_scheduler(db.clone()).await;
     spawn_upgrade_self_check(db.clone(), event_bus.clone());
     start_sandbox_environments_recovery(db.clone()).await;
-    start_telegram_bot(db, event_bus, task_manager, update_service, system_metrics).await;
+    start_telegram_bot(state).await;
 
     Ok(())
 }
@@ -170,52 +165,6 @@ async fn has_index(db: &DatabaseConnection, index_name: &str) -> Result<bool> {
     Ok(row.is_some())
 }
 
-pub fn spawn_telegram_import_listener(db: DatabaseConnection, event_bus: EventBus) {
-    let mut rx_sys = event_bus.subscribe();
-
-    tokio::spawn(async move {
-        loop {
-            match rx_sys.recv().await {
-                Ok(niupanel_core::event_bus::SystemEvent::Telegram(
-                    niupanel_core::event_bus::TelegramEvent::PackageImportRequest {
-                        staging_id,
-                        user_id,
-                    },
-                )) => {
-                    info!(
-                        "Received package import request for staging_id: {}",
-                        staging_id
-                    );
-
-                    let user = crate::modules::auth::service::AuthenticatedUser {
-                        id: user_id,
-                        role: niupanel_common::auth::permissions::UserRole::Admin,
-                        permissions: std::collections::HashSet::new(),
-                        ip: "127.0.0.1".to_string(),
-                    };
-
-                    if let Err(e) = crate::modules::share::service::finalize_import(
-                        &db,
-                        &staging_id,
-                        None,
-                        &user,
-                        None,
-                        true,
-                    )
-                    .await
-                    {
-                        error!("Failed to finalize package import from Telegram: {}", e);
-                    } else {
-                        info!("Successfully imported package: {}", staging_id);
-                    }
-                }
-                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
-                _ => {}
-            }
-        }
-    });
-}
-
 pub fn spawn_system_metrics_updater(system_metrics: SharedSystemMetrics) {
     tokio::spawn(async move {
         let refresh_kind = RefreshKind::nothing()
@@ -316,41 +265,23 @@ fn spawn_db_sync_handler(db: DatabaseConnection, event_bus: EventBus) {
     });
 }
 
-async fn start_telegram_bot(
-    db: DatabaseConnection,
-    event_bus: EventBus,
-    task_manager: core::task_manager::service::TaskManagerService,
-    update_service: core::settings::update::UpdateService,
-    metrics: SharedSystemMetrics,
-) {
+async fn start_telegram_bot(state: crate::common::state::AppState) {
     use niupanel_bot::TelegramBot;
     use niupanel_core::event_bus::{SystemEvent, SystemNotification};
     use tokio_util::sync::CancellationToken;
 
-    let db_clone = db.clone();
-    let event_bus_clone = event_bus.clone();
-    let task_manager_clone = task_manager.clone();
-    let update_service_clone = update_service.clone();
-    let metrics_clone = metrics.clone();
+    let state_clone = state.clone();
 
     tokio::spawn(async move {
         let mut current_cancel_token: Option<CancellationToken> = None;
         let mut _current_bot: Option<Arc<TelegramBot>> = None;
 
-        if let Some((bot, token)) = load_and_start_telegram_bot(
-            &db_clone,
-            &event_bus_clone,
-            &task_manager_clone,
-            update_service_clone.clone(),
-            metrics_clone.clone(),
-        )
-        .await
-        {
+        if let Some((bot, token)) = load_and_start_telegram_bot(&state_clone).await {
             _current_bot = Some(bot);
             current_cancel_token = Some(token);
         }
 
-        let mut rx = event_bus_clone.subscribe();
+        let mut rx = state_clone.event_bus.subscribe();
         loop {
             match rx.recv().await {
                 Ok(SystemEvent::System(SystemNotification::SettingChanged { key, .. })) => {
@@ -364,14 +295,7 @@ async fn start_telegram_bot(
 
                         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
-                        if let Some((bot, token)) = load_and_start_telegram_bot(
-                            &db_clone,
-                            &event_bus_clone,
-                            &task_manager_clone,
-                            update_service_clone.clone(),
-                            metrics_clone.clone(),
-                        )
-                        .await
+                        if let Some((bot, token)) = load_and_start_telegram_bot(&state_clone).await
                         {
                             _current_bot = Some(bot);
                             current_cancel_token = Some(token);
@@ -387,46 +311,37 @@ async fn start_telegram_bot(
 }
 
 async fn load_and_start_telegram_bot(
-    db: &DatabaseConnection,
-    event_bus: &EventBus,
-    task_manager: &core::task_manager::service::TaskManagerService,
-    update_service: core::settings::update::UpdateService,
-    metrics: SharedSystemMetrics,
+    state: &crate::common::state::AppState,
 ) -> Option<(
     Arc<niupanel_bot::TelegramBot>,
     tokio_util::sync::CancellationToken,
 )> {
     use niupanel_bot::TelegramBot;
-    use niupanel_bot::telegram::TelegramBotConfig;
-    use niupanel_core::settings::SettingsManager;
     use tokio_util::sync::CancellationToken;
 
-    match SettingsManager::get(db, "plugin.telegram.config").await {
-        Ok(config_str) if !config_str.is_empty() => {
-            let config: TelegramBotConfig = serde_json::from_str(&config_str).unwrap_or_default();
+    match crate::modules::telegram::handlers::load_stored_telegram_config(&state.db).await {
+        Ok(config) => {
             if config.enabled && !config.token.is_empty() {
+                if let Err(error) =
+                    crate::modules::telegram::handlers::validate_config(&state.db, &config).await
+                {
+                    warn!("Telegram configuration is invalid: {}", error);
+                    return None;
+                }
                 info!("Telegram Bot initializing...");
+                let agent_handler =
+                    telegram_agent_handler(state.clone(), config.agent_plugin_id.clone());
                 let bot = Arc::new(TelegramBot::new(config).await);
                 let token = CancellationToken::new();
 
                 let bot_clone = bot.clone();
-                let eb_clone = event_bus.clone();
-                let db_clone = db.clone();
-                let tm_clone = task_manager.clone();
-                let us_clone = update_service.clone();
-                let metrics_clone = metrics.clone();
+                let eb_clone = state.event_bus.clone();
+                let db_clone = state.db.clone();
                 let token_clone = token.clone();
 
                 tokio::spawn(async move {
                     if let Err(e) = bot_clone
-                        .run(
-                            eb_clone,
-                            db_clone,
-                            tm_clone,
-                            us_clone,
-                            metrics_clone,
-                            token_clone,
-                        )
+                        .run(eb_clone, db_clone, agent_handler, token_clone)
                         .await
                     {
                         tracing::error!("Telegram Bot error: {}", e);
@@ -436,10 +351,306 @@ async fn load_and_start_telegram_bot(
                 return Some((bot, token));
             }
         }
-        _ => {}
+        Err(error) => warn!("Telegram configuration could not be loaded: {}", error),
     }
 
     None
+}
+
+fn telegram_agent_handler(
+    state: crate::common::state::AppState,
+    configured_plugin_id: String,
+) -> niupanel_bot::telegram::agent::TelegramAgentHandler {
+    use niupanel_bot::telegram::agent::{TelegramAgentRequest, TelegramAgentResponse};
+    use niupanel_plugin::{PluginActionCaller, PluginActionInvokeRequest};
+
+    let plugin_id = if configured_plugin_id.trim().is_empty() {
+        "niupanel-private-agents".to_string()
+    } else {
+        configured_plugin_id
+    };
+    Arc::new(move |request: TelegramAgentRequest, cancellation| {
+        let plugin_id = plugin_id.clone();
+        let state = state.clone();
+        Box::pin(async move {
+            use niupanel_bot::telegram::agent::{
+                TelegramAgentAction, TelegramAgentError, TelegramAgentProgress,
+            };
+            use niupanel_common::error::AppError;
+
+            let session_id = format!("telegram:{}", request.session_key());
+            let user = crate::modules::auth::middleware::load_authenticated_user(
+                &state,
+                request.user_id,
+                format!(
+                    "telegram:{}:{}:{}",
+                    request.chat_id,
+                    request.thread_id.unwrap_or(0),
+                    request.telegram_user_id
+                ),
+            )
+            .await
+            .map_err(|error| TelegramAgentError::Failed(error.to_string()))?;
+            let grant_binding = crate::modules::agent_policy::ApprovalGrantBinding {
+                plugin_id: plugin_id.clone(),
+                principal: format!("user:{}", request.user_id),
+                channel: "telegram".to_string(),
+                session_id: session_id.clone(),
+            };
+            match request.action {
+                TelegramAgentAction::EnableYolo => {
+                    if user.role != niupanel_common::auth::permissions::UserRole::Admin {
+                        return Err(TelegramAgentError::Failed(
+                            "只有面板管理员可以启用 YOLO 模式".to_string(),
+                        ));
+                    }
+                    let issued = crate::modules::agent_policy::issue_grant(
+                        grant_binding.clone(),
+                        crate::modules::agent_policy::EffectiveApprovalMode::Yolo,
+                        None,
+                    )
+                    .await;
+                    audit_telegram_grant_issued(&state, &user, &grant_binding, &issued).await;
+                    return Ok(TelegramAgentResponse {
+                        text: "当前 Telegram 会话已启用临时 YOLO。显式禁止的工具仍不会执行。使用 /mode normal 退出。".to_string(),
+                    });
+                }
+                TelegramAgentAction::DisableYolo => {
+                    if user.role != niupanel_common::auth::permissions::UserRole::Admin {
+                        return Err(TelegramAgentError::Failed(
+                            "只有面板管理员可以修改审批模式".to_string(),
+                        ));
+                    }
+                    let revoked = crate::modules::agent_policy::revoke_grants(&grant_binding).await;
+                    audit_telegram_grants_revoked(
+                        &state,
+                        &user,
+                        &grant_binding,
+                        revoked,
+                        "mode_normal",
+                    )
+                    .await;
+                    return Ok(TelegramAgentResponse {
+                        text: "当前 Telegram 会话已恢复全局审批策略。".to_string(),
+                    });
+                }
+                TelegramAgentAction::ResetSession => {
+                    let revoked = crate::modules::agent_policy::revoke_grants(&grant_binding).await;
+                    if revoked > 0 {
+                        audit_telegram_grants_revoked(
+                            &state,
+                            &user,
+                            &grant_binding,
+                            revoked,
+                            "session_reset",
+                        )
+                        .await;
+                    }
+                }
+                TelegramAgentAction::Chat => {}
+            }
+            let (action, input) = if request.action == TelegramAgentAction::ResetSession {
+                (
+                    "session_delete",
+                    serde_json::json!({ "session_id": session_id }),
+                )
+            } else {
+                (
+                    "chat",
+                    serde_json::json!({
+                        "message": request.text.clone(),
+                        "attachments": request.attachments.clone(),
+                        "session_id": session_id.clone(),
+                        "panel_context": request.panel_context.clone(),
+                        "route": "telegram",
+                        "locale": "zh-CN",
+                    }),
+                )
+            };
+            let gateway = crate::modules::agent_tools::AgentToolGateway::for_plugin(
+                state,
+                user,
+                &plugin_id,
+                crate::modules::agent_tools::AgentInvocationIdentity {
+                    principal: format!("user:{}", request.user_id),
+                    channel: "telegram".to_string(),
+                    session_id: Some(session_id.clone()),
+                    presented_grant: None,
+                    allow_implicit_grant: true,
+                },
+            )
+            .await
+            .map_err(|error| TelegramAgentError::Failed(error.to_string()))?;
+            if request.action == TelegramAgentAction::ResetSession {
+                gateway.cancel_pending_operations().await;
+            }
+            let coordination_scope = gateway.coordination_scope();
+            let _session_guard =
+                crate::modules::agent_invocations::acquire_session(&coordination_scope).await;
+            let idempotency = crate::modules::agent_invocations::begin(
+                &coordination_scope,
+                action,
+                Some(&request.client_request_id),
+                &input,
+            )
+            .await
+            .map_err(|error| TelegramAgentError::Failed(error.to_string()))?;
+            let token = match idempotency {
+                crate::modules::agent_invocations::IdempotencyDecision::Execute(token) => token,
+                crate::modules::agent_invocations::IdempotencyDecision::Replay(output) => {
+                    let text = if request.action == TelegramAgentAction::ResetSession {
+                        "当前 Telegram Agent 会话已清空。".to_string()
+                    } else {
+                        output
+                            .get("message")
+                            .and_then(serde_json::Value::as_str)
+                            .filter(|message| !message.trim().is_empty())
+                            .ok_or_else(|| {
+                                TelegramAgentError::Failed(
+                                    "Agent 重放结果缺少 message 字段".to_string(),
+                                )
+                            })?
+                            .to_string()
+                    };
+                    return Ok(TelegramAgentResponse { text });
+                }
+            };
+            let base_tool_handler = gateway.handler();
+            let invocation_context = gateway.invocation_context(
+                PluginActionCaller::Telegram,
+                Some(&request.client_request_id),
+            );
+            let progress = request.progress.clone();
+            let tool_handler = move |call: niupanel_plugin::ProcessPluginToolCall| {
+                progress.send_replace(TelegramAgentProgress::CallingTool(call.tool.clone()));
+                base_tool_handler(call)
+            };
+            let response = crate::modules::plugins::service::unified_plugin_service()
+                .invoke_action_with_tools_context_cancellable(
+                    &plugin_id,
+                    PluginActionCaller::Telegram,
+                    PluginActionInvokeRequest {
+                        action: action.to_string(),
+                        input,
+                        client_request_id: Some(request.client_request_id.clone()),
+                    },
+                    Some(invocation_context),
+                    gateway.definitions(),
+                    tool_handler,
+                    cancellation,
+                )
+                .await;
+
+            let response = match response {
+                Ok(response) => {
+                    crate::modules::agent_invocations::complete(token, &response.output).await;
+                    response
+                }
+                Err(AppError::Cancelled) => {
+                    crate::modules::agent_invocations::fail(token).await;
+                    if request.action == TelegramAgentAction::Chat
+                        && let Err(cleanup_error) =
+                            crate::modules::plugins::service::unified_plugin_service()
+                                .invoke_action(
+                                    &plugin_id,
+                                    PluginActionCaller::Telegram,
+                                    PluginActionInvokeRequest {
+                                        action: "session_interrupt".to_string(),
+                                        input: serde_json::json!({
+                                            "session_id": session_id.clone(),
+                                            "reason": "telegram_run_cancelled",
+                                        }),
+                                        client_request_id: Some(format!(
+                                            "{}:interrupt",
+                                            request.client_request_id
+                                        )),
+                                    },
+                                )
+                                .await
+                    {
+                        warn!(
+                            "Failed to mark cancelled Telegram Agent session '{}' as interrupted: {}",
+                            session_id, cleanup_error
+                        );
+                    }
+                    return Err(TelegramAgentError::Cancelled);
+                }
+                Err(error) => {
+                    crate::modules::agent_invocations::fail(token).await;
+                    return Err(TelegramAgentError::Failed(error.to_string()));
+                }
+            };
+
+            request.report_progress(TelegramAgentProgress::Finalizing);
+            let text = if request.action == TelegramAgentAction::ResetSession {
+                "当前 Telegram Agent 会话已清空。".to_string()
+            } else {
+                response
+                    .output
+                    .get("message")
+                    .and_then(serde_json::Value::as_str)
+                    .filter(|message| !message.trim().is_empty())
+                    .ok_or_else(|| {
+                        TelegramAgentError::Failed("Agent 返回内容缺少 message 字段".to_string())
+                    })?
+                    .to_string()
+            };
+            Ok(TelegramAgentResponse { text })
+        })
+    })
+}
+
+async fn audit_telegram_grant_issued(
+    state: &crate::common::state::AppState,
+    user: &niupanel_common::auth::permissions::AuthenticatedUser,
+    binding: &crate::modules::agent_policy::ApprovalGrantBinding,
+    issued: &crate::modules::agent_policy::IssuedApprovalGrant,
+) {
+    AuditService::log_user(
+        &state.db,
+        user,
+        "agent.approval_grant.issued",
+        "plugin",
+        Some(binding.plugin_id.clone()),
+        Some(
+            serde_json::json!({
+                "grant_id": issued.grant_id,
+                "principal": binding.principal,
+                "channel": binding.channel,
+                "session_id": binding.session_id,
+                "expires_in_seconds": issued.expires_in_seconds,
+            })
+            .to_string(),
+        ),
+    )
+    .await;
+}
+
+async fn audit_telegram_grants_revoked(
+    state: &crate::common::state::AppState,
+    user: &niupanel_common::auth::permissions::AuthenticatedUser,
+    binding: &crate::modules::agent_policy::ApprovalGrantBinding,
+    revoked: usize,
+    reason: &'static str,
+) {
+    AuditService::log_user(
+        &state.db,
+        user,
+        "agent.approval_grant.revoked",
+        "plugin",
+        Some(binding.plugin_id.clone()),
+        Some(
+            serde_json::json!({
+                "principal": binding.principal,
+                "channel": binding.channel,
+                "session_id": binding.session_id,
+                "revoked": revoked,
+                "reason": reason,
+            })
+            .to_string(),
+        ),
+    )
+    .await;
 }
 
 async fn start_api_keys_cleanup_scheduler(db: DatabaseConnection) {

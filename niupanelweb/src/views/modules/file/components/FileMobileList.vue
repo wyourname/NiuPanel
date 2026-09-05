@@ -16,7 +16,13 @@
         </p>
       </div>
 
-      <div v-else class="divide-y divide-light/70 border-b border-light/70 bg-card">
+      <div
+        v-else
+        class="divide-y divide-light/70 border-b border-light/70 bg-card"
+        :class="selectedPaths.length > 0
+          ? 'pb-[calc(var(--mobile-dock-clearance)+96px)]'
+          : 'pb-[var(--mobile-dock-clearance)]'"
+      >
         <article
           v-for="row in items"
           :key="row.path"
@@ -32,19 +38,35 @@
             class="absolute bottom-0 left-0 top-0 w-[2px] bg-primary"
           ></div>
 
-          <div class="flex min-h-[64px] items-center gap-3 px-4 py-2.5">
+          <div class="flex min-h-[72px] items-center gap-2.5 px-3 py-2.5">
+            <button
+              type="button"
+              class="h-8 w-8 shrink-0 cursor-pointer rounded-md border flex-center transition-colors"
+              :class="isSelected(row)
+                ? 'border-primary bg-primary text-white'
+                : 'border-light bg-card text-transparent hover:border-primary/50 hover:text-muted'"
+              :aria-label="isSelected(row) ? `取消选择 ${row.name}` : `选择 ${row.name}`"
+              :aria-pressed="isSelected(row)"
+              @click.stop="emit('toggle-selection', row)"
+              @touchstart.stop
+              @touchend.stop
+              @touchmove.stop
+            >
+              <div class="i-ep-check text-[14px]"></div>
+            </button>
+
             <div
-              class="h-11 w-11 shrink-0 rounded-md flex-center"
+              class="h-10 w-10 shrink-0 rounded-md flex-center"
               :class="getFileIconBgClass(row)"
             >
-              <div :class="getFileIconClass(row)" class="text-[20px]"></div>
+              <div :class="getFileIconClass(row)" class="text-[18px]"></div>
             </div>
 
             <div class="flex-1 min-w-0 pointer-events-none">
-              <span class="block font-medium text-[14px] text-default truncate leading-tight">
+              <span class="block truncate text-[14px] font-semibold leading-tight text-default">
                 {{ row.name }}
               </span>
-              <div class="flex items-center gap-1.5 mt-0.5">
+              <div class="mt-1 flex min-w-0 items-center gap-1.5 truncate">
                 <span v-if="!row.is_dir" class="font-mono text-[11px] text-muted tabular-nums">
                   {{ formatFileSize(row.size) }}
                 </span>
@@ -67,6 +89,9 @@
                 title="文件操作"
                 aria-label="文件操作"
                 @click.stop
+                @touchstart.stop
+                @touchend.stop
+                @touchmove.stop
               >
                 <div class="i-ep-more-filled text-sm"></div>
               </button>
@@ -140,6 +165,7 @@ const emit = defineEmits<{
   (event: "touch-end"): void;
   (event: "touch-move"): void;
   (event: "touch-start", row: FileItem): void;
+  (event: "toggle-selection", row: FileItem): void;
 }>();
 
 const emptyStateIcon = computed(() =>

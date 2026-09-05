@@ -9,6 +9,7 @@ import vue from '@vitejs/plugin-vue'
 import UnoCSS from 'unocss/vite'
 import Components from 'unplugin-vue-components/vite'
 import { ElementPlusResolver } from 'unplugin-vue-components/resolvers'
+import { pluginDevelopment } from './scripts/plugin-dev.mjs'
 const apiProxyTarget = process.env.VITE_API_PROXY_TARGET || 'http://127.0.0.1:7788'
 const frontendPackage = JSON.parse(
   readFileSync(fileURLToPath(new URL('./package.json', import.meta.url)), 'utf8')
@@ -126,6 +127,7 @@ export default defineConfig({
     __APP_VERSION__: JSON.stringify(frontendPackage.version)
   },
   plugins: [
+    pluginDevelopment(),
     vue(),
     UnoCSS(),
     Components({

@@ -32,7 +32,7 @@ impl CommandExt for Command {
         if output.status.success() {
             Ok(output)
         } else {
-            let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+            let stderr = process_failure_output(&output.stdout, &output.stderr);
             Err(AppError::ProcessFailed {
                 command: desc.to_string(),
                 exit_code: output.status.code(),
@@ -199,4 +199,66 @@ pub async fn execute_with_pty(
     cmd.env("DEBIAN_FRONTEND", "noninteractive");
 
     cmd.execute_with_streaming(input, desc, sender).await
+}
+
+fn process_failure_output(stdout: &[u8], stderr: &[u8]) -> String {
+    let stdout = String::from_utf8_lossy(stdout);
+    let stderr = String::from_utf8_lossy(stderr);
+    let stdout = stdout.trim();
+    let stderr = stderr.trim();
+
+    match (stdout.is_empty(), stderr.is_empty()) {
+        (false, false) => format!("stderr:\n{stderr}\nstdout:\n{stdout}"),
+        (false, true) => format!("stdout:\n{stdout}"),
+        (true, false) => format!("stderr:\n{stderr}"),
+        (true, true) => "(no stdout or stderr output)".to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn execute_checked_reports_stdout_only_failures() {
+        let mut command = Command::new("sh");
+        command.args(["-c", "printf '[ERR_PNPM_TEST] runtime failed\\n'; exit 7"]);
+
+        let error = command
+            .execute_checked("pnpm runtime set node")
+            .await
+            .expect_err("command should fail");
+
+        match error {
+            AppError::ProcessFailed {
+                command,
+                exit_code,
+                stderr,
+            } => {
+                assert_eq!(command, "pnpm runtime set node");
+                assert_eq!(exit_code, Some(7));
+                assert_eq!(stderr, "stdout:\n[ERR_PNPM_TEST] runtime failed");
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn process_failure_output_keeps_both_channels() {
+        let output = process_failure_output(b"download failed\n", b"connection reset\n");
+
+        assert_eq!(
+            output,
+            "stderr:\nconnection reset\nstdout:\ndownload failed"
+        );
+    }
+
+    #[test]
+    fn process_failure_output_describes_empty_output() {
+        assert_eq!(
+            process_failure_output(b"", b""),
+            "(no stdout or stderr output)"
+        );
+    }
 }

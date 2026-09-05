@@ -310,6 +310,17 @@ pub(super) fn permission_for_plugin_api_request(
                 ));
             }
         },
+        "bot" => match (method, segments.as_slice()) {
+            (&Method::GET, ["bot"]) => Permission::SettingRead,
+            (&Method::PUT, ["bot"])
+            | (&Method::GET, ["bot", "users"])
+            | (&Method::POST, ["bot", "test"]) => Permission::SettingUpdate,
+            _ => {
+                return Err(AppError::Forbidden(format!(
+                    "Plugin API cannot access path: {pathname}"
+                )));
+            }
+        },
         "overview" if method == Method::GET => Permission::OverviewRead,
         _ => {
             return Err(AppError::Forbidden(format!(

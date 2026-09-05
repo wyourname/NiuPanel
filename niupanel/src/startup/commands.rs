@@ -26,10 +26,6 @@ pub async fn handle_commands() -> Result<bool> {
                         handle_reset_account(username, password).await?;
                         return Ok(true);
                     }
-                    "2fa" => {
-                        handle_reset_2fa().await?;
-                        return Ok(true);
-                    }
                     _ => {}
                 }
             }
@@ -192,46 +188,6 @@ async fn handle_reset_account(username: Option<String>, password: Option<String>
         println!("Successfully updated password for user: {}", username);
     } else {
         println!("Error: User '{}' not found", username);
-    }
-
-    Ok(())
-}
-
-async fn handle_reset_2fa() -> Result<()> {
-    let config = Config::from_env().context("Failed to load configuration")?;
-    let db = connect_database(&config.database_url).await?;
-
-    let config_str = SettingsManager::get(&db, "plugin.telegram.config")
-        .await
-        .unwrap_or_default();
-
-    if config_str.is_empty() {
-        println!("Telegram plugin config not found. 2FA is likely not enabled via Telegram.");
-        return Ok(());
-    }
-
-    let mut json_val: serde_json::Value = serde_json::from_str(&config_str)
-        .map_err(|e| anyhow::anyhow!("Failed to parse telegram config: {}", e))?;
-
-    if let Some(obj) = json_val.as_object_mut() {
-        if let Some(login_2fa) = obj.get_mut("login_2fa") {
-            if login_2fa.as_bool() == Some(true) {
-                *login_2fa = serde_json::Value::Bool(false);
-                let new_config_str = serde_json::to_string(&json_val)?;
-                SettingsManager::set(
-                    &db,
-                    "plugin.telegram.config",
-                    &new_config_str,
-                    Some("Notification"),
-                )
-                .await?;
-                println!("Successfully disabled Telegram 2FA.");
-            } else {
-                println!("Telegram 2FA is already disabled.");
-            }
-        } else {
-            println!("login_2fa field not found in telegram config.");
-        }
     }
 
     Ok(())
@@ -712,7 +668,6 @@ fn print_help() {
     println!("");
     println!("命令:");
     println!("  reset account [用户名] [密码]          重置账号密码");
-    println!("  reset 2fa                              关闭全局 Telegram 二次验证");
     println!("  user list                              列出所有用户");
     println!("  user create [--admin] [用户] [密码]    创建用户账号");
     println!("  maintenance cleanup [天数]             清理旧日志，默认 30 天");

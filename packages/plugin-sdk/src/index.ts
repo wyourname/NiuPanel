@@ -51,12 +51,79 @@ export type NiuPanelPluginThemeManifest = {
   dark: NiuPanelPluginThemePalette;
 };
 
+export type NiuPanelPluginActionCaller = "ui" | "task" | "api_key" | "telegram";
+
+export type NiuPanelPluginAction = {
+  name: string;
+  description: string;
+  callers: NiuPanelPluginActionCaller[];
+  timeout_sec: number;
+  input_schema?: unknown | null;
+  streaming: boolean;
+};
+
+export type NiuPanelPluginInvokeStreamOptions = {
+  signal?: AbortSignal;
+  clientRequestId?: string;
+  approvalGrant?: string;
+};
+
+export type NiuPanelPluginInvokeOptions = {
+  clientRequestId?: string;
+  approvalGrant?: string;
+};
+
+export type NiuPanelAgentApprovalBaseMode = "read_only" | "safe" | "balanced";
+export type NiuPanelAgentApprovalMode = NiuPanelAgentApprovalBaseMode | "yolo";
+export type NiuPanelAgentToolDecision = "deny" | "confirm" | "auto";
+export type NiuPanelAgentToolRisk = "read" | "low" | "medium" | "high";
+
+export type NiuPanelAgentApprovalPolicy = {
+  revision: number;
+  base_mode: NiuPanelAgentApprovalBaseMode;
+  tool_overrides: Record<string, NiuPanelAgentToolDecision>;
+};
+
+export type NiuPanelAgentApprovalTool = {
+  name: string;
+  description: string;
+  category: string;
+  risk_level: NiuPanelAgentToolRisk;
+  default_decision: NiuPanelAgentToolDecision;
+};
+
+export type NiuPanelAgentApprovalPolicyView = {
+  policy: NiuPanelAgentApprovalPolicy;
+  tools: NiuPanelAgentApprovalTool[];
+};
+
+export type NiuPanelAgentApprovalGrant = {
+  grant: string;
+  grant_id: string;
+  mode: NiuPanelAgentApprovalMode;
+  session_id: string;
+  expires_in_seconds: number;
+};
+
+export type NiuPanelPluginStreamFrame<TResult = unknown> =
+  | {
+      type: "event";
+      event: string;
+      sequence: number;
+      data: unknown;
+    }
+  | {
+      type: "result";
+      data: TResult;
+    };
+
 export type NiuPanelPluginApp = {
   plugin_id: string;
   name: string;
   version: string;
   description: string;
   capabilities: string[];
+  actions: NiuPanelPluginAction[];
   ui: {
     mode: NiuPanelPluginUiMode;
     entry_url: string;
@@ -92,7 +159,33 @@ export type NiuPanelPluginContext = {
   };
   api: {
     request<T = unknown>(options: NiuPanelPluginApiRequest): Promise<T>;
-    invoke<T = unknown>(action: string, input?: unknown): Promise<T>;
+    invoke<T = unknown>(
+      action: string,
+      input?: unknown,
+      options?: NiuPanelPluginInvokeOptions,
+    ): Promise<T>;
+    invokeStream<T = unknown>(
+      action: string,
+      input?: unknown,
+      options?: NiuPanelPluginInvokeStreamOptions,
+    ): AsyncIterable<NiuPanelPluginStreamFrame<T>>;
+    approvals: {
+      getPolicy(): Promise<NiuPanelAgentApprovalPolicyView>;
+      updatePolicy(
+        policy: NiuPanelAgentApprovalPolicy,
+      ): Promise<NiuPanelAgentApprovalPolicyView>;
+      setSessionMode(
+        sessionId: string,
+        mode: NiuPanelAgentApprovalMode,
+        ttlSeconds?: number,
+      ): Promise<NiuPanelAgentApprovalGrant>;
+      clearSessionMode(sessionId: string): Promise<{ session_id: string; revoked: number }>;
+      enableYolo(
+        sessionId: string,
+        ttlSeconds?: number,
+      ): Promise<NiuPanelAgentApprovalGrant>;
+      disableYolo(sessionId: string): Promise<{ session_id: string; revoked: number }>;
+    };
   };
   ui: {
     toast(

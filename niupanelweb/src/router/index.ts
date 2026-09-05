@@ -39,7 +39,6 @@ const routes = [
       { path: 'git', name: 'git', component: workspaceAppLoaders.git, meta: { title: 'Git 管理' } },
       { path: 'more', name: 'more', component: workspaceAppLoaders.more, meta: { title: '更多功能' } },
       { path: 'webhook', name: 'webhook', component: () => import('../views/modules/webhook/index.vue'), meta: { title: 'Webhook' } },
-      { path: 'telegram', name: 'telegram', component: workspaceAppLoaders.telegram, meta: { title: '电报机器人' } },
       {
         path: 'plugins/agents/:pathMatch(.*)*',
         name: 'plugin-agents',

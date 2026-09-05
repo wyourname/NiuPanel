@@ -88,13 +88,12 @@ mod tests {
             "/api/v1/plugins",
             "/api/v1/plugins/preview",
             "/api/v1/plugins/install",
-            "/api/v1/plugins/preview-upload",
-            "/api/v1/plugins/upload",
+            "/api/v1/plugins/upload-sessions",
+            "/api/v1/plugins/upload-sessions/{token}/commit",
+            "/api/v1/plugins/upload-sessions/{token}",
             "/api/v1/plugins/{id}/versions",
             "/api/v1/plugins/{id}/preview-update",
             "/api/v1/plugins/{id}/update",
-            "/api/v1/plugins/{id}/preview-upload-update",
-            "/api/v1/plugins/{id}/upload-update",
             "/api/v1/plugins/{id}/rollback/{version_id}",
             "/api/v1/plugins/{id}/enable",
             "/api/v1/plugins/{id}/disable",
@@ -107,6 +106,9 @@ mod tests {
             "/api/v1/plugins/market/preview",
             "/api/v1/plugins/market/install",
             "/api/v1/plugins/{id}/invoke",
+            "/api/v1/plugins/{id}/invoke/stream",
+            "/open/api/plugins/{plugin_id}/invoke",
+            "/open/api/plugins/{plugin_id}/invoke/stream",
             "/api/v1/mcp/info",
             "/api/v1/system/meta",
             "/api/v1/system/releases",
@@ -116,6 +118,10 @@ mod tests {
         }
 
         for path in paths.keys() {
+            assert_ne!(
+                path, "/api/v1/auth/login/verify-2fa",
+                "public OpenAPI must not expose the removed Telegram login 2FA endpoint"
+            );
             assert!(
                 !path.starts_with("/api/v1/agents"),
                 "public OpenAPI must not expose legacy agents path: {path}"

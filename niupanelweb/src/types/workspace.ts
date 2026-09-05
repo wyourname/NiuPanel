@@ -11,7 +11,6 @@ export type BuiltinWorkspaceAppId =
   | "extensions"
   | "agents"
   | "git"
-  | "telegram"
   | "compiler"
   | "terminal"
   | "settings"

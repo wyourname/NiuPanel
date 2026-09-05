@@ -55,12 +55,20 @@ import { useAppStore } from "@/stores/app";
 import { hasPermission } from "@/utils/permission";
 import type {
   NiuPanelPluginApp,
+  NiuPanelAgentApprovalGrant,
+  NiuPanelAgentApprovalPolicyView,
   NiuPanelPluginApiRequest,
   NiuPanelPluginContext,
+  NiuPanelPluginInvokeOptions,
+  NiuPanelPluginInvokeStreamOptions,
   NiuPanelPluginModule,
   NiuPanelPluginRouteListener,
   NiuPanelPluginRouteSnapshot,
+  NiuPanelPluginStreamFrame,
 } from "@niupanel/plugin-sdk";
+
+const responsePayload = <T,>(response: unknown): T =>
+  ((response as { data?: T })?.data ?? response) as T;
 
 const props = defineProps<{
   pluginId?: string;
@@ -136,15 +144,6 @@ const manifestDeclaresPermission = (
   requiredPermission: string,
 ) => declaredPermissions.includes(requiredPermission);
 
-const pluginHasCapability = (capabilities: string[], required: string) =>
-  capabilities.some((rawCapability) => {
-    const capability = rawCapability.trim();
-    if (capability === required) return true;
-    if (!capability.endsWith(".*")) return false;
-    const prefix = capability.slice(0, -2);
-    return required.startsWith(`${prefix}.`);
-  });
-
 const permissionForApiRequest = (method: string, path: string) => {
   const [pathname] = path.split("?");
   const segments = pathname.split("/").filter(Boolean);
@@ -205,6 +204,9 @@ const permissionForApiRequest = (method: string, path: string) => {
     if (method === "GET") return segments.length <= 1 ? "job:list" : "job:read";
     return "job:*";
   }
+  if (first === "bot") {
+    return method === "GET" ? "setting:read" : "setting:update";
+  }
   if (first === "overview" && method === "GET") return "overview:read";
 
   return undefined;
@@ -261,6 +263,140 @@ const ensurePluginApiPermission = (
   }
 };
 
+type ParsedSseEvent = {
+  event: string;
+  id: string;
+  data: string;
+};
+
+const parseSseEvent = (block: string): ParsedSseEvent | null => {
+  let event = "message";
+  let id = "";
+  const data: string[] = [];
+  for (const line of block.split("\n")) {
+    if (!line || line.startsWith(":")) continue;
+    const separator = line.indexOf(":");
+    const field = separator === -1 ? line : line.slice(0, separator);
+    let value = separator === -1 ? "" : line.slice(separator + 1);
+    if (value.startsWith(" ")) value = value.slice(1);
+    if (field === "event") event = value;
+    else if (field === "id") id = value;
+    else if (field === "data") data.push(value);
+  }
+  if (data.length === 0) return null;
+  return { event, id, data: data.join("\n") };
+};
+
+const streamApiBaseUrl = () => {
+  const serverUrl = appStore.serverUrl?.replace(/\/$/, "");
+  return serverUrl ? `${serverUrl}/api/v1` : "/api/v1";
+};
+
+async function* invokePluginActionStream<T>(
+  app: NiuPanelPluginApp,
+  action: string,
+  input: unknown,
+  options: NiuPanelPluginInvokeStreamOptions = {},
+): AsyncIterable<NiuPanelPluginStreamFrame<T>> {
+  const declaredAction = (app.actions ?? []).find((candidate) => candidate.name === action);
+  if (!declaredAction) {
+    throw new Error(`插件未声明可供 UI 调用的 Action：${action}`);
+  }
+  if (!declaredAction.streaming) {
+    throw new Error(`插件 Action 不支持流式调用：${action}`);
+  }
+
+  const response = await fetch(
+    `${streamApiBaseUrl()}/plugins/${encodeURIComponent(app.plugin_id)}/invoke/stream`,
+    {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        Accept: "text/event-stream",
+        "Content-Type": "application/json",
+        ...(options.approvalGrant
+          ? { "X-NiuPanel-Approval-Grant": options.approvalGrant }
+          : {}),
+      },
+      body: JSON.stringify({
+        action,
+        input,
+        client_request_id: options.clientRequestId,
+      }),
+      signal: options.signal,
+    },
+  );
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null) as
+      | { message?: string }
+      | null;
+    throw new Error(payload?.message || `插件流式调用失败（HTTP ${response.status}）`);
+  }
+  if (!response.body) {
+    throw new Error("浏览器未提供插件流式响应体");
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let completed = false;
+  const frames: ParsedSseEvent[] = [];
+  const drainFrames = () => {
+    buffer = buffer.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+    let boundary = buffer.indexOf("\n\n");
+    while (boundary !== -1) {
+      const parsed = parseSseEvent(buffer.slice(0, boundary));
+      buffer = buffer.slice(boundary + 2);
+      if (parsed) frames.push(parsed);
+      boundary = buffer.indexOf("\n\n");
+    }
+  };
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      buffer += decoder.decode(value, { stream: !done });
+      drainFrames();
+      if (done && buffer.trim()) {
+        const parsed = parseSseEvent(buffer.trim());
+        if (parsed) frames.push(parsed);
+        buffer = "";
+      }
+
+      while (frames.length) {
+        const frame = frames.shift()!;
+        const payload = JSON.parse(frame.data) as unknown;
+        if (frame.event === "error") {
+          const error = payload as { message?: string };
+          throw new Error(error.message || "插件流式调用失败");
+        }
+        if (frame.event === "result") {
+          completed = true;
+          yield { type: "result", data: payload as T };
+          continue;
+        }
+        const eventPayload = payload as { sequence?: number; data?: unknown };
+        const sequence = eventPayload.sequence ?? Number.parseInt(frame.id, 10);
+        if (!Number.isSafeInteger(sequence) || sequence < 1) {
+          throw new Error("插件流式响应包含无效 sequence");
+        }
+        yield {
+          type: "event",
+          event: frame.event,
+          sequence,
+          data: eventPayload.data,
+        };
+      }
+      if (done) break;
+    }
+  } finally {
+    await reader.cancel().catch(() => undefined);
+  }
+  if (!completed) {
+    throw new Error("插件流式响应在最终 result 前结束");
+  }
+}
+
 const createContext = (app: NiuPanelPluginApp): NiuPanelPluginContext => ({
   pluginId: app.plugin_id,
   app,
@@ -288,18 +424,78 @@ const createContext = (app: NiuPanelPluginApp): NiuPanelPluginContext => ({
       });
       return (response as { data?: T })?.data ?? (response as T);
     },
-    async invoke<T = unknown>(action: string, input?: unknown): Promise<T> {
-      if (
-        !pluginHasCapability(app.capabilities, "ui.invoke") &&
-        !pluginHasCapability(app.capabilities, "agents.invoke")
-      ) {
-        throw new Error("当前插件没有声明 ui.invoke 能力，无法使用 invoke");
+    async invoke<T = unknown>(
+      action: string,
+      input?: unknown,
+      options: NiuPanelPluginInvokeOptions = {},
+    ): Promise<T> {
+      if (!(app.actions ?? []).some((declaredAction) => declaredAction.name === action)) {
+        throw new Error(`插件未声明可供 UI 调用的 Action：${action}`);
       }
-      const response = await request.post(`/plugins/${encodeURIComponent(app.plugin_id)}/invoke`, {
-        action,
-        input,
-      });
+      const response = await request.post(
+        `/plugins/${encodeURIComponent(app.plugin_id)}/invoke`,
+        {
+          action,
+          input,
+          client_request_id: options.clientRequestId,
+        },
+        {
+          headers: options.approvalGrant
+            ? { "X-NiuPanel-Approval-Grant": options.approvalGrant }
+            : undefined,
+        },
+      );
       return (response as { data?: T })?.data ?? (response as T);
+    },
+    invokeStream<T = unknown>(
+      action: string,
+      input?: unknown,
+      options?: NiuPanelPluginInvokeStreamOptions,
+    ): AsyncIterable<NiuPanelPluginStreamFrame<T>> {
+      return invokePluginActionStream<T>(app, action, input, options);
+    },
+    approvals: {
+      async getPolicy() {
+        const response = await request.get(
+          `/plugins/${encodeURIComponent(app.plugin_id)}/approval-policy`,
+        );
+        return responsePayload<NiuPanelAgentApprovalPolicyView>(response);
+      },
+      async updatePolicy(policy) {
+        const response = await request.put(
+          `/plugins/${encodeURIComponent(app.plugin_id)}/approval-policy`,
+          policy,
+        );
+        return responsePayload<NiuPanelAgentApprovalPolicyView>(response);
+      },
+      async setSessionMode(sessionId, mode, ttlSeconds) {
+        const response = await request.post(
+          `/plugins/${encodeURIComponent(app.plugin_id)}/approval-grants`,
+          { session_id: sessionId, mode, ttl_seconds: ttlSeconds },
+        );
+        return responsePayload<NiuPanelAgentApprovalGrant>(response);
+      },
+      async clearSessionMode(sessionId) {
+        const response = await request.delete(
+          `/plugins/${encodeURIComponent(app.plugin_id)}/approval-grants`,
+          { data: { session_id: sessionId } },
+        );
+        return responsePayload<{ session_id: string; revoked: number }>(response);
+      },
+      async enableYolo(sessionId, ttlSeconds) {
+        const response = await request.post(
+          `/plugins/${encodeURIComponent(app.plugin_id)}/approval-grants`,
+          { session_id: sessionId, mode: "yolo", ttl_seconds: ttlSeconds },
+        );
+        return responsePayload<NiuPanelAgentApprovalGrant>(response);
+      },
+      async disableYolo(sessionId) {
+        const response = await request.delete(
+          `/plugins/${encodeURIComponent(app.plugin_id)}/approval-grants`,
+          { data: { session_id: sessionId } },
+        );
+        return responsePayload<{ session_id: string; revoked: number }>(response);
+      },
     },
   },
   ui: {
@@ -370,7 +566,12 @@ const mountPlugin = async () => {
 
     const entryUrl = resolvePluginAssetUrl(app.ui.entry_url);
     const versionedUrl = `${entryUrl}${entryUrl.includes("?") ? "&" : "?"}v=${encodeURIComponent(app.version)}`;
-    const module = await import(/* @vite-ignore */ versionedUrl);
+    const developmentEntries = import.meta.env.DEV
+      ? (await import('virtual:niupanel-plugin-dev')).default
+      : {};
+    const module = (await (Object.hasOwn(developmentEntries, id)
+      ? developmentEntries[id]()
+      : import(/* @vite-ignore */ versionedUrl))) as { default?: NiuPanelPluginModule } & NiuPanelPluginModule;
     const pluginModule = (module.default ?? module) as NiuPanelPluginModule;
     if (typeof pluginModule.mount !== "function") {
       throw new Error("插件 UI 入口必须导出 mount(el, context)");

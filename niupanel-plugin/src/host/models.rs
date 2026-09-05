@@ -5,7 +5,8 @@ use std::collections::BTreeMap;
 use utoipa::ToSchema;
 
 use crate::{
-    PluginThemeManifest, PluginUiApiManifest, PluginUiDisplayManifest, PluginUiMode, PluginUiRoute,
+    PluginActionManifest, PluginThemeManifest, PluginUiApiManifest, PluginUiDisplayManifest,
+    PluginUiMode, PluginUiRoute,
 };
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -187,6 +188,7 @@ pub struct PluginAppRecord {
     pub version: String,
     pub description: String,
     pub capabilities: Vec<String>,
+    pub actions: Vec<PluginActionManifest>,
     pub ui: PluginAppUi,
 }
 

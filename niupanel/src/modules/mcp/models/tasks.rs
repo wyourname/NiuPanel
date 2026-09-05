@@ -82,6 +82,14 @@ pub struct TaskRunLogParams {
     pub tail_bytes: Option<u64>,
 }
 
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct TaskWaitParams {
+    pub task_id: i32,
+    pub run_id: i32,
+    #[schemars(description = "Maximum seconds to wait, between 1 and 300; defaults to 120")]
+    pub timeout_sec: Option<u64>,
+}
+
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct SystemStatusOutput {
     pub panel_version: String,
@@ -144,6 +152,15 @@ pub struct TaskActionOutput {
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
+pub struct TaskStartOutput {
+    pub task_id: i32,
+    pub accepted: bool,
+    pub message: String,
+    pub run_id: i32,
+    pub pid: Option<i32>,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
 pub struct TaskRunOutput {
     pub id: i32,
     pub task_id: i32,
@@ -152,6 +169,13 @@ pub struct TaskRunOutput {
     pub ended_at: Option<String>,
     pub has_log: bool,
     pub pid: Option<i32>,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct TaskWaitOutput {
+    pub run: TaskRunOutput,
+    pub terminal: bool,
+    pub timed_out: bool,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]

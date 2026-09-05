@@ -110,8 +110,6 @@ pub struct BackupOptions {
     pub settings: bool, // 系统设置
     #[serde(default)]
     pub environments: bool, // 环境/依赖配置
-    #[serde(default)]
-    pub telegram: bool, // TG 机器人配置
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

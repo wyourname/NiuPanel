@@ -66,14 +66,6 @@ export const workspaceApps: WorkspaceAppDefinition[] = [
     mobileMode: "fullscreen",
   },
   {
-    id: "telegram",
-    title: "Telegram",
-    icon: "i-ep-promotion",
-    routeName: "telegram",
-    launchPolicy: "multi",
-    mobileMode: "fullscreen",
-  },
-  {
     id: "terminal",
     title: "终端",
     icon: "i-carbon-terminal",

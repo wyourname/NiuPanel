@@ -28,6 +28,7 @@ impl PluginService {
             worker: plugin.manifest.worker.clone(),
             capabilities: plugin.manifest.capabilities.clone(),
             tools: plugin.manifest.tools.clone(),
+            invocation_context: None,
         })
     }
 
@@ -133,6 +134,43 @@ impl PluginService {
         Ok(())
     }
 
+    pub(super) fn replace_plugin_dir_prepared(
+        &self,
+        source_dir: &Path,
+        manifest: &PluginManifest,
+    ) -> Result<()> {
+        let target = self.plugin_dir(&manifest.id);
+        let staging = self.plugins_dir().join(format!(
+            ".{}.staging.{}",
+            manifest.id,
+            Utc::now().timestamp_millis()
+        ));
+        let backup = self.plugins_dir().join(format!(
+            ".{}.backup.{}",
+            manifest.id,
+            Utc::now().timestamp_millis()
+        ));
+
+        fs::rename(source_dir, &staging)?;
+        if let Err(err) = (|| -> std::io::Result<()> {
+            if target.exists() {
+                fs::rename(&target, &backup)?;
+            }
+            fs::rename(&staging, &target)
+        })() {
+            if backup.exists() {
+                let _ = fs::rename(&backup, &target);
+            }
+            let _ = fs::rename(&staging, source_dir);
+            return Err(AppError::Io(err));
+        }
+
+        if backup.exists() {
+            fs::remove_dir_all(backup)?;
+        }
+        Ok(())
+    }
+
     pub(super) fn replace_plugin_dir_with_history(
         &self,
         source_dir: &Path,
@@ -175,6 +213,57 @@ impl PluginService {
         Ok(archived)
     }
 
+    pub(super) fn replace_plugin_dir_with_history_prepared(
+        &self,
+        source_dir: &Path,
+        manifest: &PluginManifest,
+        previous_state: &PluginState,
+    ) -> Result<Option<PluginVersionRecord>> {
+        let target = self.plugin_dir(&manifest.id);
+        let archive = if target.exists() {
+            let previous_manifest = read_plugin_manifest(&target)?;
+            let archive_path = self.next_history_dir(&manifest.id, &previous_manifest.version);
+            let record = archive_record_for(
+                &previous_manifest.version,
+                previous_state.package_sha256.clone(),
+                &archive_path,
+            );
+            Some((archive_path, record))
+        } else {
+            None
+        };
+
+        let staging = self.plugins_dir().join(format!(
+            ".{}.staging.{}",
+            manifest.id,
+            Utc::now().timestamp_millis()
+        ));
+        fs::rename(source_dir, &staging)?;
+
+        if let Some((archive_path, _)) = &archive {
+            if let Some(parent) = archive_path.parent()
+                && let Err(err) = fs::create_dir_all(parent)
+            {
+                let _ = fs::rename(&staging, source_dir);
+                return Err(AppError::Io(err));
+            }
+            if let Err(err) = fs::rename(&target, archive_path) {
+                let _ = fs::rename(&staging, source_dir);
+                return Err(AppError::Io(err));
+            }
+        }
+
+        if let Err(err) = fs::rename(&staging, &target) {
+            if let Some((archive_path, _)) = &archive {
+                let _ = fs::rename(archive_path, &target);
+            }
+            let _ = fs::rename(&staging, source_dir);
+            return Err(AppError::Io(err));
+        }
+
+        Ok(archive.map(|(_, record)| record))
+    }
+
     pub(super) fn validate_manifest(
         &self,
         manifest: &PluginManifest,
@@ -210,7 +299,25 @@ impl PluginService {
         }
         validate_plugin_environment(&manifest.env)?;
         validate_plugin_runtime_permissions(&manifest.runtime_permissions)?;
+        if manifest
+            .timeout_sec
+            .is_some_and(|timeout| !(1..=MAX_PROCESS_TIMEOUT_SEC).contains(&timeout))
+        {
+            return Err(AppError::ValidationError(format!(
+                "Plugin timeout_sec must be between 1 and {MAX_PROCESS_TIMEOUT_SEC}"
+            )));
+        }
+        if manifest.worker.max == 0
+            || manifest.worker.max > MAX_CONCURRENT_PLUGIN_INVOCATIONS
+            || manifest.worker.min > manifest.worker.max
+            || manifest.worker.idle_timeout_sec == 0
+        {
+            return Err(AppError::ValidationError(format!(
+                "Plugin worker requires 0 <= min <= max <= {MAX_CONCURRENT_PLUGIN_INVOCATIONS} and idle_timeout_sec >= 1"
+            )));
+        }
         validate_plugin_capabilities(&manifest.capabilities)?;
+        validate_plugin_actions(manifest)?;
         validate_plugin_compatibility_manifest(&manifest.compatibility)?;
         Ok(())
     }
@@ -237,6 +344,7 @@ impl PluginService {
                 worker: PluginWorkerConfig::default(),
                 capabilities: vec![],
                 tools: vec![],
+                actions: vec![],
                 compatibility: PluginCompatibilityManifest::default(),
                 ui: None,
                 theme: None,

@@ -352,6 +352,7 @@ mod tests {
         let state = ensure_panel_runtime(&config).await.unwrap();
 
         assert_eq!(state.active.version, "0.8.2-dev.1");
+        assert_ne!(state.active.installed_at, "1970-01-01T00:00:00Z");
         assert!(verify_panel_release(&state.active).is_ok());
         assert_eq!(
             read_panel_runtime_state(&config.system_root)

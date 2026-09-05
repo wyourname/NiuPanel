@@ -11,10 +11,11 @@ use std::process::Stdio;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Instant;
-use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, ChildStdout, Command};
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, OwnedSemaphorePermit, Semaphore};
 use tokio::time::{Duration, timeout};
+use tokio_util::sync::CancellationToken;
 use utoipa::ToSchema;
 
 pub mod host;
@@ -25,6 +26,8 @@ const STATE_FILE: &str = ".state.json";
 const DEFAULT_PROCESS_TIMEOUT_SEC: u64 = 30;
 const MAX_PROCESS_TIMEOUT_SEC: u64 = 180;
 const MAX_PROCESS_OUTPUT_BYTES: usize = 1024 * 1024;
+const MAX_CONCURRENT_PLUGIN_INVOCATIONS: usize = 16;
+pub const MAX_PLUGIN_INVOCATION_BODY_BYTES: usize = 1024 * 1024;
 #[cfg(target_os = "linux")]
 const PLUGIN_SANDBOX_UID: u32 = 65534;
 #[cfg(target_os = "linux")]
@@ -119,7 +122,29 @@ mod tests {
         }
         let plugin = tempfile::tempdir().unwrap();
         let data = tempfile::tempdir().unwrap();
-        create_landlock_ruleset(plugin.path(), data.path(), true).unwrap();
+        create_landlock_ruleset(plugin.path(), data.path(), PluginNetworkPolicy::WebPorts).unwrap();
+    }
+
+    #[test]
+    fn runtime_network_permissions_map_to_explicit_policies() {
+        assert_eq!(plugin_network_policy(&[]), PluginNetworkPolicy::Disabled);
+        assert_eq!(
+            plugin_network_policy(&[PluginRuntimePermission::NetworkOutbound]),
+            PluginNetworkPolicy::WebPorts
+        );
+        assert_eq!(
+            plugin_network_policy(&[PluginRuntimePermission::NetworkOutboundAllPorts]),
+            PluginNetworkPolicy::AllPorts
+        );
+    }
+
+    #[test]
+    fn runtime_network_permissions_are_mutually_exclusive() {
+        let permissions = [
+            PluginRuntimePermission::NetworkOutbound,
+            PluginRuntimePermission::NetworkOutboundAllPorts,
+        ];
+        assert!(validate_plugin_runtime_permissions(&permissions).is_err());
     }
 
     #[test]
@@ -231,6 +256,66 @@ mod tests {
             path: "/tasks/**".to_string(),
         }];
         assert!(validate_plugin_ui_manifest(&ui, dir.path()).is_err());
+    }
+
+    #[test]
+    fn schema_v1_invoke_capabilities_require_action_migration() {
+        let manifest: PluginManifest = serde_json::from_value(serde_json::json!({
+            "schema_version": 1,
+            "id": "legacy-agent",
+            "name": "Legacy Agent",
+            "version": "1.0.0",
+            "description": "legacy",
+            "runtime": "process",
+            "entry": "run.sh",
+            "capabilities": ["agents.invoke"]
+        }))
+        .expect("manifest parses");
+
+        assert!(validate_plugin_actions(&manifest).is_err());
+    }
+
+    #[test]
+    fn action_input_schema_is_enforced() {
+        let action: PluginActionManifest = serde_json::from_value(serde_json::json!({
+            "name": "query",
+            "callers": ["api_key"],
+            "input_schema": {
+                "type": "object",
+                "required": ["keyword"],
+                "properties": {"keyword": {"type": "string"}},
+                "additionalProperties": false
+            }
+        }))
+        .expect("action parses");
+
+        validate_plugin_action_input(&action, &serde_json::json!({"keyword": "test"}))
+            .expect("valid input");
+        assert!(validate_plugin_action_input(&action, &serde_json::json!({})).is_err());
+    }
+
+    #[test]
+    fn streaming_actions_require_json_lines_protocol() {
+        let mut manifest: PluginManifest = serde_json::from_value(serde_json::json!({
+            "schema_version": 2,
+            "id": "streaming-agent",
+            "name": "Streaming Agent",
+            "version": "1.0.0",
+            "description": "streaming",
+            "runtime": "process",
+            "protocol": "single_shot",
+            "entry": "run.sh",
+            "actions": [{
+                "name": "chat",
+                "callers": ["ui"],
+                "streaming": true
+            }]
+        }))
+        .expect("manifest parses");
+
+        assert!(validate_plugin_actions(&manifest).is_err());
+        manifest.protocol = PluginProcessProtocol::JsonLines;
+        validate_plugin_actions(&manifest).expect("json_lines supports streaming actions");
     }
 
     #[test]

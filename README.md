@@ -131,9 +131,9 @@ cd NiuPanel
 - 提供插件健康检查、依赖检查和路由冲突检测。
 - 支持 SHA-256 完整性校验和 Ed25519 签名验证。
 - 进程插件在 Linux 上使用独立身份、清理后的环境、Landlock 和 seccomp 限制运行。
-- 插件默认无网络访问；需要外部网络时必须声明 `network_outbound`。
+- 插件默认无网络访问；`network_outbound` 仅允许 TCP 80/443，连接自定义端口必须显式声明高权限 `network_outbound_all_ports`。
 - 插件 UI 通过 `@niupanel/plugin-sdk` 接入宿主导航、主题、通知和受控 API。
-- 编译器、Agents 和计划中的 Telegram Bot 均可通过插件扩展。
+- 编译器和 Agents 均可通过插件独立安装与升级。
 
 ### Python 脚本编译
 
@@ -161,17 +161,17 @@ cd NiuPanel
 
 ### Telegram
 
-- 当前内置实现支持 Bot Token、代理、自定义 API 地址和连接测试。
-- 支持任务管理、日志查询、消息与服务器文件发送。
-- 支持自定义命令和事件工作流。
-- 支持从 Telegram 接收脚本文件和分享包。
-- 支持 Telegram 登录二次验证。
-- Telegram 正在规划迁移为可独立安装的插件，迁移期间保留现有功能。
+- Core 只负责 Telegram Long Polling、可信 Chat ID、代理、通知、登录二次验证和通道生命周期。
+- Telegram 文本统一进入配置的 Ops Agent 插件，由 Agent 理解自然语言并调用权限受控的面板工具。
+- 查询工具可直接执行；修改工具先生成 10 分钟有效的确认单，明确确认后才执行并写入审计。
+- 每个 Chat 使用独立 Agent 会话和确认作用域，模型不可伪造用户身份或绕过宿主权限。
+- 用户可以直接回复任务结果或系统告警，Core 会按 Telegram message ID 将对应实体上下文安全地交给 Agent。
+- 旧 `/task`、`/var`、callback、自定义命令、事件工作流、脚本上传和分享包导入不再提供。
 
 ### 用户、安全与审计
 
 - 首次启动通过引导创建管理员账号。
-- 支持登录、退出、忘记密码、验证码重置和 Telegram 二次验证。
+- 支持登录、退出、忘记密码和验证码重置。
 - 支持个人资料、密码、邮箱验证和界面偏好设置。
 - 支持查看和撤销活动会话。
 - 使用细粒度权限控制任务、变量、文件、Git、环境、插件、API Key、审计和 MCP 操作。
@@ -182,7 +182,7 @@ cd NiuPanel
 ### 备份、维护与版本回退
 
 - 创建、下载、上传、恢复和删除系统备份。
-- 可选择备份数据库、配置、Telegram 数据等内容。
+- 可选择备份数据库、配置和运行数据等内容。
 - 支持运行日志清理和维护任务状态查询。
 - Launcher 负责完整 Panel Release 的进程监督、健康检查、数据库快照、原子激活和失败恢复。
 - Core 与 Web 可以独立构建，但只能由 Panel Release 一起激活或回退；纯前端修复可以复用原 Core 组件。
@@ -228,8 +228,8 @@ DATABASE_URL=sqlite://data/database/niupanel.db?mode=rwc
 DATABASE_MAX_CONNECTIONS=1
 SQLITE_BUSY_TIMEOUT_MS=5000
 SESSION_KEY=<每个实例独立的随机值>
-# 远程插件市场包的签名校验；管理员直接上传不需要手工填写签名
-PLUGIN_SIGNATURE_REQUIRED=true
+# 远程插件市场包默认允许无签名安装；设为 true 可强制校验签名
+PLUGIN_SIGNATURE_REQUIRED=false
 # 可选：显式启用 MCP Host allowlist
 # MCP_ALLOWED_HOSTS=panel.example.com,localhost,127.0.0.1,::1
 TRUSTED_PROXIES=127.0.0.1,::1
@@ -297,7 +297,7 @@ niupanel/           HTTP API 与应用组合
 niupanel-core/      调度、执行、环境和系统核心能力
 niupanel-launcher/  Core 激活、健康检查与回退
 niupanel-plugin/    插件 manifest、沙箱、安装和运行时
-niupanel-bot/       迁移中的内置 Telegram 实现
+niupanel-bot/       Telegram Agent 传输与通知通道
 niupanelweb/        Vue Web UI
 packages/           TypeScript 公共包和插件 SDK
 examples/           可运行插件示例与模板
@@ -310,7 +310,7 @@ docs/               架构、集成和开发文档
 - [仓库目录与模块边界](https://github.com/wyourname/NiuPanel/blob/dev/docs/architecture/repository-layout.md)
 - [前端设计系统](https://github.com/wyourname/NiuPanel/blob/dev/docs/frontend/design-system.md)
 - [插件开发](https://github.com/wyourname/NiuPanel/blob/dev/docs/plugins/plugin-development.md)
-- [Telegram Bot 插件化计划](https://github.com/wyourname/NiuPanel/blob/dev/docs/plugins/telegram-bot.md)
+- [Telegram Agent 通道](https://github.com/wyourname/NiuPanel/blob/dev/docs/plugins/telegram-bot.md)
 - [MCP 接入规范](https://github.com/wyourname/NiuPanel/blob/dev/docs/integrations/mcp.md)
 
 ## 参与贡献

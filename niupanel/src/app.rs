@@ -46,6 +46,7 @@ pub fn create_router(state: AppState) -> Router {
                     header::HeaderName::from_static("mcp-session-id"),
                     header::HeaderName::from_static("mcp-protocol-version"),
                     header::HeaderName::from_static("last-event-id"),
+                    header::HeaderName::from_static("x-niupanel-approval-grant"),
                 ])
                 .allow_credentials(true),
         )
@@ -176,6 +177,7 @@ fn create_openapi_router(state: AppState) -> Router<AppState> {
         .fold(Router::<AppState>::new(), |r, (path, router)| {
             r.nest(path, router)
         })
+        .merge(modules::plugins::routes::create_open_router())
         .nest(
             "/files",
             modules::file_manager::routes::create_router()

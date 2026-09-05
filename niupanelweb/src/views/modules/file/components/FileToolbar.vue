@@ -142,7 +142,10 @@
     </div>
   </div>
 
-  <div v-else class="shrink-0 space-y-2 border-b border-light bg-soft/10 px-3 py-2.5">
+  <div
+    v-else
+    class="sticky top-0 z-20 shrink-0 border-b border-light bg-card/95 px-3 pb-2.5 pt-2.5 shadow-sm backdrop-blur-sm"
+  >
     <div class="flex min-w-0 items-center gap-2">
       <button
         type="button"
@@ -160,13 +163,16 @@
         @back="emit('back')"
         @navigate="(path) => emit('navigate', path)"
       />
+      <span class="shrink-0 text-[11px] font-medium tabular-nums text-muted">
+        {{ itemCount }} 项
+      </span>
     </div>
 
-    <div class="flex min-w-0 items-center gap-1.5">
+    <div class="mt-2 flex min-w-0 items-center">
       <el-input
         :model-value="searchQuery"
         placeholder="搜索文件"
-        class="modern-input min-w-[88px] flex-1"
+        class="modern-input !w-full"
         clearable
         @update:model-value="handleSearchInput"
       >
@@ -174,7 +180,9 @@
           <div class="i-ep-search text-sm text-muted"></div>
         </template>
       </el-input>
+    </div>
 
+    <div class="mt-2 flex min-w-0 items-center gap-1.5">
       <el-dropdown trigger="click" @command="handleSortCommand">
         <button
           type="button"
@@ -276,6 +284,7 @@ const props = defineProps<{
   clipboardFilesCount: number;
   collapsedBreadcrumbs: Breadcrumb[];
   currentPath: string;
+  itemCount: number;
   isMobile: boolean;
   loading: boolean;
   searchQuery: string;

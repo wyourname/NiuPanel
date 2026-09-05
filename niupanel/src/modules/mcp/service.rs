@@ -13,9 +13,10 @@ use super::models::{
     ShareStationFileOutput, ShareStationFilesOutput, ShareStationStatsOutput, SystemStatusOutput,
     TaskActionOutput, TaskCreateParams, TaskDeleteParams, TaskDetailOutput, TaskHistoryOutput,
     TaskHistoryParams, TaskIdParams, TaskListOutput, TaskListParams, TaskLogOutput, TaskLogParams,
-    TaskRunLogParams, TaskRunOutput, TaskSummaryOutput, TaskUpdateParams, UpdateCheckOutput,
-    VariableActionOutput, VariableCreateParams, VariableIdParams, VariableListOutput,
-    VariableListParams, VariableOutput, VariableUpdateParams, WebhookPushOutput, WebhookPushParams,
+    TaskRunLogParams, TaskRunOutput, TaskStartOutput, TaskSummaryOutput, TaskUpdateParams,
+    TaskWaitOutput, TaskWaitParams, UpdateCheckOutput, VariableActionOutput, VariableCreateParams,
+    VariableIdParams, VariableListOutput, VariableListParams, VariableOutput, VariableUpdateParams,
+    WebhookPushOutput, WebhookPushParams,
 };
 use crate::common::state::AppState;
 use crate::modules::auth::service::AuthenticatedUser;
@@ -255,7 +256,7 @@ fn required_packages(packages: Vec<String>) -> Result<Vec<String>, ErrorData> {
 mod tools;
 
 impl PanelMcpServer {
-    fn tool_router() -> ToolRouter<Self> {
+    pub(crate) fn agent_tool_router() -> ToolRouter<Self> {
         Self::system_tool_router()
             + Self::tasks_tool_router()
             + Self::environment_tool_router()
@@ -266,6 +267,10 @@ impl PanelMcpServer {
             + Self::notification_tool_router()
             + Self::share_tool_router()
             + Self::git_tool_router()
+    }
+
+    fn tool_router() -> ToolRouter<Self> {
+        Self::agent_tool_router()
     }
 }
 

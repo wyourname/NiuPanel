@@ -21,6 +21,11 @@ use axum::Router;
 use sha2::{Digest, Sha256};
 use std::str::FromStr;
 
+#[derive(Clone, Debug)]
+pub struct ApiKeyAuthContext {
+    pub key_id: i32,
+}
+
 const USER_ID_KEY: &str = "user_id";
 const USER_ROLE_KEY: &str = "user_role";
 const USER_PERMISSIONS_KEY: &str = "user_permissions";
@@ -233,6 +238,7 @@ pub async fn token_auth_middleware(
         ip,
     };
 
+    req.extensions_mut().insert(ApiKeyAuthContext { key_id });
     req.extensions_mut().insert(user);
     next.run(req).await
 }
@@ -276,7 +282,7 @@ async fn authenticate_internal_user_token(
     Ok(next.run(req).await)
 }
 
-async fn load_authenticated_user(
+pub(crate) async fn load_authenticated_user(
     state: &AppState,
     user_id: i32,
     ip: String,
@@ -316,6 +322,7 @@ fn internal_sdk_permissions() -> HashSet<Permission> {
         Permission::CompilerRun,
         Permission::ShareAll,
         Permission::WebhookPush,
+        Permission::PluginInvoke,
     ]
     .into_iter()
     .collect()

@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { login as apiLogin, logout as apiLogout, getSetupStatus as apiGetSetupStatus } from '../api/auth'
 import * as userApi from '../api/user'
-import type { LoginRequest, LoginResponse, UserInfo } from '@/types'
+import type { LoginRequest, UserInfo } from '@/types'
 import { storageKey as makeStorageKey } from '@/utils/storage'
 
 const userStorageKey = makeStorageKey('user_info')
@@ -10,10 +10,6 @@ const userStorageKey = makeStorageKey('user_info')
 export const useUserStore = defineStore('user', () => {
   const userInfo = ref<UserInfo>(JSON.parse(localStorage.getItem(userStorageKey) || '{}'))
   const isInitialized = ref<boolean | null>(null)
-
-  const isLoginSuccess = (data: LoginResponse): data is UserInfo => {
-    return !('ticket' in data)
-  }
 
   const getHttpStatus = (error: unknown) => {
     if (typeof error !== 'object' || error === null || !('response' in error)) return undefined
@@ -33,7 +29,7 @@ export const useUserStore = defineStore('user', () => {
 
   const login = async (form: LoginRequest) => {
     const res = await apiLogin(form)
-    if (res.data && isLoginSuccess(res.data)) {
+    if (res.data) {
       setUserInfo(res.data)
       await fetchUserProfile()
     }

@@ -21,13 +21,6 @@ export interface LoginRequest {
   password: string;
 }
 
-export type LoginResponse = UserInfo | { ticket: string };
-
-export interface VerifyLogin2FARequest {
-  ticket: string;
-  code: string;
-}
-
 export interface RegisterRequest {
   username: string;
   password: string;

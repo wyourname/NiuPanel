@@ -58,7 +58,7 @@
                 </div>
               </div>
               <span class="shrink-0 rounded-md bg-card px-2 py-1 text-[10px] font-semibold text-secondary">
-                {{ selectedBackupCount }}/5 项
+                {{ selectedBackupCount }}/4 项
               </span>
             </header>
 
@@ -69,12 +69,11 @@
                 <el-checkbox v-model="backupOptions.variables" size="small" class="!mr-0">环境变量</el-checkbox>
                 <el-checkbox v-model="backupOptions.settings" size="small" class="!mr-0">系统设置</el-checkbox>
                 <el-checkbox v-model="backupOptions.environments" size="small" class="!mr-0">运行环境元数据</el-checkbox>
-                <el-checkbox v-model="backupOptions.telegram" size="small" class="!mr-0">Telegram 机器人配置</el-checkbox>
               </fieldset>
 
               <div class="flex items-start gap-2 rounded-md border border-amber-500/20 bg-amber-500/[0.045] px-3 py-2 text-[10px] leading-4 text-amber-800 dark:text-amber-200">
                 <span class="i-ep-warning-filled mt-0.5 shrink-0 text-[11px]"></span>
-                <p>变量、系统设置和 Telegram 配置可能含有敏感明文，请仅保存到受信任的位置。</p>
+                <p>变量和系统设置可能含有敏感明文，请仅保存到受信任的位置。</p>
               </div>
 
               <el-button

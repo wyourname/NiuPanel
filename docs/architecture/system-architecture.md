@@ -9,10 +9,21 @@
 | Web UI | 独立构建组件 | Vue 3 面板，由 Panel Release 与匹配的 Core 一起激活或回退 |
 | 插件平台 | Core 扩展能力 | 应用安装、签名、版本、原生 Vue UI 和进程协议 |
 | 业务扩展 | 独立插件 | Agents、编译器等可选能力通过插件交付 |
-| Telegram Bot | 迁移中的独立插件 | 当前内置实现保持兼容，目标由插件负责长驻连接、通知和远程操作 |
+| Telegram Transport | 公开 Core | 可信 Chat、Long Polling、通知与 Agent 消息转发；不解释面板业务命令 |
+| Ops Agent | 独立插件 | 自然语言理解、工具编排、确认交互、会话、记忆和 Agent 审计 |
 | MCP | Core 系统能力 | 通过 `/mcp` 让外部 MCP Client 操控当前面板 |
 
 MCP 不属于扩展中心，也不负责连接外部 MCP Server。扩展中心只管理可安装插件。
+
+## Agent 工具边界
+
+Web、Telegram、任务 SDK 和外部 API Key 调用插件 Action 时，Core 都按真实调用者创建同一个 Agent Tool Gateway：
+
+- 插件只能看到 manifest `tools` 显式申请且当前用户有权使用的工具；
+- `:read` 与 `:list` 工具直接执行，其他工具只创建有时效的待确认操作；
+- 确认单按插件、用户和调用通道隔离，重复确认幂等，执行结果与失败写入统一审计；
+- Telegram Transport 只把可信 Chat 文本转给 Agent，不包含任务、变量、Shell、callback 或 workflow 状态机；
+- 模型、Agent 或插件进程无法直接访问面板数据库，也不能用自行构造的 API Key 提升权限。
 
 ## 版本契约
 

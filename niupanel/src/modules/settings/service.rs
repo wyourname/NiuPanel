@@ -272,16 +272,6 @@ pub async fn create_system_backup(
         write_backup_json(temp_dir.join("environments.json"), &envs).await?;
     }
 
-    // 5. TG 配置
-    if options.telegram {
-        let tg_cmds = niupanel_entity::tg_commands::Entity::find().all(db).await?;
-        let tg_flows = niupanel_entity::tg_workflows::Entity::find()
-            .all(db)
-            .await?;
-        write_backup_json(temp_dir.join("tg_commands.json"), &tg_cmds).await?;
-        write_backup_json(temp_dir.join("tg_workflows.json"), &tg_flows).await?;
-    }
-
     update_status("processing", 40, "正在压缩备份文件...", None);
 
     let manifest = BackupManifest {
@@ -663,55 +653,6 @@ pub async fn perform_restore(db: &DatabaseConnection, source_path: PathBuf) -> R
             }
             txn.commit().await?;
         }
-    }
-
-    // 5. 恢复 TG 配置
-    if manifest.options.telegram {
-        update_status("processing", 95, "正在同步 TG 机器人配置...", None);
-        let txn = db.begin().await?;
-        let path = temp_extract.join("data_json/tg_commands.json");
-        if path.exists() {
-            let cmds: Vec<niupanel_entity::tg_commands::Model> = read_backup_json(&path).await?;
-            for c in cmds {
-                let active = c.into_active_model();
-                niupanel_entity::tg_commands::Entity::insert(active)
-                    .on_conflict(
-                        sea_orm::sea_query::OnConflict::column(
-                            niupanel_entity::tg_commands::Column::Id,
-                        )
-                        .update_columns([
-                            niupanel_entity::tg_commands::Column::Name,
-                            niupanel_entity::tg_commands::Column::Script,
-                        ])
-                        .to_owned(),
-                    )
-                    .exec(&txn)
-                    .await?;
-            }
-        }
-        let path_wf = temp_extract.join("data_json/tg_workflows.json");
-        if path_wf.exists() {
-            let flows: Vec<niupanel_entity::tg_workflows::Model> =
-                read_backup_json(&path_wf).await?;
-            for f in flows {
-                let active = f.into_active_model();
-                niupanel_entity::tg_workflows::Entity::insert(active)
-                    .on_conflict(
-                        sea_orm::sea_query::OnConflict::column(
-                            niupanel_entity::tg_workflows::Column::Id,
-                        )
-                        .update_columns([
-                            niupanel_entity::tg_workflows::Column::EventType,
-                            niupanel_entity::tg_workflows::Column::ActionType,
-                            niupanel_entity::tg_workflows::Column::ConfigJson,
-                        ])
-                        .to_owned(),
-                    )
-                    .exec(&txn)
-                    .await?;
-            }
-        }
-        txn.commit().await?;
     }
 
     update_status("completed", 100, "恢复完成，系统即将刷新", None);

@@ -2,6 +2,18 @@ use super::*;
 
 pub type PluginToolFuture =
     Pin<Box<dyn Future<Output = Result<serde_json::Value>> + Send + 'static>>;
+pub type PluginStreamFuture = Pin<Box<dyn Future<Output = Result<()>> + Send + 'static>>;
+
+pub struct PluginStreamHandlers<T, S> {
+    pub tool: T,
+    pub stream: S,
+}
+
+impl<T, S> PluginStreamHandlers<T, S> {
+    pub fn new(tool: T, stream: S) -> Self {
+        Self { tool, stream }
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct PluginManifest {
@@ -33,11 +45,53 @@ pub struct PluginManifest {
     #[serde(default)]
     pub tools: Vec<serde_json::Value>,
     #[serde(default)]
+    pub actions: Vec<PluginActionManifest>,
+    #[serde(default)]
     pub compatibility: PluginCompatibilityManifest,
     #[serde(default)]
     pub ui: Option<PluginUiManifest>,
     #[serde(default)]
     pub theme: Option<PluginThemeManifest>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum PluginActionCaller {
+    Ui,
+    Task,
+    ApiKey,
+    Telegram,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct PluginActionManifest {
+    pub name: String,
+    #[serde(default)]
+    pub description: String,
+    pub callers: Vec<PluginActionCaller>,
+    #[serde(default = "default_action_timeout_sec")]
+    pub timeout_sec: u64,
+    #[serde(default)]
+    pub input_schema: Option<serde_json::Value>,
+    #[serde(default)]
+    pub streaming: bool,
+}
+
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct PluginActionInvokeRequest {
+    pub action: String,
+    #[serde(default)]
+    pub input: serde_json::Value,
+    #[serde(default)]
+    pub client_request_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct PluginActionPlugin {
+    pub id: String,
+    pub name: String,
+    pub version: String,
+    pub description: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -209,6 +263,7 @@ pub enum PluginRuntime {
 #[serde(rename_all = "snake_case")]
 pub enum PluginRuntimePermission {
     NetworkOutbound,
+    NetworkOutboundAllPorts,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, Default)]
@@ -253,6 +308,33 @@ pub struct ProcessPluginSpec {
     pub worker: PluginWorkerConfig,
     pub capabilities: Vec<String>,
     pub tools: Vec<serde_json::Value>,
+    pub invocation_context: Option<PluginInvocationContext>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum PluginInvocationPrincipalKind {
+    User,
+    ApiKey,
+    Task,
+    System,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct PluginInvocationContext {
+    pub caller: PluginActionCaller,
+    pub principal_kind: PluginInvocationPrincipalKind,
+    pub principal_id: String,
+    pub administrator: bool,
+    pub channel: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_request_id: Option<String>,
+    pub approval_mode: String,
+    pub approval_policy_revision: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub approval_grant_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, ToSchema)]
@@ -288,6 +370,21 @@ pub struct ProcessPluginRequest {
     pub input: serde_json::Value,
     pub capabilities: Vec<String>,
     pub tools: Vec<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub invocation_context: Option<PluginInvocationContext>,
+    #[serde(default)]
+    pub stream: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct ProcessPluginStreamEvent {
+    #[serde(rename = "type")]
+    pub kind: String,
+    pub request_id: String,
+    pub sequence: u64,
+    pub event: String,
+    #[serde(default)]
+    pub data: serde_json::Value,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]

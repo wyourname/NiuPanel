@@ -12,7 +12,9 @@ type UseFileTouchSelectionOptions = {
 export function useFileTouchSelection(options: UseFileTouchSelectionOptions) {
   const haptics = useHaptics();
   const pressTimer = ref<ReturnType<typeof setTimeout> | null>(null);
+  const clickSuppressionTimer = ref<ReturnType<typeof setTimeout> | null>(null);
   const touchMoved = ref(false);
+  const longPressTriggered = ref(false);
 
   const clearPressTimer = () => {
     if (pressTimer.value) {
@@ -21,11 +23,29 @@ export function useFileTouchSelection(options: UseFileTouchSelectionOptions) {
     }
   };
 
+  const clearClickSuppressionTimer = () => {
+    if (clickSuppressionTimer.value) {
+      clearTimeout(clickSuppressionTimer.value);
+      clickSuppressionTimer.value = null;
+    }
+  };
+
+  const scheduleClickSuppressionReset = () => {
+    clearClickSuppressionTimer();
+    clickSuppressionTimer.value = setTimeout(() => {
+      longPressTriggered.value = false;
+      clickSuppressionTimer.value = null;
+    }, 350);
+  };
+
   const handleTouchStart = (row: FileItem) => {
     if (!options.isMobile()) return;
     clearPressTimer();
+    clearClickSuppressionTimer();
     touchMoved.value = false;
+    longPressTriggered.value = false;
     pressTimer.value = setTimeout(() => {
+      longPressTriggered.value = true;
       haptics.notification();
       options.toggleSelection(row);
     }, 600);
@@ -33,6 +53,7 @@ export function useFileTouchSelection(options: UseFileTouchSelectionOptions) {
 
   const handleTouchEnd = () => {
     clearPressTimer();
+    if (longPressTriggered.value) scheduleClickSuppressionReset();
   };
 
   const handleTouchMove = () => {
@@ -41,6 +62,11 @@ export function useFileTouchSelection(options: UseFileTouchSelectionOptions) {
   };
 
   const handleItemClickMobile = (row: FileItem) => {
+    if (longPressTriggered.value) {
+      longPressTriggered.value = false;
+      clearClickSuppressionTimer();
+      return;
+    }
     if (touchMoved.value) return;
 
     if (options.selectedFiles.value.length > 0) {

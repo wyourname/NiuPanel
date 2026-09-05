@@ -47,8 +47,7 @@ pub async fn get_version(State(_state): State<AppState>) -> Result<ApiResponse<S
         ("tasks" = Option<bool>, Query, description = "Include tasks"),
         ("variables" = Option<bool>, Query, description = "Include variables"),
         ("settings" = Option<bool>, Query, description = "Include settings"),
-        ("environments" = Option<bool>, Query, description = "Include environments"),
-        ("telegram" = Option<bool>, Query, description = "Include telegram config")
+        ("environments" = Option<bool>, Query, description = "Include environments")
     ),
     tag = "Settings",
     security(("session_cookie" = []))
@@ -57,17 +56,11 @@ pub async fn backup_system(
     State(state): State<AppState>,
     Query(mut options): Query<BackupOptions>,
 ) -> Result<ApiResponse<()>> {
-    if !options.tasks
-        && !options.variables
-        && !options.settings
-        && !options.environments
-        && !options.telegram
-    {
+    if !options.tasks && !options.variables && !options.settings && !options.environments {
         options.tasks = true;
         options.variables = true;
         options.settings = true;
         options.environments = true;
-        options.telegram = true;
     }
 
     service::start_backup_task(state.db.clone(), options).await?;

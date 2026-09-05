@@ -24,9 +24,11 @@ export type PluginAppRecord = NiuPanelPluginApp;
 
 export type PluginAppUi = NiuPanelPluginApp["ui"];
 
+export type PluginActionManifest = import("@niupanel/plugin-sdk").NiuPanelPluginAction;
+
 export type PluginRuntime = "builtin" | "declarative" | "process" | "wasi" | "native";
 export type PluginProcessProtocol = "single_shot" | "json_lines";
-export type PluginRuntimePermission = "network_outbound";
+export type PluginRuntimePermission = "network_outbound" | "network_outbound_all_ports";
 export type PluginSource = "builtin" | "local";
 export type PluginStatus = "enabled" | "disabled" | "error";
 
@@ -118,6 +120,16 @@ export interface PluginImpactPreview {
   install_allowed: boolean;
 }
 
+export interface PluginUploadSession {
+  token: string;
+  expires_at: string;
+  file_name: string;
+  compressed_size: number;
+  extracted_size: number;
+  sha256: string;
+  preview: PluginImpactPreview;
+}
+
 export interface PluginImpactRoute {
   path: string;
   title: string;
@@ -168,6 +180,7 @@ export interface PluginManifest {
   worker: PluginWorkerConfig;
   capabilities: string[];
   tools: unknown[];
+  actions: PluginActionManifest[];
   compatibility: PluginCompatibilityManifest;
   ui?: PluginAppUiManifest | null;
   theme?: PluginThemeManifest | null;

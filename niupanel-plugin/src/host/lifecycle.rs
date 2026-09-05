@@ -1,8 +1,8 @@
 use axum::extract::Multipart;
+use axum::extract::multipart::Field;
 use flate2::read::GzDecoder;
 use niupanel_common::config::Config;
 use niupanel_common::error::{AppError, Result};
-use niupanel_common::response::ApiResponse;
 use niupanel_common::upload::{TempUploadOptions, UploadedTempFile, stream_field_to_temp_file};
 use openssl::base64;
 use openssl::pkey::{Id, PKey, Public};
@@ -15,7 +15,10 @@ use std::path::{Component, Path, PathBuf};
 use tempfile::TempDir;
 use zip::ZipArchive;
 
-const MAX_PLUGIN_PACKAGE_BYTES: usize = 100 * 1024 * 1024;
+pub const MAX_PLUGIN_PACKAGE_BYTES: usize = 100 * 1024 * 1024;
+pub const MAX_PLUGIN_EXTRACTED_BYTES: u64 = 512 * 1024 * 1024;
+pub const MAX_PLUGIN_ARCHIVE_ENTRIES: usize = 20_000;
+const MAX_PLUGIN_UPLOAD_METADATA_BYTES: usize = 16 * 1024;
 
 mod package;
 mod upload;
@@ -75,6 +78,25 @@ mod tests {
     #[test]
     fn accepts_unsigned_authenticated_admin_upload() {
         validate_admin_upload_integrity(b"plugin package bytes", None, None, None)
-            .expect("authenticated administrator uploads do not require signing metadata");
+            .expect("unsigned uploads are accepted when signatures are not required");
+    }
+
+    #[test]
+    fn rejects_archive_size_and_entry_limit_overflow() {
+        let mut size_stats = ExtractionStats {
+            entries: 0,
+            bytes: 0,
+        };
+        let size_error = account_archive_entry(&mut size_stats, MAX_PLUGIN_EXTRACTED_BYTES + 1)
+            .expect_err("oversized extraction rejected");
+        assert!(matches!(size_error, AppError::FileSizeLimitExceeded(_)));
+
+        let mut entry_stats = ExtractionStats {
+            entries: MAX_PLUGIN_ARCHIVE_ENTRIES,
+            bytes: 0,
+        };
+        let entry_error = account_archive_entry(&mut entry_stats, 0)
+            .expect_err("too many archive entries rejected");
+        assert!(matches!(entry_error, AppError::FileSizeLimitExceeded(_)));
     }
 }

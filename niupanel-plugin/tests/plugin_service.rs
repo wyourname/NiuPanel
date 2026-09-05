@@ -1,4 +1,6 @@
-use niupanel_plugin::{PluginInvokeRequest, PluginService};
+use niupanel_plugin::{
+    PluginActionCaller, PluginActionInvokeRequest, PluginInvokeRequest, PluginService,
+};
 use serde_json::json;
 use std::fs;
 use std::path::Path;
@@ -6,6 +8,7 @@ use std::sync::{
     Arc, OnceLock,
     atomic::{AtomicBool, Ordering},
 };
+use tokio_util::sync::CancellationToken;
 
 static TEST_DATA_DIR: OnceLock<tempfile::TempDir> = OnceLock::new();
 
@@ -20,18 +23,90 @@ async fn invokes_external_plugin_package_when_requested() {
     let installed = service
         .install_from_dir(Path::new(&source), true)
         .expect("install external plugin");
+    let action =
+        std::env::var("NIUPANEL_TEST_PLUGIN_ACTION").unwrap_or_else(|_| "health".to_string());
+    let input = std::env::var("NIUPANEL_TEST_PLUGIN_INPUT")
+        .ok()
+        .map(|value| serde_json::from_str(&value).expect("valid external plugin input"))
+        .unwrap_or(serde_json::Value::Null);
     let response = service
         .invoke_plugin(
             &installed.manifest.id,
             PluginInvokeRequest {
-                action: "health".to_string(),
-                input: serde_json::Value::Null,
+                action: action.clone(),
+                input,
                 timeout_sec: Some(10),
             },
         )
         .await
-        .expect("invoke external plugin health");
-    assert_eq!(response.output["ok"], true);
+        .expect("invoke external plugin action");
+    if action == "health" {
+        assert_eq!(response.output["ok"], true);
+    } else {
+        assert!(response.output.is_object());
+    }
+}
+
+#[tokio::test]
+async fn action_manifest_filters_callers_and_validates_input() {
+    init_test_config();
+    let root = tempfile::tempdir().expect("temp root");
+    let package = tempfile::tempdir().expect("temp package");
+    write_action_plugin(package.path());
+
+    let service = PluginService::new(root.path().join("plugins"), "plugin");
+    service
+        .install_from_dir(package.path(), true)
+        .expect("install action plugin");
+
+    assert_eq!(
+        service
+            .list_action_plugins(PluginActionCaller::ApiKey)
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(
+        service
+            .list_plugin_actions("action-echo", PluginActionCaller::Task)
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(
+        service
+            .list_plugin_actions("action-echo", PluginActionCaller::Telegram)
+            .unwrap()
+            .len(),
+        1
+    );
+    assert!(
+        service
+            .invoke_action(
+                "action-echo",
+                PluginActionCaller::ApiKey,
+                PluginActionInvokeRequest {
+                    action: "query".to_string(),
+                    input: json!({}),
+                    client_request_id: None,
+                },
+            )
+            .await
+            .is_err()
+    );
+    let response = service
+        .invoke_action(
+            "action-echo",
+            PluginActionCaller::ApiKey,
+            PluginActionInvokeRequest {
+                action: "query".to_string(),
+                input: json!({"keyword": "test"}),
+                client_request_id: None,
+            },
+        )
+        .await
+        .expect("invoke action");
+    assert_eq!(response.output, json!({"ok": true}));
 }
 
 #[tokio::test]
@@ -118,6 +193,287 @@ async fn json_lines_plugin_can_call_injected_tools() {
 }
 
 #[tokio::test]
+async fn json_lines_plugin_streams_ordered_events_before_final_result() {
+    init_test_config();
+    let root = tempfile::tempdir().expect("temp root");
+    let package = tempfile::tempdir().expect("temp package");
+    write_streaming_plugin(package.path());
+
+    let service = PluginService::new(root.path().join("plugins"), "plugin");
+    service
+        .install_from_dir(package.path(), true)
+        .expect("install streaming plugin");
+
+    let events = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let captured_events = events.clone();
+    let response = service
+        .invoke_action_stream_with_tools_cancellable(
+            "streaming-agent",
+            PluginActionCaller::Task,
+            PluginActionInvokeRequest {
+                action: "chat".to_string(),
+                input: json!({"message": "hello"}),
+                client_request_id: None,
+            },
+            Vec::new(),
+            niupanel_plugin::PluginStreamHandlers::new(
+                |_| {
+                    Box::pin(async { Ok(serde_json::Value::Null) })
+                        as niupanel_plugin::PluginToolFuture
+                },
+                move |event| {
+                    let captured_events = captured_events.clone();
+                    Box::pin(async move {
+                        captured_events.lock().expect("events lock").push(event);
+                        Ok(())
+                    }) as niupanel_plugin::PluginStreamFuture
+                },
+            ),
+            CancellationToken::new(),
+        )
+        .await
+        .expect("streaming invocation");
+
+    let events = events.lock().expect("events lock");
+    assert_eq!(events.len(), 2);
+    assert_eq!(events[0].sequence, 1);
+    assert_eq!(events[0].event, "start");
+    assert_eq!(events[1].sequence, 2);
+    assert_eq!(events[1].event, "delta");
+    assert_eq!(events[1].data["text"], "hello");
+    assert_eq!(response.output, json!({"message": "hello"}));
+}
+
+#[tokio::test]
+async fn cancelling_json_lines_invocation_discards_worker_and_releases_capacity() {
+    init_test_config();
+    let root = tempfile::tempdir().expect("temp root");
+    let package = tempfile::tempdir().expect("temp package");
+    write_cancellable_plugin(package.path());
+
+    let service = PluginService::new(root.path().join("agents"), "agents");
+    service
+        .install_from_dir(package.path(), true)
+        .expect("install cancellable plugin");
+
+    let marker = niupanel_common::config::Config::global()
+        .plugins_dir
+        .join(".data/agents/cancellable-agent/started-cancel");
+    let _ = fs::remove_file(&marker);
+    let cancellation = CancellationToken::new();
+    let invocation = {
+        let service = service.clone();
+        let cancellation = cancellation.clone();
+        tokio::spawn(async move {
+            service
+                .invoke_action_with_tools_cancellable(
+                    "cancellable-agent",
+                    PluginActionCaller::Telegram,
+                    PluginActionInvokeRequest {
+                        action: "chat".to_string(),
+                        input: json!({"message": "slow-cancel"}),
+                        client_request_id: None,
+                    },
+                    Vec::new(),
+                    |_| Box::pin(async { Ok(serde_json::Value::Null) }),
+                    cancellation,
+                )
+                .await
+        })
+    };
+
+    tokio::time::timeout(std::time::Duration::from_secs(3), async {
+        while !marker.is_file() {
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("slow worker started");
+    cancellation.cancel();
+    let error = invocation
+        .await
+        .expect("invocation task")
+        .expect_err("invocation should be cancelled");
+    assert!(matches!(error, niupanel_common::error::AppError::Cancelled));
+
+    let response = service
+        .invoke_action_with_tools_cancellable(
+            "cancellable-agent",
+            PluginActionCaller::Telegram,
+            PluginActionInvokeRequest {
+                action: "chat".to_string(),
+                input: json!({"message": "fast"}),
+                client_request_id: None,
+            },
+            Vec::new(),
+            |_| Box::pin(async { Ok(serde_json::Value::Null) }),
+            CancellationToken::new(),
+        )
+        .await
+        .expect("replacement worker accepts next invocation");
+    assert_eq!(response.output, json!({"message": "fast"}));
+}
+
+#[tokio::test]
+async fn aborting_json_lines_invocation_releases_worker_and_process_capacity() {
+    init_test_config();
+    let root = tempfile::tempdir().expect("temp root");
+    let package = tempfile::tempdir().expect("temp package");
+    write_cancellable_plugin(package.path());
+
+    let service = PluginService::new(root.path().join("agents"), "agents");
+    service
+        .install_from_dir(package.path(), true)
+        .expect("install cancellable plugin");
+
+    let marker = niupanel_common::config::Config::global()
+        .plugins_dir
+        .join(".data/agents/cancellable-agent/started-abort");
+    let _ = fs::remove_file(&marker);
+    let invocation = {
+        let service = service.clone();
+        tokio::spawn(async move {
+            service
+                .invoke_action_with_tools_cancellable(
+                    "cancellable-agent",
+                    PluginActionCaller::Telegram,
+                    PluginActionInvokeRequest {
+                        action: "chat".to_string(),
+                        input: json!({"message": "slow-abort"}),
+                        client_request_id: None,
+                    },
+                    Vec::new(),
+                    |_| Box::pin(async { Ok(serde_json::Value::Null) }),
+                    CancellationToken::new(),
+                )
+                .await
+        })
+    };
+
+    tokio::time::timeout(std::time::Duration::from_secs(3), async {
+        while !marker.is_file() {
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("slow worker started");
+    invocation.abort();
+    assert!(
+        invocation
+            .await
+            .expect_err("invocation task should be aborted")
+            .is_cancelled()
+    );
+
+    let response = tokio::time::timeout(
+        std::time::Duration::from_secs(3),
+        service.invoke_action_with_tools_cancellable(
+            "cancellable-agent",
+            PluginActionCaller::Telegram,
+            PluginActionInvokeRequest {
+                action: "chat".to_string(),
+                input: json!({"message": "fast-after-abort"}),
+                client_request_id: None,
+            },
+            Vec::new(),
+            |_| Box::pin(async { Ok(serde_json::Value::Null) }),
+            CancellationToken::new(),
+        ),
+    )
+    .await
+    .expect("replacement invocation did not wait for leaked capacity")
+    .expect("replacement worker accepts invocation after task abort");
+    assert_eq!(response.output, json!({"message": "fast"}));
+}
+
+#[tokio::test]
+async fn cancellable_invocation_waits_for_a_busy_plugin_worker() {
+    init_test_config();
+    let root = tempfile::tempdir().expect("temp root");
+    let package = tempfile::tempdir().expect("temp package");
+    write_cancellable_plugin(package.path());
+
+    let service = PluginService::new(root.path().join("agents"), "agents");
+    service
+        .install_from_dir(package.path(), true)
+        .expect("install cancellable plugin");
+
+    let marker = niupanel_common::config::Config::global()
+        .plugins_dir
+        .join(".data/agents/cancellable-agent/started-queue");
+    let _ = fs::remove_file(&marker);
+    let first_cancellation = CancellationToken::new();
+    let first = {
+        let service = service.clone();
+        let cancellation = first_cancellation.clone();
+        tokio::spawn(async move {
+            service
+                .invoke_action_with_tools_cancellable(
+                    "cancellable-agent",
+                    PluginActionCaller::Telegram,
+                    PluginActionInvokeRequest {
+                        action: "chat".to_string(),
+                        input: json!({"message": "slow-queue"}),
+                        client_request_id: None,
+                    },
+                    Vec::new(),
+                    |_| Box::pin(async { Ok(serde_json::Value::Null) }),
+                    cancellation,
+                )
+                .await
+        })
+    };
+    tokio::time::timeout(std::time::Duration::from_secs(3), async {
+        while !marker.is_file() {
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("first worker started");
+
+    let second = {
+        let service = service.clone();
+        tokio::spawn(async move {
+            service
+                .invoke_action_with_tools_cancellable(
+                    "cancellable-agent",
+                    PluginActionCaller::Telegram,
+                    PluginActionInvokeRequest {
+                        action: "chat".to_string(),
+                        input: json!({"message": "queued-fast"}),
+                        client_request_id: None,
+                    },
+                    Vec::new(),
+                    |_| Box::pin(async { Ok(serde_json::Value::Null) }),
+                    CancellationToken::new(),
+                )
+                .await
+        })
+    };
+    tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+    assert!(
+        !second.is_finished(),
+        "second invocation must queue instead of returning a concurrency error"
+    );
+
+    first_cancellation.cancel();
+    let first_error = first
+        .await
+        .expect("first invocation task")
+        .expect_err("first invocation should be cancelled");
+    assert!(matches!(
+        first_error,
+        niupanel_common::error::AppError::Cancelled
+    ));
+    let response = tokio::time::timeout(std::time::Duration::from_secs(3), second)
+        .await
+        .expect("queued invocation resumed")
+        .expect("queued invocation task")
+        .expect("queued invocation succeeds");
+    assert_eq!(response.output, json!({"message": "fast"}));
+}
+
+#[tokio::test]
 async fn process_sandbox_hides_host_files_and_clears_host_environment() {
     init_test_config();
     let root = tempfile::tempdir().expect("temp root");
@@ -159,6 +515,12 @@ async fn process_sandbox_hides_host_files_and_clears_host_environment() {
     assert_eq!(response.output["host_file_modified"], false);
     assert_eq!(response.output["etc_passwd_visible"], false);
     assert_eq!(response.output["network_socket_created"], false);
+    assert_eq!(
+        response.output["python_process_started"], true,
+        "sandboxed Python result: {}",
+        response.output
+    );
+    assert_eq!(response.output["python_exit_code"], 0);
     assert_eq!(response.output["database_url"], "missing");
     assert_eq!(response.output["custom_value"], "available");
     assert_eq!(response.output["plugin_data"], "plugin-owned");
@@ -249,6 +611,35 @@ fn updates_archive_and_rolls_back_plugin_version() {
     assert_eq!(versions[0].version, "0.2.0");
 }
 
+#[test]
+fn prepared_packages_are_moved_and_keep_package_digests() {
+    let root = tempfile::tempdir().expect("temp root");
+    let package_v1 = tempfile::tempdir().expect("temp package v1");
+    let package_v2 = tempfile::tempdir().expect("temp package v2");
+    write_test_plugin_with_version(package_v1.path(), "0.1.0");
+    write_test_plugin_with_version(package_v2.path(), "0.2.0");
+
+    let source_v1 = package_v1.path().to_path_buf();
+    let source_v2 = package_v2.path().to_path_buf();
+    let service = PluginService::new(root.path().join("compiler"), "compiler");
+    service
+        .install_prepared_dir(&source_v1, true, "digest-v1".to_string())
+        .expect("install prepared plugin");
+    assert!(!source_v1.exists());
+
+    let updated = service
+        .update_prepared_dir("echo-compiler", &source_v2, "digest-v2".to_string())
+        .expect("update prepared plugin");
+    assert_eq!(updated.manifest.version, "0.2.0");
+    assert!(!source_v2.exists());
+
+    let versions = service
+        .list_versions("echo-compiler")
+        .expect("list archived versions");
+    assert_eq!(versions.len(), 1);
+    assert_eq!(versions[0].package_sha256.as_deref(), Some("digest-v1"));
+}
+
 fn write_test_plugin_with_version(path: &Path, version: &str) {
     fs::write(
         path.join("plugin.json"),
@@ -282,11 +673,51 @@ printf '{"request_id":"%s","ok":true,"output":{"versions":["3.11"]}}\n' "$reques
     make_executable(path.join("run.sh").as_path());
 }
 
+fn write_action_plugin(path: &Path) {
+    fs::write(
+        path.join("plugin.json"),
+        r#"{
+  "schema_version": 2,
+  "id": "action-echo",
+  "name": "Action Echo",
+  "version": "0.1.0",
+  "description": "Action contract test plugin",
+  "runtime": "process",
+  "protocol": "single_shot",
+  "entry": "run.sh",
+  "actions": [
+    {
+      "name": "query",
+      "callers": ["task", "api_key", "telegram"],
+      "timeout_sec": 10,
+      "input_schema": {
+        "type": "object",
+        "required": ["keyword"],
+        "properties": {"keyword": {"type": "string"}},
+        "additionalProperties": false
+      }
+    }
+  ]
+}"#,
+    )
+    .expect("write action manifest");
+    fs::write(
+        path.join("run.sh"),
+        r#"#!/usr/bin/env bash
+set -euo pipefail
+request_id="$(sed -n 's/.*"request_id":"\([^"]*\)".*/\1/p')"
+printf '{"request_id":"%s","ok":true,"output":{"ok":true}}\n' "$request_id"
+"#,
+    )
+    .expect("write action runner");
+    make_executable(path.join("run.sh").as_path());
+}
+
 fn write_tool_calling_plugin(path: &Path) {
     fs::write(
         path.join("plugin.json"),
         r#"{
-  "schema_version": 1,
+  "schema_version": 2,
   "id": "tool-calling-agent",
   "name": "Tool Calling Agent",
   "version": "0.1.0",
@@ -295,7 +726,13 @@ fn write_tool_calling_plugin(path: &Path) {
   "runtime": "process",
   "protocol": "json_lines",
   "entry": "run.sh",
-  "capabilities": ["agents.invoke"]
+  "actions": [
+    {
+      "name": "run",
+      "callers": ["task"],
+      "timeout_sec": 30
+    }
+  ]
 }"#,
     )
     .expect("write manifest");
@@ -322,6 +759,113 @@ done
     )
     .expect("write runner");
 
+    make_executable(path.join("run.sh").as_path());
+}
+
+fn write_cancellable_plugin(path: &Path) {
+    fs::write(
+        path.join("plugin.json"),
+        r#"{
+  "schema_version": 2,
+  "id": "cancellable-agent",
+  "name": "Cancellable Agent",
+  "version": "0.1.0",
+  "description": "Cancellation-safe worker pool test",
+  "extension_points": ["agents"],
+  "runtime": "process",
+  "protocol": "json_lines",
+  "entry": "run.sh",
+  "worker": {"min": 1, "max": 1, "idle_timeout_sec": 60},
+  "actions": [
+    {
+      "name": "chat",
+      "callers": ["telegram"],
+      "timeout_sec": 60,
+      "input_schema": {
+        "type": "object",
+        "required": ["message"],
+        "properties": {"message": {"type": "string"}},
+        "additionalProperties": false
+      }
+    }
+  ]
+}"#,
+    )
+    .expect("write manifest");
+    fs::write(
+        path.join("run.sh"),
+        r#"#!/usr/bin/env bash
+set -euo pipefail
+while IFS= read -r request; do
+  request_id="$(printf '%s' "$request" | sed -n 's/.*"request_id":"\([^"]*\)".*/\1/p')"
+  case "$request" in
+    *'"message":"slow-cancel"'*)
+      printf 'started' > "$NIUPANEL_PLUGIN_DATA_DIR/started-cancel"
+      sleep 30
+      ;;
+    *'"message":"slow-abort"'*)
+      printf 'started' > "$NIUPANEL_PLUGIN_DATA_DIR/started-abort"
+      sleep 30
+      ;;
+    *'"message":"slow-queue"'*)
+      printf 'started' > "$NIUPANEL_PLUGIN_DATA_DIR/started-queue"
+      sleep 30
+      ;;
+  esac
+  printf '{"request_id":"%s","ok":true,"output":{"message":"fast"}}\n' "$request_id"
+done
+"#,
+    )
+    .expect("write runner");
+    make_executable(path.join("run.sh").as_path());
+}
+
+fn write_streaming_plugin(path: &Path) {
+    fs::write(
+        path.join("plugin.json"),
+        r#"{
+  "schema_version": 2,
+  "id": "streaming-agent",
+  "name": "Streaming Agent",
+  "version": "0.1.0",
+  "description": "Streaming protocol test",
+  "runtime": "process",
+  "protocol": "json_lines",
+  "entry": "run.sh",
+  "actions": [
+    {
+      "name": "chat",
+      "callers": ["task"],
+      "timeout_sec": 10,
+      "streaming": true,
+      "input_schema": {
+        "type": "object",
+        "required": ["message"],
+        "properties": {"message": {"type": "string"}},
+        "additionalProperties": false
+      }
+    }
+  ]
+}"#,
+    )
+    .expect("write streaming manifest");
+    fs::write(
+        path.join("run.sh"),
+        r#"#!/usr/bin/env bash
+set -euo pipefail
+while IFS= read -r request; do
+  request_id="$(printf '%s' "$request" | sed -n 's/.*"request_id":"\([^"]*\)".*/\1/p')"
+  case "$request" in
+    *'"stream":true'*) ;;
+    *) exit 2 ;;
+  esac
+  printf '{"type":"stream_event","request_id":"%s","sequence":1,"event":"start","data":{"ready":true}}\n' "$request_id"
+  printf '{"type":"stream_event","request_id":"%s","sequence":2,"event":"delta","data":{"text":"hello"}}\n' "$request_id"
+  printf '{"request_id":"%s","ok":true,"output":{"message":"hello"}}\n' "$request_id"
+done
+"#,
+    )
+    .expect("write streaming runner");
     make_executable(path.join("run.sh").as_path());
 }
 
@@ -359,13 +903,20 @@ etc_passwd_visible=false
 if cat /etc/passwd >/dev/null 2>&1; then etc_passwd_visible=true; fi
 network_socket_created=false
 if python3 -B -c 'import socket; socket.socket()' >/dev/null 2>&1; then network_socket_created=true; fi
+python_process_started=false
+set +e
+python_result="$(python3 -B -c 'print("started")' 2>&1)"
+python_exit_code=$?
+set -e
+if [ "$python_result" = started ]; then python_process_started=true; fi
+python_error="$(printf '%s' "$python_result" | tr '\n' ' ' | sed 's/"/'"'"'/g')"
 printf 'plugin-owned' > "$NIUPANEL_PLUGIN_DATA_DIR/state.txt"
 database_url="${{DATABASE_URL:-missing}}"
 custom_value="${{CUSTOM_VALUE:-missing}}"
 plugin_data="$(cat "$NIUPANEL_PLUGIN_DATA_DIR/state.txt")"
 runtime_uid="$(id -u)"
-printf '{{"request_id":"%s","ok":true,"output":{{"host_file_visible":%s,"host_file_modified":%s,"etc_passwd_visible":%s,"network_socket_created":%s,"database_url":"%s","custom_value":"%s","plugin_data":"%s","runtime_uid":"%s"}}}}\n' \
-  "$request_id" "$host_file_visible" "$host_file_modified" "$etc_passwd_visible" "$network_socket_created" "$database_url" "$custom_value" "$plugin_data" "$runtime_uid"
+printf '{{"request_id":"%s","ok":true,"output":{{"host_file_visible":%s,"host_file_modified":%s,"etc_passwd_visible":%s,"network_socket_created":%s,"python_process_started":%s,"python_exit_code":%s,"python_error":"%s","database_url":"%s","custom_value":"%s","plugin_data":"%s","runtime_uid":"%s"}}}}\n' \
+  "$request_id" "$host_file_visible" "$host_file_modified" "$etc_passwd_visible" "$network_socket_created" "$python_process_started" "$python_exit_code" "$python_error" "$database_url" "$custom_value" "$plugin_data" "$runtime_uid"
 "#
         ),
     )

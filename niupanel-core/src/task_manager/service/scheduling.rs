@@ -1,5 +1,5 @@
 use super::{RandomTaskConfig, TaskManagerService};
-use crate::event_bus::{SystemEvent, SystemNotification, TelegramEvent};
+use crate::event_bus::{SystemEvent, SystemNotification};
 use crate::settings::SettingsManager;
 use chrono::{Datelike, NaiveTime, Timelike};
 use chrono_tz::Tz;
@@ -401,122 +401,6 @@ impl TaskManagerService {
             }
         }
 
-        Ok(())
-    }
-
-    pub(crate) async fn load_scheduled_workflows(&self) -> Result<(), AppError> {
-        let workflows = niupanel_entity::tg_workflows::Entity::find()
-            .filter(niupanel_entity::tg_workflows::Column::EventType.eq("cron"))
-            .all(&self.db)
-            .await?;
-
-        for wf in workflows {
-            if let Err(err) = self.schedule_workflow(&wf).await {
-                warn!("加载工作流 {} 的调度失败: {}", wf.id, err);
-            }
-        }
-        Ok(())
-    }
-
-    pub async fn schedule_workflow(
-        &self,
-        wf: &niupanel_entity::tg_workflows::Model,
-    ) -> Result<(), AppError> {
-        let _guard = self.workflow_schedule_lock.lock().await;
-        self.replace_workflow_schedule(wf).await
-    }
-
-    async fn replace_workflow_schedule(
-        &self,
-        wf: &niupanel_entity::tg_workflows::Model,
-    ) -> Result<(), AppError> {
-        if wf.event_type != "cron" {
-            return self.remove_workflow_schedule_locked(wf.id).await;
-        }
-
-        let wf_id = wf.id;
-        let config: serde_json::Value = serde_json::from_str(&wf.config_json).map_err(|err| {
-            AppError::ValidationError(format!("工作流 {} 的配置不是有效 JSON: {}", wf_id, err))
-        })?;
-        let cron = match config.get("cron").and_then(|v| v.as_str()) {
-            Some(c) if !c.trim().is_empty() => Self::normalize_cron(c),
-            _ => {
-                return Err(AppError::ValidationError(format!(
-                    "工作流 {} 缺少有效的 cron 表达式",
-                    wf_id
-                )));
-            }
-        };
-
-        let tz = self.get_system_timezone().await;
-        let eb = self.event_bus.clone();
-
-        let job = Job::new_async_tz(cron.as_str(), tz, move |_uuid, _l| {
-            let eb = eb.clone();
-            let wf_id_clone = wf_id;
-            Box::pin(async move {
-                info!("执行定时工作流: {}", wf_id_clone);
-                eb.publish(SystemEvent::Telegram(TelegramEvent::WorkflowTriggered {
-                    workflow_id: wf_id_clone,
-                    task_id_context: None,
-                }));
-            })
-        })
-        .map_err(|e| {
-            AppError::Generic(format!(
-                "无效的Cron表达式 '{}'，工作流 {}: {}",
-                cron, wf_id, e
-            ))
-        })?;
-
-        let job_uuid = self
-            .scheduler
-            .add(job)
-            .await
-            .map_err(|e| AppError::Generic(format!("工作流 {} 调度失败: {}", wf_id, e)))?;
-
-        let old_job_uuid = self.scheduled_jobs.get(&-wf_id).map(|entry| *entry.value());
-        if let Some(old_job_uuid) = old_job_uuid
-            && let Err(remove_err) = self.scheduler.remove(&old_job_uuid).await
-        {
-            let cleanup_result = self.scheduler.remove(&job_uuid).await;
-            let cleanup_message = cleanup_result
-                .err()
-                .map(|err| format!("；新调度清理也失败: {}", err))
-                .unwrap_or_default();
-            return Err(AppError::Generic(format!(
-                "替换工作流 {} 的旧调度失败: {}{}",
-                wf_id, remove_err, cleanup_message
-            )));
-        }
-
-        self.scheduled_jobs.insert(-wf_id, job_uuid);
-        info!("已调度工作流 {}，Cron: {} (时区: {:?})", wf_id, cron, tz);
-        Ok(())
-    }
-
-    pub async fn update_workflow_schedule(
-        &self,
-        wf: &niupanel_entity::tg_workflows::Model,
-    ) -> Result<(), AppError> {
-        self.schedule_workflow(wf).await
-    }
-
-    pub async fn remove_workflow_schedule(&self, wf_id: i32) -> Result<(), AppError> {
-        let _guard = self.workflow_schedule_lock.lock().await;
-        self.remove_workflow_schedule_locked(wf_id).await
-    }
-
-    async fn remove_workflow_schedule_locked(&self, wf_id: i32) -> Result<(), AppError> {
-        let job_uuid = self.scheduled_jobs.get(&-wf_id).map(|entry| *entry.value());
-        if let Some(job_uuid) = job_uuid {
-            self.scheduler
-                .remove(&job_uuid)
-                .await
-                .map_err(|e| AppError::Generic(format!("移除工作流 {} 失败: {}", wf_id, e)))?;
-            self.scheduled_jobs.remove(&-wf_id);
-            info!("已移除工作流 {} 的计划", wf_id);
-        }
         Ok(())
     }
 

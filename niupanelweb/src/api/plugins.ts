@@ -14,6 +14,7 @@ import type {
   PluginMarketUpdateRecord,
   PluginRecord,
   PluginThemeRecord,
+  PluginUploadSession,
   PluginUpdateRequest,
   PluginVersionRecord,
 } from "@/types";
@@ -81,18 +82,26 @@ export const previewInstallPlugin = (
   return request.post("/plugins/preview", data);
 };
 
-export const uploadInstallPlugin = (
+export const createPluginUploadSession = (
   data: FormData,
   options: UploadRequestOptions = {},
-): Promise<ApiResponse<PluginRecord>> => {
-  return uploadMultipart("/plugins/upload", data, options);
+): Promise<ApiResponse<PluginUploadSession>> => {
+  return uploadMultipart("/plugins/upload-sessions", data, options);
 };
 
-export const previewUploadInstallPlugin = (
-  data: FormData,
-  options: UploadRequestOptions = {},
-): Promise<ApiResponse<PluginImpactPreview>> => {
-  return uploadMultipart("/plugins/preview-upload", data, options);
+export const commitPluginUploadSession = (
+  token: string,
+): Promise<ApiResponse<PluginRecord>> => {
+  return request.post(
+    `/plugins/upload-sessions/${encodeURIComponent(token)}/commit`,
+  );
+};
+
+export const deletePluginUploadSession = (token: string): Promise<void> => {
+  return request.delete(
+    `/plugins/upload-sessions/${encodeURIComponent(token)}`,
+    { skipMessage: true },
+  );
 };
 
 export const updatePlugin = (
@@ -107,30 +116,6 @@ export const previewUpdatePlugin = (
   data: PluginUpdateRequest,
 ): Promise<ApiResponse<PluginImpactPreview>> => {
   return request.post(`/plugins/${encodeURIComponent(id)}/preview-update`, data);
-};
-
-export const uploadUpdatePlugin = (
-  id: string,
-  data: FormData,
-  options: UploadRequestOptions = {},
-): Promise<ApiResponse<PluginRecord>> => {
-  return uploadMultipart(
-    `/plugins/${encodeURIComponent(id)}/upload-update`,
-    data,
-    options,
-  );
-};
-
-export const previewUploadUpdatePlugin = (
-  id: string,
-  data: FormData,
-  options: UploadRequestOptions = {},
-): Promise<ApiResponse<PluginImpactPreview>> => {
-  return uploadMultipart(
-    `/plugins/${encodeURIComponent(id)}/preview-upload-update`,
-    data,
-    options,
-  );
 };
 
 export const listPluginVersions = (

@@ -2,12 +2,10 @@ import request from '../utils/request'
 import type {
   ApiResponse,
   LoginRequest,
-  LoginResponse,
   RegisterRequest,
   ResetPasswordRequest,
   SetupStatus,
   UserInfo,
-  VerifyLogin2FARequest,
 } from '@/types'
 
 export const getSetupStatus = (): Promise<ApiResponse<SetupStatus>> => {
@@ -18,12 +16,8 @@ export const register = (data: RegisterRequest): Promise<ApiResponse<void>> => {
   return request.post('/auth/register', data)
 }
 
-export const login = (data: LoginRequest): Promise<ApiResponse<LoginResponse>> => {
+export const login = (data: LoginRequest): Promise<ApiResponse<UserInfo>> => {
   return request.post('/auth/login', data, { timeout: 60000 })
-}
-
-export const verifyLogin2FA = (data: VerifyLogin2FARequest): Promise<ApiResponse<UserInfo>> => {
-  return request.post('/auth/login/verify-2fa', data)
 }
 
 export const logout = (): Promise<ApiResponse<void>> => {

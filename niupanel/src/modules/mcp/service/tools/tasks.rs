@@ -137,6 +137,57 @@ impl PanelMcpServer {
         }))
     }
 
+    #[tool(description = "Wait for a specific NiuPanel task run to reach a terminal state")]
+    async fn tasks_wait(
+        &self,
+        Parameters(params): Parameters<TaskWaitParams>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<Json<TaskWaitOutput>, ErrorData> {
+        let user = Self::user_for(&context, Permission::TaskRead)?;
+        let timeout =
+            std::time::Duration::from_secs(params.timeout_sec.unwrap_or(120).clamp(1, 300));
+        let deadline = tokio::time::Instant::now() + timeout;
+        let (run, timed_out) = loop {
+            let run = task_runs::Entity::find_by_id(params.run_id)
+                .one(&self.state.db)
+                .await
+                .map_err(tool_error)?
+                .ok_or_else(|| ErrorData::invalid_params("Task run not found", None))?;
+            if run.task_id != params.task_id {
+                return Err(ErrorData::invalid_params(
+                    "Task run does not belong to task_id",
+                    None,
+                ));
+            }
+            let terminal = matches!(
+                run.status,
+                TaskStatus::Finished
+                    | TaskStatus::Failed
+                    | TaskStatus::Cancelled
+                    | TaskStatus::Stopped
+            );
+            if terminal {
+                break (run, false);
+            }
+            if tokio::time::Instant::now() >= deadline {
+                break (run, true);
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+        };
+        let terminal = !timed_out;
+        self.audit(
+            &user,
+            "tasks_wait",
+            Some(format!("{}:{}", params.task_id, params.run_id)),
+        )
+        .await;
+        Ok(Json(TaskWaitOutput {
+            run: task_run(run),
+            terminal,
+            timed_out,
+        }))
+    }
+
     #[tool(description = "Create a NiuPanel task")]
     async fn tasks_create(
         &self,
@@ -242,18 +293,40 @@ impl PanelMcpServer {
         &self,
         Parameters(TaskIdParams { task_id }): Parameters<TaskIdParams>,
         context: RequestContext<RoleServer>,
-    ) -> Result<Json<TaskActionOutput>, ErrorData> {
+    ) -> Result<Json<TaskStartOutput>, ErrorData> {
         let user = Self::user_for(&context, Permission::TaskRun)?;
-        TaskUseCase::from_state(&self.state)
+        let results = TaskUseCase::from_state(&self.state)
             .batch_run_tasks(&user, vec![task_id])
             .await
             .map_err(tool_error)?;
+        let result = results
+            .into_iter()
+            .find(|result| result["task_id"].as_i64() == Some(i64::from(task_id)))
+            .ok_or_else(|| ErrorData::invalid_params("Task start returned no result", None))?;
+        if result["status"].as_str() != Some("success") {
+            return Err(ErrorData::invalid_params(
+                result["message"]
+                    .as_str()
+                    .unwrap_or("Task start failed")
+                    .to_string(),
+                None,
+            ));
+        }
+        let run_id = result["run_id"]
+            .as_i64()
+            .and_then(|run_id| i32::try_from(run_id).ok())
+            .ok_or_else(|| ErrorData::internal_error("Task start omitted run_id", None))?;
+        let pid = result["pid"]
+            .as_i64()
+            .and_then(|pid| i32::try_from(pid).ok());
         self.audit(&user, "tasks_run", Some(task_id.to_string()))
             .await;
-        Ok(Json(TaskActionOutput {
+        Ok(Json(TaskStartOutput {
             task_id,
             accepted: true,
             message: "Task start request accepted".to_string(),
+            run_id,
+            pid,
         }))
     }
 

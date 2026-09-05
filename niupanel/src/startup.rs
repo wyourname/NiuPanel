@@ -54,19 +54,6 @@ pub async fn run() -> Result<Option<tracing_appender::non_blocking::WorkerGuard>
     let update_service = build_update_service(db.clone(), http_client.clone());
     let public_ip = Arc::new(std::sync::RwLock::new(None));
     let api_key_cache = build_api_key_cache();
-    let login_2fa_cache = build_login_2fa_cache();
-
-    background::spawn_background_tasks(
-        db.clone(),
-        event_bus.clone(),
-        http_client.clone(),
-        task_manager.clone(),
-        update_service.clone(),
-        system_metrics.clone(),
-    )
-    .await?;
-    background::spawn_system_shell_recovery(db.clone());
-    background::spawn_telegram_import_listener(db.clone(), event_bus.clone());
 
     let state = AppState::new(
         db.clone(),
@@ -78,9 +65,11 @@ pub async fn run() -> Result<Option<tracing_appender::non_blocking::WorkerGuard>
         system_metrics.clone(),
         public_ip,
         api_key_cache,
-        login_2fa_cache,
     );
     let _ = crate::common::state::GLOBAL_STATE.set(state.clone());
+
+    background::spawn_background_tasks(state.clone()).await?;
+    background::spawn_system_shell_recovery(db.clone());
 
     background::spawn_system_metrics_updater(system_metrics);
 
@@ -142,13 +131,6 @@ fn build_api_key_cache() -> moka::future::Cache<String, crate::common::state::Ca
     moka::future::Cache::builder()
         .max_capacity(1000)
         .time_to_live(std::time::Duration::from_secs(3600))
-        .build()
-}
-
-fn build_login_2fa_cache() -> moka::future::Cache<String, (String, i32)> {
-    moka::future::Cache::builder()
-        .max_capacity(1000)
-        .time_to_live(std::time::Duration::from_secs(300))
         .build()
 }
 

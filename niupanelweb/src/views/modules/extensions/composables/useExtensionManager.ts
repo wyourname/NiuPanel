@@ -7,6 +7,9 @@ import {
 } from "@/api/upload";
 import {
   checkPluginMarketUpdates,
+  commitPluginUploadSession,
+  createPluginUploadSession,
+  deletePluginUploadSession,
   disablePlugin,
   enablePlugin,
   getPluginMarket,
@@ -19,15 +22,13 @@ import {
   previewInstallPlugin,
   previewMarketPlugin,
   previewUpdatePlugin,
-  previewUploadInstallPlugin,
-  previewUploadUpdatePlugin,
   rollbackPlugin,
   uninstallPlugin,
   updatePlugin,
   updatePluginMarketSources,
-  uploadInstallPlugin,
-  uploadUpdatePlugin,
 } from "@/api/plugins";
+import { useUploadTransfer } from "@/composables/useUploadTransfer";
+import { formatFileSize } from "@/utils/format";
 import { useAppStore } from "@/stores/app";
 import { primaryPluginRoute, usePluginAppsStore } from "@/stores/pluginApps";
 import { usePluginThemesStore } from "@/stores/pluginThemes";
@@ -41,11 +42,12 @@ import type {
   PluginMarketUpdateRecord,
   PluginRecord,
   PluginStatus,
-  PluginThemeRecord,
   PluginVersionRecord,
 } from "@/types";
-
-type ManagedPlugin = { record: PluginRecord };
+import {
+  useExtensionPresentation,
+  type ManagedPlugin,
+} from "./useExtensionPresentation";
 
 export function useExtensionManager() {
   const views = [
@@ -110,90 +112,37 @@ export function useExtensionManager() {
     preview: null as PluginImpactPreview | null,
     resolve: null as ((confirmed: boolean) => void) | null,
   });
-
-  const allPlugins = computed<ManagedPlugin[]>(() =>
-    installedPluginRecords.value.map((record) => ({ record })),
-  );
-  const capabilityLabel = (capability: string) => capability.split(".").slice(0, 2).join(".");
-  const visibleCapabilities = (item: ManagedPlugin) =>
-    Array.from(new Set(item.record.manifest.capabilities)).slice(0, 3);
-  const normalizedSearch = computed(() => searchQuery.value.trim().toLowerCase());
-  const visiblePlugins = computed(() =>
-    allPlugins.value.filter((item) => {
-      const searchable = [
-        item.record.manifest.name,
-        item.record.manifest.id,
-        item.record.manifest.description,
-        item.record.manifest.runtime,
-        ...item.record.manifest.capabilities,
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-      return (
-        (statusFilter.value === "all" || item.record.status === statusFilter.value) &&
-        (!normalizedSearch.value || searchable.includes(normalizedSearch.value))
-      );
-    }),
-  );
-  const marketVisiblePlugins = computed(() =>
-    (market.index?.plugins ?? []).filter((entry) => {
-      const searchable = [entry.name, entry.id, entry.description]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-      return !normalizedSearch.value || searchable.includes(normalizedSearch.value);
-    }),
-  );
-  const marketVisibleUpdates = computed(() =>
-    market.updates.filter((item) => {
-      const searchable = [item.entry.name, item.plugin_id, item.source_name]
-        .join(" ")
-        .toLowerCase();
-      return !normalizedSearch.value || searchable.includes(normalizedSearch.value);
-    }),
-  );
-  const enabledCount = computed(() => allPlugins.value.filter((item) => item.record.enabled).length);
-  const appCount = computed(() => allPlugins.value.filter((item) => item.record.manifest.ui?.enabled).length);
-  const themeCount = computed(() => allPlugins.value.filter((item) => item.record.manifest.theme?.enabled).length);
-  const themeSwatches = (theme: PluginThemeRecord) => {
-    const palette = appStore.isDark ? theme.theme.dark : theme.theme.light;
-    return [
-      palette.primary ?? "#2563EB",
-      palette.bg_base ?? "#F3F5F7",
-      palette.bg_card ?? "#FFFFFF",
-      palette.text_default ?? "#172033",
-    ];
-  };
-
-  const healthByPlugin = computed(() => {
-    const values = new Map<string, PluginHealthReport>();
-    for (const report of pluginHealth.value) values.set(report.plugin_id, report);
-    return values;
+  const uploadSessionToken = ref("");
+  const uploadTransfer = useUploadTransfer();
+  const presentation = useExtensionPresentation({
+    installedPluginRecords,
+    pluginHealth,
+    market,
+    searchQuery,
+    statusFilter,
+    isDark: () => appStore.isDark,
   });
-  const pluginHealthReport = (item: ManagedPlugin) =>
-    healthByPlugin.value.get(item.record.manifest.id);
-  const pluginIcon = (item: ManagedPlugin) =>
-    item.record.manifest.ui?.routes?.[0]?.icon ?? marketIcon();
-  const marketIcon = () => "i-carbon-application-web";
-  const marketEntryIsSigned = (entry: PluginMarketEntry) =>
-    entry.assets.some((asset) => Boolean(asset.signature_ed25519));
-  const healthText = (report?: PluginHealthReport) => {
-    if (!report) return "未知";
-    if (!report.healthy) return "异常";
-    return report.checks.some((check) => check.severity === "warning") ? "警告" : "健康";
-  };
-  const healthTone = (report?: PluginHealthReport) => {
-    if (!report) return "text-muted";
-    if (!report.healthy) return "text-rose-600 dark:text-rose-300";
-    return report.checks.some((check) => check.severity === "warning")
-      ? "text-amber-600 dark:text-amber-300"
-      : "text-emerald-600 dark:text-emerald-300";
-  };
-  const formatTime = (value: string) => {
-    const date = new Date(value);
-    return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
-  };
+  const {
+    allPlugins,
+    capabilityLabel,
+    visibleCapabilities,
+    normalizedSearch,
+    visiblePlugins,
+    marketVisiblePlugins,
+    marketVisibleUpdates,
+    enabledCount,
+    appCount,
+    themeCount,
+    themeSwatches,
+    healthByPlugin,
+    pluginHealthReport,
+    pluginIcon,
+    marketIcon,
+    marketEntryIsSigned,
+    healthText,
+    healthTone,
+    formatTime,
+  } = presentation;
 
   const loadPlugins = async () => {
     loading.value = true;
@@ -296,8 +245,17 @@ export function useExtensionManager() {
       impactDialog.resolve = resolve;
     });
   };
+  const handleImpactDialogVisible = (visible: boolean) => {
+    if (visible) {
+      impactDialog.visible = true;
+      return;
+    }
+    resolveImpactPreview(false);
+  };
 
   const openInstall = (method: "upload" | "path") => {
+    uploadTransfer.cancel();
+    void discardUploadSession();
     Object.assign(installDialog, {
       visible: true,
       submitting: false,
@@ -312,6 +270,8 @@ export function useExtensionManager() {
     });
   };
   const openUpdate = (item: ManagedPlugin, method: "upload" | "path") => {
+    uploadTransfer.cancel();
+    void discardUploadSession();
     Object.assign(installDialog, {
       visible: true,
       submitting: false,
@@ -331,12 +291,69 @@ export function useExtensionManager() {
   const uploadForm = () => {
     const entries: UploadFormEntry[] = [
       ["enable", installDialog.enable ? "true" : "false"],
+      ["operation", installDialog.operation],
     ];
+    if (installDialog.operation === "update") {
+      entries.push(["target_plugin_id", installDialog.pluginId]);
+    }
     if (installDialog.file) entries.unshift(["file", installDialog.file]);
     if (installDialog.checksumSha256.trim()) {
       entries.push(["checksum_sha256", installDialog.checksumSha256.trim()]);
     }
     return createUploadFormData(entries);
+  };
+  const discardUploadSession = async () => {
+    const token = uploadSessionToken.value;
+    uploadSessionToken.value = "";
+    if (!token) return;
+    try {
+      await deletePluginUploadSession(token);
+    } catch {
+      // The server may already have consumed or expired the one-shot token.
+    }
+  };
+  const cancelPluginUpload = () => {
+    uploadTransfer.cancel();
+    resolveImpactPreview(false);
+    void discardUploadSession();
+  };
+  const closeInstallDialog = () => {
+    installDialog.visible = false;
+    cancelPluginUpload();
+  };
+  const handleInstallDialogVisible = (visible: boolean) => {
+    if (visible) {
+      installDialog.visible = true;
+      return;
+    }
+    closeInstallDialog();
+  };
+  const submitUploadedPlugin = async () => {
+    const transfer = await uploadTransfer.run(
+      (options) => createPluginUploadSession(uploadForm(), options),
+      { initialTotalBytes: installDialog.file?.size ?? 0 },
+    );
+    if (transfer.cancelled) return false;
+
+    const session = transfer.value.data;
+    uploadSessionToken.value = session.token;
+    if (!(await confirmPreview(session.preview))) {
+      await discardUploadSession();
+      return false;
+    }
+
+    try {
+      await commitPluginUploadSession(session.token);
+      uploadSessionToken.value = "";
+      return true;
+    } catch (error) {
+      const status = (error as { response?: { status?: number } }).response?.status;
+      if (status === 404) {
+        ElMessage.warning("上传会话已过期，请重新选择安装包");
+      }
+      await discardUploadSession();
+      throw error;
+    }
   };
   const submitInstallDialog = async () => {
     if (installDialog.method === "path" && !installDialog.sourcePath.trim()) {
@@ -349,27 +366,21 @@ export function useExtensionManager() {
     }
     installDialog.submitting = true;
     try {
+      let completed = true;
       if (installDialog.operation === "install") {
         if (installDialog.method === "path") {
           const payload = { source_path: installDialog.sourcePath.trim(), enable: installDialog.enable };
           const preview = await previewInstallPlugin(payload);
           if (!(await confirmPreview(preview.data))) return;
           await installPlugin(payload);
-        } else {
-          const preview = await previewUploadInstallPlugin(uploadForm());
-          if (!(await confirmPreview(preview.data))) return;
-          await uploadInstallPlugin(uploadForm());
-        }
+        } else completed = await submitUploadedPlugin();
       } else if (installDialog.method === "path") {
         const payload = { source_path: installDialog.sourcePath.trim() };
         const preview = await previewUpdatePlugin(installDialog.pluginId, payload);
         if (!(await confirmPreview(preview.data))) return;
         await updatePlugin(installDialog.pluginId, payload);
-      } else {
-        const preview = await previewUploadUpdatePlugin(installDialog.pluginId, uploadForm());
-        if (!(await confirmPreview(preview.data))) return;
-        await uploadUpdatePlugin(installDialog.pluginId, uploadForm());
-      }
+      } else completed = await submitUploadedPlugin();
+      if (!completed) return;
       installDialog.visible = false;
       ElMessage.success(installDialog.operation === "install" ? "扩展已安装" : "扩展已更新");
       await loadPlugins();
@@ -465,8 +476,13 @@ export function useExtensionManager() {
     installDialog, historyDialog, impactDialog, allPlugins, capabilityLabel, visibleCapabilities, normalizedSearch, visiblePlugins, marketVisiblePlugins,
     marketVisibleUpdates, enabledCount, appCount, themeCount, themeSwatches, healthByPlugin, pluginHealthReport, pluginIcon,
     marketIcon, marketEntryIsSigned, healthText, healthTone, formatTime, loadPlugins, loadMarketSources, loadAll, addMarketSource,
-    removeMarketSource, saveMarketSources, loadMarket, checkMarketUpdates, installedVersion, confirmPreview, resolveImpactPreview, openInstall,
+    removeMarketSource, saveMarketSources, loadMarket, checkMarketUpdates, installedVersion, confirmPreview, resolveImpactPreview, handleImpactDialogVisible, openInstall,
     openUpdate, handleInstallFile, uploadForm, submitInstallDialog, togglePlugin, removePlugin, handlePluginCommand, openHistory,
     rollbackVersion, installFromMarket, openPluginApp,
+    uploading: uploadTransfer.uploading,
+    uploadProgress: uploadTransfer.progress,
+    uploadLoadedBytes: uploadTransfer.loadedBytes,
+    uploadTotalBytes: uploadTransfer.totalBytes,
+    formatFileSize, cancelPluginUpload, closeInstallDialog, handleInstallDialogVisible,
   };
 }

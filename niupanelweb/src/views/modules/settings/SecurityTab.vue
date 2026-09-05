@@ -114,20 +114,6 @@
           <div class="space-y-8">
             <div class="px-1">
               <div class="flex items-center justify-between mb-2">
-                <span class="text-sm font-bold text-default">Telegram 登录二次验证 (2FA)</span>
-                <el-switch v-model="tgConfig.login_2fa" @change="handleSaveTg2FA" :loading="savingTg2FA" />
-              </div>
-              <p class="text-[10px] text-muted leading-relaxed mb-3">
-                开启后，每次从 Web 端登录时需在绑定的 Telegram 机器人上点击“允许”方可进入系统。
-              </p>
-              <div v-if="!tgConfig.enabled" class="inline-flex items-center gap-2 px-3 py-1.5 bg-amber-500/10 rounded-lg border border-amber-500/20">
-                <div class="i-ep-warning text-amber-600 text-xs"></div>
-                <span class="text-[10px] font-bold text-amber-700">Telegram 机器人未启用</span>
-              </div>
-            </div>
-
-            <div class="px-1">
-              <div class="flex items-center justify-between mb-2">
                 <span class="text-sm font-bold text-default">全局最大并发会话数</span>
                 <el-button type="primary" link @click="handleSaveMaxSessions" :loading="savingSecurity" class="!h-auto !p-0 text-[11px] font-bold">
                   应用限制
@@ -181,7 +167,6 @@ const {
   handleLogout,
   handleRevoke,
   handleSaveMaxSessions,
-  handleSaveTg2FA,
   handleUpdateProfile,
   loadSessions,
   loadingSessions,
@@ -195,9 +180,7 @@ const {
   savingPass,
   savingProfile,
   savingSecurity,
-  savingTg2FA,
   sessions,
-  tgConfig,
   userStore,
 } = useSecuritySettings();
 </script>

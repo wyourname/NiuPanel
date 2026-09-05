@@ -175,7 +175,7 @@ pub async fn proxy_plugin_api_request(
 #[utoipa::path(
     post,
     path = "/api/v1/plugins/{id}/invoke",
-    request_body = PluginInvokeRequest,
+    request_body = PluginActionInvokeRequest,
     responses(
         (status = 200, description = "Invoke an enabled native plugin action")
     ),
@@ -186,31 +186,63 @@ pub async fn invoke_plugin_action(
     State(state): State<AppState>,
     Extension(user): Extension<AuthenticatedUser>,
     AxumPath(plugin_id): AxumPath<String>,
-    Json(payload): Json<PluginInvokeRequest>,
+    headers: HeaderMap,
+    Json(payload): Json<PluginActionInvokeRequest>,
 ) -> Result<ApiResponse<Value>> {
     let action = payload.action.clone();
-    let result = async {
+    let result: Result<Value> = async {
         let service = unified_plugin_service();
-        let record = service.get_plugin(&plugin_id)?;
         ensure_plugin_ui_access(&plugin_id, &user)?;
-
-        if !record.enabled || !matches!(record.status, PluginStatus::Enabled) {
-            return Err(AppError::ValidationError(
-                "Plugin is not enabled".to_string(),
-            ));
+        let identity = ui_invocation_identity(&user, &payload, &headers);
+        let gateway = crate::modules::agent_tools::AgentToolGateway::for_plugin(
+            state.clone(),
+            user.clone(),
+            &plugin_id,
+            identity,
+        )
+        .await?;
+        let coordination_scope = gateway.coordination_scope();
+        let _session_guard =
+            crate::modules::agent_invocations::acquire_session(&coordination_scope).await;
+        let idempotency = crate::modules::agent_invocations::begin(
+            &coordination_scope,
+            &action,
+            payload.client_request_id.as_deref(),
+            &payload.input,
+        )
+        .await?;
+        let crate::modules::agent_invocations::IdempotencyDecision::Execute(token) = idempotency
+        else {
+            let crate::modules::agent_invocations::IdempotencyDecision::Replay(output) =
+                idempotency
+            else {
+                unreachable!()
+            };
+            return Ok(output);
+        };
+        let invocation_context = gateway
+            .invocation_context(PluginActionCaller::Ui, payload.client_request_id.as_deref());
+        let result = service
+            .invoke_action_with_tools_context(
+                &plugin_id,
+                PluginActionCaller::Ui,
+                payload,
+                Some(invocation_context),
+                gateway.definitions(),
+                gateway.handler(),
+            )
+            .await
+            .map(|response| response.output);
+        match &result {
+            Ok(output) => crate::modules::agent_invocations::complete(token, output).await,
+            Err(_) => crate::modules::agent_invocations::fail(token).await,
         }
-        if !plugin_ui_may_invoke(&record.manifest.capabilities) {
-            return Err(AppError::ValidationError(
-                "Plugin does not declare ui.invoke capability".to_string(),
-            ));
-        }
-
-        service.invoke_plugin(&plugin_id, payload).await
+        result
     }
     .await;
 
     match result {
-        Ok(response) => {
+        Ok(output) => {
             audit_plugin_invoke(
                 &state,
                 &user,
@@ -220,7 +252,7 @@ pub async fn invoke_plugin_action(
                 None,
             )
             .await;
-            Ok(ApiResponse::success(response.output))
+            Ok(ApiResponse::success(output))
         }
         Err(error) => {
             audit_plugin_invoke(
@@ -237,9 +269,121 @@ pub async fn invoke_plugin_action(
     }
 }
 
-fn plugin_ui_may_invoke(capabilities: &[String]) -> bool {
-    plugin_has_capability(capabilities, "ui.invoke")
-        || plugin_has_capability(capabilities, "agents.invoke")
+#[utoipa::path(
+    post,
+    path = "/api/v1/plugins/{id}/invoke/stream",
+    request_body = PluginActionInvokeRequest,
+    responses(
+        (status = 200, description = "Stream an enabled native plugin action as server-sent events")
+    ),
+    tag = "Plugins",
+    security(("session_cookie" = []))
+)]
+pub async fn stream_plugin_action(
+    State(state): State<AppState>,
+    Extension(user): Extension<AuthenticatedUser>,
+    AxumPath(plugin_id): AxumPath<String>,
+    headers: HeaderMap,
+    Json(payload): Json<PluginActionInvokeRequest>,
+) -> Result<Response> {
+    ensure_plugin_ui_access(&plugin_id, &user)?;
+    ensure_action_supports_streaming(&plugin_id, PluginActionCaller::Ui, &payload.action)?;
+    let identity = ui_invocation_identity(&user, &payload, &headers);
+    let gateway = crate::modules::agent_tools::AgentToolGateway::for_plugin(
+        state.clone(),
+        user.clone(),
+        &plugin_id,
+        identity,
+    )
+    .await?;
+    let coordination_scope = gateway.coordination_scope();
+    let session_guard =
+        crate::modules::agent_invocations::acquire_session(&coordination_scope).await;
+    let idempotency = crate::modules::agent_invocations::begin(
+        &coordination_scope,
+        &payload.action,
+        payload.client_request_id.as_deref(),
+        &payload.input,
+    )
+    .await?;
+    let token = match idempotency {
+        crate::modules::agent_invocations::IdempotencyDecision::Execute(token) => token,
+        crate::modules::agent_invocations::IdempotencyDecision::Replay(output) => {
+            return Ok(completed_plugin_invocation_sse_response(output));
+        }
+    };
+    let tools = gateway.definitions();
+    let invocation_context =
+        gateway.invocation_context(PluginActionCaller::Ui, payload.client_request_id.as_deref());
+    let tool_handler = gateway.handler();
+    let (sender, receiver) = tokio::sync::mpsc::channel(32);
+    let cancellation = tokio_util::sync::CancellationToken::new();
+    let invocation_cancellation = cancellation.clone();
+    let action = payload.action.clone();
+    let audit_state = state.clone();
+    let audit_user = user.clone();
+    let audit_plugin_id = plugin_id.clone();
+    tokio::spawn(async move {
+        let _session_guard = session_guard;
+        let event_sender = sender.clone();
+        let result = unified_plugin_service()
+            .invoke_action_stream_with_tools_context_cancellable(
+                &plugin_id,
+                PluginActionCaller::Ui,
+                payload,
+                Some(invocation_context),
+                tools,
+                niupanel_plugin::PluginStreamHandlers::new(tool_handler, move |event| {
+                    let event_sender = event_sender.clone();
+                    Box::pin(async move {
+                        event_sender
+                            .send(PluginInvocationSseMessage::Event(event))
+                            .await
+                            .map_err(|_| AppError::Cancelled)
+                    }) as niupanel_plugin::PluginStreamFuture
+                }),
+                invocation_cancellation,
+            )
+            .await;
+        match result {
+            Ok(response) => {
+                crate::modules::agent_invocations::complete(token, &response.output).await;
+                audit_plugin_invoke(
+                    &audit_state,
+                    &audit_user,
+                    "plugin.invoke.stream.completed",
+                    &audit_plugin_id,
+                    &action,
+                    None,
+                )
+                .await;
+                let _ = sender
+                    .send(PluginInvocationSseMessage::Result(response.output))
+                    .await;
+            }
+            Err(AppError::Cancelled) if sender.is_closed() => {
+                crate::modules::agent_invocations::fail(token).await;
+            }
+            Err(error) => {
+                crate::modules::agent_invocations::fail(token).await;
+                let (_, code, message) = error.get_meta();
+                audit_plugin_invoke(
+                    &audit_state,
+                    &audit_user,
+                    "plugin.invoke.stream.denied_or_failed",
+                    &audit_plugin_id,
+                    &action,
+                    Some(message.clone()),
+                )
+                .await;
+                let _ = sender
+                    .send(PluginInvocationSseMessage::Error { code, message })
+                    .await;
+            }
+        }
+    });
+
+    Ok(plugin_invocation_sse_response(receiver, cancellation))
 }
 
 async fn audit_plugin_request(
@@ -290,17 +434,4 @@ async fn audit_plugin_invoke(
         Some(details.to_string()),
     )
     .await;
-}
-
-#[cfg(test)]
-mod tests {
-    use super::plugin_ui_may_invoke;
-
-    #[test]
-    fn ui_invoke_accepts_native_and_legacy_agent_capabilities() {
-        assert!(plugin_ui_may_invoke(&["ui.invoke".to_string()]));
-        assert!(plugin_ui_may_invoke(&["agents.invoke".to_string()]));
-        assert!(plugin_ui_may_invoke(&["ui.*".to_string()]));
-        assert!(!plugin_ui_may_invoke(&["yyb.accounts".to_string()]));
-    }
 }

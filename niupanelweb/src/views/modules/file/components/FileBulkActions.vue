@@ -9,17 +9,20 @@
     @delete="emit('delete')"
   >
     <template #actions>
-      <div class="flex items-center gap-2">
-        <el-button type="primary" plain size="small" @click="emit('copy')">
+      <div class="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto no-scrollbar">
+        <el-button class="shrink-0" type="primary" plain size="small" @click="emit('copy')">
+          <div class="i-ep-copy-document mr-1"></div>
           复制
         </el-button>
-        <el-button type="primary" plain size="small" @click="emit('download')">
+        <el-button class="shrink-0" type="primary" plain size="small" @click="emit('download')">
+          <div class="i-ep-download mr-1"></div>
           打包下载
         </el-button>
-        <el-button type="danger" plain size="small" @click="emit('cut')">
+        <el-button class="shrink-0" type="danger" plain size="small" @click="emit('cut')">
+          <div class="i-ep-scissor mr-1"></div>
           剪切
         </el-button>
-        <el-button type="success" plain size="small" @click="emit('move')">
+        <el-button class="shrink-0" type="success" plain size="small" @click="emit('move')">
           <div class="i-ep-position mr-1"></div>
           移动
         </el-button>

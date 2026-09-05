@@ -12,6 +12,13 @@ pub(super) fn generic_plugin_app(plugin: PluginRecord) -> Option<PluginAppRecord
         version: plugin.manifest.version.clone(),
         description: plugin.manifest.description.clone(),
         capabilities: plugin.manifest.capabilities.clone(),
+        actions: plugin
+            .manifest
+            .actions
+            .iter()
+            .filter(|action| action.callers.contains(&PluginActionCaller::Ui))
+            .cloned()
+            .collect(),
         ui: app_ui(&plugin.manifest.id, ui, &entry_cache_key),
     })
 }

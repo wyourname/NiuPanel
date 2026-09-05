@@ -1,3 +1,6 @@
+pub mod agent_invocations;
+pub mod agent_policy;
+pub mod agent_tools;
 pub mod audit;
 pub mod auth;
 pub mod compiler;

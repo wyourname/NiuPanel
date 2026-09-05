@@ -49,7 +49,9 @@ impl<T: Serialize> IntoResponse for ApiResponse<T> {
             404 => StatusCode::NOT_FOUND,
             400 | 5008 | 5009 | 5017 => StatusCode::BAD_REQUEST,
             _ => {
-                if self.code >= 5000 {
+                if self.code == 5015 {
+                    StatusCode::TOO_MANY_REQUESTS
+                } else if self.code >= 5000 {
                     StatusCode::INTERNAL_SERVER_ERROR
                 } else if self.code >= 400 && self.code < 500 {
                     StatusCode::from_u16(self.code as u16).unwrap_or(StatusCode::BAD_REQUEST)

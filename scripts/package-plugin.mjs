@@ -167,7 +167,9 @@ async function readPackageIgnore(root) {
 
 async function validateManifest(root, manifest) {
   requireNumber(manifest.schema_version, "schema_version");
-  if (manifest.schema_version !== 1) fail("schema_version must be 1");
+  if (![1, 2].includes(manifest.schema_version)) {
+    fail("schema_version must be 1 or 2");
+  }
   requireIdentifier(manifest.id, "id");
   requireText(manifest.name, "name");
   requireText(manifest.version, "version");
@@ -184,18 +186,100 @@ async function validateManifest(root, manifest) {
   validateRuntimePermissions(manifest.runtime_permissions ?? []);
   if (!Array.isArray(manifest.capabilities)) fail("capabilities must be an array");
   for (const capability of manifest.capabilities) validateCapability(capability);
+  validateActions(manifest);
   if (manifest.ui?.enabled) await validateUi(root, manifest.ui);
   if (manifest.theme?.enabled) validateTheme(manifest.theme);
 }
 
+function validateActions(manifest) {
+  const actions = manifest.actions ?? [];
+  if (!Array.isArray(actions)) fail("actions must be an array");
+
+  const hasLegacyInvokeCapability = manifest.capabilities.some(
+    (capability) =>
+      capabilityMatches(capability, "ui.invoke") ||
+      capabilityMatches(capability, "agents.invoke"),
+  );
+  if (manifest.schema_version === 1) {
+    if (hasLegacyInvokeCapability || actions.length > 0) {
+      fail(
+        "plugin invocation requires schema_version 2 and explicit actions[].callers",
+      );
+    }
+    return;
+  }
+
+  const actionNames = new Set();
+  for (const action of actions) {
+    if (!action || typeof action !== "object" || Array.isArray(action)) {
+      fail("actions[] must be an object");
+    }
+    requireText(action.name, "actions[].name");
+    if (
+      action.name.length > 80 ||
+      !/^[a-z0-9_-]+(?:\.[a-z0-9_-]+)*$/.test(action.name)
+    ) {
+      fail(`invalid plugin action name: ${action.name}`);
+    }
+    if (actionNames.has(action.name)) {
+      fail(`duplicate plugin action: ${action.name}`);
+    }
+    actionNames.add(action.name);
+
+    if (!Array.isArray(action.callers) || action.callers.length === 0) {
+      fail(`plugin action ${action.name} must declare at least one caller`);
+    }
+    const callers = new Set();
+    for (const caller of action.callers) {
+      if (!["ui", "task", "api_key", "telegram"].includes(caller)) {
+        fail(`unsupported caller for plugin action ${action.name}: ${caller}`);
+      }
+      if (callers.has(caller)) {
+        fail(`duplicate caller for plugin action ${action.name}: ${caller}`);
+      }
+      callers.add(caller);
+    }
+
+    const timeout = action.timeout_sec ?? 30;
+    if (!Number.isInteger(timeout) || timeout < 1 || timeout > 180) {
+      fail(`plugin action ${action.name} timeout_sec must be between 1 and 180`);
+    }
+    if (action.streaming !== undefined && typeof action.streaming !== "boolean") {
+      fail(`plugin action ${action.name} streaming must be a boolean`);
+    }
+    if (action.streaming === true && manifest.protocol !== "json_lines") {
+      fail(`plugin action ${action.name} streaming requires protocol=json_lines`);
+    }
+    if (
+      action.input_schema !== undefined &&
+      action.input_schema !== null &&
+      typeof action.input_schema !== "boolean" &&
+      (typeof action.input_schema !== "object" ||
+        Array.isArray(action.input_schema))
+    ) {
+      fail(`plugin action ${action.name} input_schema must be a JSON Schema`);
+    }
+  }
+}
+
+function capabilityMatches(capability, required) {
+  const normalized = capability.trim();
+  if (normalized === required) return true;
+  if (!normalized.endsWith(".*")) return false;
+  return required.startsWith(`${normalized.slice(0, -2)}.`);
+}
+
 function validateRuntimePermissions(permissions) {
   if (!Array.isArray(permissions)) fail("runtime_permissions must be an array");
-  const allowed = new Set(["network_outbound"]);
+  const allowed = new Set(["network_outbound", "network_outbound_all_ports"]);
   const seen = new Set();
   for (const permission of permissions) {
     if (!allowed.has(permission)) fail(`unsupported runtime permission: ${permission}`);
     if (seen.has(permission)) fail(`duplicate runtime permission: ${permission}`);
     seen.add(permission);
+  }
+  if (seen.has("network_outbound") && seen.has("network_outbound_all_ports")) {
+    fail("network_outbound and network_outbound_all_ports are mutually exclusive");
   }
 }
 

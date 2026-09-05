@@ -76,6 +76,15 @@ pub(super) fn preview_plugin_impact(
                 .to_string(),
         );
     }
+    if candidate
+        .runtime_permissions
+        .contains(&PluginRuntimePermission::NetworkOutboundAllPorts)
+    {
+        warnings.push(
+            "插件后端申请任意 TCP 端口出站权限，可连接公网、本机及内网服务并向其发送处理数据"
+                .to_string(),
+        );
+    }
 
     let current = if let Some(current_id) = current_id {
         installed_plugin_candidate(extension, current_id)?

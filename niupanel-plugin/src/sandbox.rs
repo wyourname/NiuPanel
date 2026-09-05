@@ -1,5 +1,38 @@
 use super::*;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum PluginNetworkPolicy {
+    Disabled,
+    WebPorts,
+    AllPorts,
+}
+
+impl PluginNetworkPolicy {
+    fn allows_outbound(self) -> bool {
+        !matches!(self, Self::Disabled)
+    }
+
+    fn environment_value(self) -> &'static str {
+        match self {
+            Self::Disabled => "disabled",
+            Self::WebPorts => "web_ports",
+            Self::AllPorts => "all_ports",
+        }
+    }
+}
+
+pub(super) fn plugin_network_policy(
+    permissions: &[PluginRuntimePermission],
+) -> PluginNetworkPolicy {
+    if permissions.contains(&PluginRuntimePermission::NetworkOutboundAllPorts) {
+        PluginNetworkPolicy::AllPorts
+    } else if permissions.contains(&PluginRuntimePermission::NetworkOutbound) {
+        PluginNetworkPolicy::WebPorts
+    } else {
+        PluginNetworkPolicy::Disabled
+    }
+}
+
 #[cfg(target_os = "linux")]
 pub(super) fn secure_plugin_data_dir(data_dir: &Path) -> Result<()> {
     use std::os::unix::fs::PermissionsExt;
@@ -57,6 +90,7 @@ pub(super) fn sandboxed_plugin_command(
     fs::create_dir_all(&plugin_temp_dir)?;
     secure_plugin_data_dir(&plugin_temp_dir)?;
     let mut command = Command::new(entry_path);
+    let network_policy = plugin_network_policy(&spec.runtime_permissions);
     command
         .args(&spec.args)
         .current_dir(plugin_dir)
@@ -78,18 +112,16 @@ pub(super) fn sandboxed_plugin_command(
         .env("NIUPANEL_PLUGIN_ID", &spec.plugin_id)
         .env("NIUPANEL_PLUGIN_EXTENSION", &spec.extension_point)
         .env("NIUPANEL_AGENT_ID", &spec.plugin_id)
-        .env("NIUPANEL_PLUGIN_DATA_DIR", plugin_data_dir);
+        .env("NIUPANEL_PLUGIN_DATA_DIR", plugin_data_dir)
+        .env(
+            "NIUPANEL_PLUGIN_NETWORK_POLICY",
+            network_policy.environment_value(),
+        );
     for (key, value) in &spec.env {
         command.env(key, value);
     }
 
-    configure_plugin_sandbox(
-        &mut command,
-        plugin_dir,
-        plugin_data_dir,
-        spec.runtime_permissions
-            .contains(&PluginRuntimePermission::NetworkOutbound),
-    )?;
+    configure_plugin_sandbox(&mut command, plugin_dir, plugin_data_dir, network_policy)?;
     Ok(command)
 }
 
@@ -98,12 +130,12 @@ pub(super) fn configure_plugin_sandbox(
     command: &mut Command,
     plugin_dir: &Path,
     plugin_data_dir: &Path,
-    network_outbound: bool,
+    network_policy: PluginNetworkPolicy,
 ) -> Result<()> {
     use std::os::unix::process::CommandExt;
 
     let mut ruleset = if plugin_sandbox_capability().landlock_abi.is_some() {
-        match create_landlock_ruleset(plugin_dir, plugin_data_dir, network_outbound) {
+        match create_landlock_ruleset(plugin_dir, plugin_data_dir, network_policy) {
             Ok(ruleset) => Some(ruleset),
             Err(error) => {
                 niupanel_common::warn!(
@@ -119,7 +151,7 @@ pub(super) fn configure_plugin_sandbox(
     unsafe {
         command.as_std_mut().pre_exec(move || {
             drop_plugin_privileges()?;
-            install_plugin_process_guards(network_outbound)?;
+            install_plugin_process_guards(network_policy.allows_outbound())?;
             if let Some(ruleset) = ruleset.take() {
                 // Landlock is an optional filesystem hardening layer. Older kernels
                 // continue with UID isolation, no_new_privs and seccomp.
@@ -154,7 +186,7 @@ pub(super) fn configure_plugin_sandbox(
     _command: &mut Command,
     _plugin_dir: &Path,
     _plugin_data_dir: &Path,
-    _network_outbound: bool,
+    _network_policy: PluginNetworkPolicy,
 ) -> Result<()> {
     Err(AppError::ValidationError(
         "Process plugins require Linux Landlock sandbox support".to_string(),
@@ -165,7 +197,7 @@ pub(super) fn configure_plugin_sandbox(
 pub(super) fn create_landlock_ruleset(
     plugin_dir: &Path,
     plugin_data_dir: &Path,
-    network_outbound: bool,
+    network_policy: PluginNetworkPolicy,
 ) -> Result<landlock::RulesetCreated> {
     use landlock::{
         ABI, Access, AccessFs, AccessNet, CompatLevel, Compatible, NetPort, Ruleset, RulesetAttr,
@@ -210,7 +242,7 @@ pub(super) fn create_landlock_ruleset(
     let mut ruleset = Ruleset::default()
         .set_compatibility(CompatLevel::BestEffort)
         .handle_access(AccessFs::from_all(abi));
-    if network_outbound {
+    if network_policy == PluginNetworkPolicy::WebPorts {
         ruleset = ruleset.and_then(|ruleset| {
             ruleset
                 .set_compatibility(CompatLevel::BestEffort)
@@ -244,7 +276,7 @@ pub(super) fn create_landlock_ruleset(
             AppError::ValidationError(format!("Failed to prepare Landlock sandbox: {error}"))
         })?;
 
-    if network_outbound {
+    if network_policy == PluginNetworkPolicy::WebPorts {
         for port in PLUGIN_WEB_PORTS {
             ruleset = ruleset
                 .add_rule(
@@ -406,6 +438,14 @@ pub(super) fn validate_plugin_runtime_permissions(
             )));
         }
     }
+    if seen.contains(&PluginRuntimePermission::NetworkOutbound)
+        && seen.contains(&PluginRuntimePermission::NetworkOutboundAllPorts)
+    {
+        return Err(AppError::ValidationError(
+            "Plugin runtime permissions 'network_outbound' and 'network_outbound_all_ports' are mutually exclusive"
+                .to_string(),
+        ));
+    }
     Ok(())
 }
 
@@ -413,12 +453,68 @@ pub(super) fn absolute_existing_path(path: &Path) -> Result<PathBuf> {
     fs::canonicalize(path).map_err(AppError::from)
 }
 
-pub(super) async fn read_limited<R>(reader: R) -> std::io::Result<Vec<u8>>
+pub(super) async fn read_limited<R>(reader: R) -> Result<Vec<u8>>
 where
     R: tokio::io::AsyncRead + Unpin,
 {
-    let mut reader = reader.take(MAX_PROCESS_OUTPUT_BYTES as u64);
+    let mut reader = reader.take((MAX_PROCESS_OUTPUT_BYTES + 1) as u64);
     let mut output = Vec::new();
     reader.read_to_end(&mut output).await?;
+    if output.len() > MAX_PROCESS_OUTPUT_BYTES {
+        return Err(AppError::ExternalApi(format!(
+            "Process plugin output exceeds the {} byte limit",
+            MAX_PROCESS_OUTPUT_BYTES
+        )));
+    }
     Ok(output)
+}
+
+pub(super) async fn read_line_limited<R>(reader: &mut R) -> Result<Option<String>>
+where
+    R: AsyncBufRead + Unpin,
+{
+    let mut output = Vec::new();
+    loop {
+        let available = reader.fill_buf().await?;
+        if available.is_empty() {
+            if output.is_empty() {
+                return Ok(None);
+            }
+            break;
+        }
+        let end = available
+            .iter()
+            .position(|byte| *byte == b'\n')
+            .map_or(available.len(), |position| position + 1);
+        if output.len() + end > MAX_PROCESS_OUTPUT_BYTES + 1 {
+            return Err(AppError::ExternalApi(format!(
+                "Process plugin JSON Lines frame exceeds the {} byte limit",
+                MAX_PROCESS_OUTPUT_BYTES
+            )));
+        }
+        let has_newline = available.get(end.saturating_sub(1)) == Some(&b'\n');
+        output.extend_from_slice(&available[..end]);
+        reader.consume(end);
+        if has_newline {
+            if output.len().saturating_sub(1) > MAX_PROCESS_OUTPUT_BYTES {
+                return Err(AppError::ExternalApi(format!(
+                    "Process plugin JSON Lines frame exceeds the {} byte limit",
+                    MAX_PROCESS_OUTPUT_BYTES
+                )));
+            }
+            break;
+        }
+        if output.len() > MAX_PROCESS_OUTPUT_BYTES {
+            return Err(AppError::ExternalApi(format!(
+                "Process plugin JSON Lines frame exceeds the {} byte limit",
+                MAX_PROCESS_OUTPUT_BYTES
+            )));
+        }
+    }
+
+    String::from_utf8(output).map(Some).map_err(|error| {
+        AppError::Serialization(format!(
+            "Process plugin returned a non-UTF-8 JSON Lines frame: {error}"
+        ))
+    })
 }

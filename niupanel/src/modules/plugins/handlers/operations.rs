@@ -56,50 +56,6 @@ pub async fn install_plugin(
 }
 
 #[utoipa::path(
-    post,
-    path = "/api/v1/plugins/preview-upload",
-    responses(
-        (status = 200, description = "Preview uploaded plugin installation")
-    ),
-    tag = "Plugins",
-    security(("session_cookie" = []))
-)]
-pub async fn preview_upload_install_plugin(
-    multipart: Multipart,
-) -> Result<ApiResponse<PluginImpactPreview>> {
-    lifecycle::preview_upload(
-        multipart,
-        ManifestCompatibility::PluginJsonOnly,
-        "Plugin",
-        |source_path| preview_plugin_impact("install", PLUGIN_CONTEXT, source_path, None),
-    )
-    .await
-}
-
-#[utoipa::path(
-    post,
-    path = "/api/v1/plugins/upload",
-    responses(
-        (status = 200, description = "Upload and install a plugin")
-    ),
-    tag = "Plugins",
-    security(("session_cookie" = []))
-)]
-pub async fn upload_install_plugin(multipart: Multipart) -> Result<ApiResponse<PluginRecord>> {
-    lifecycle::upload_install_with_preflight(
-        multipart,
-        ManifestCompatibility::PluginJsonOnly,
-        "Plugin",
-        |source_path| ensure_plugin_impact_allowed("install", PLUGIN_CONTEXT, source_path, None),
-        |source_path, enable| {
-            let record = unified_plugin_service().install_from_dir(source_path, enable)?;
-            Ok(record)
-        },
-    )
-    .await
-}
-
-#[utoipa::path(
     get,
     path = "/api/v1/plugins/{id}/versions",
     responses(
@@ -158,56 +114,6 @@ pub async fn update_plugin(
     Ok(ApiResponse::success(
         service.update_from_dir_async(&id, source_path).await?,
     ))
-}
-
-#[utoipa::path(
-    post,
-    path = "/api/v1/plugins/{id}/preview-upload-update",
-    responses(
-        (status = 200, description = "Preview uploaded plugin update impact")
-    ),
-    tag = "Plugins",
-    security(("session_cookie" = []))
-)]
-pub async fn preview_upload_update_plugin(
-    AxumPath(id): AxumPath<String>,
-    multipart: Multipart,
-) -> Result<ApiResponse<PluginImpactPreview>> {
-    lifecycle::preview_upload(
-        multipart,
-        ManifestCompatibility::PluginJsonOnly,
-        "Plugin",
-        |source_path| preview_plugin_impact("update", PLUGIN_CONTEXT, source_path, Some(&id)),
-    )
-    .await
-}
-
-#[utoipa::path(
-    post,
-    path = "/api/v1/plugins/{id}/upload-update",
-    responses(
-        (status = 200, description = "Upload and update a plugin")
-    ),
-    tag = "Plugins",
-    security(("session_cookie" = []))
-)]
-pub async fn upload_update_plugin(
-    AxumPath(id): AxumPath<String>,
-    multipart: Multipart,
-) -> Result<ApiResponse<PluginRecord>> {
-    let preview_id = id.clone();
-    let service = unified_plugin_service();
-    lifecycle::upload_update_with_preflight(
-        id,
-        multipart,
-        ManifestCompatibility::PluginJsonOnly,
-        "Plugin",
-        move |source_path| {
-            ensure_plugin_impact_allowed("update", PLUGIN_CONTEXT, source_path, Some(&preview_id))
-        },
-        move |id, source_path| async move { service.update_from_dir_async(&id, source_path).await },
-    )
-    .await
 }
 
 #[utoipa::path(

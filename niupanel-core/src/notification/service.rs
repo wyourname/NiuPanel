@@ -136,6 +136,7 @@ impl NotificationService {
         admin_chat_id: &str,
         text: &str,
         api_base_url: Option<&str>,
+        message_thread_id: Option<i32>,
     ) -> Result<()> {
         if token.is_empty() || admin_chat_id.is_empty() {
             return Err(AppError::ValidationError(
@@ -156,11 +157,14 @@ impl NotificationService {
 
         debug!("Sending Telegram request to: {}", url);
 
-        let payload = serde_json::json!({
+        let mut payload = serde_json::json!({
             "chat_id": admin_chat_id,
             "text": text,
             "parse_mode": "MarkdownV2"
         });
+        if let Some(message_thread_id) = message_thread_id {
+            payload["message_thread_id"] = serde_json::json!(message_thread_id);
+        }
 
         let res = client.post(&url).json(&payload).send().await.map_err(|e| {
             error!("Telegram request failed: {}", e);

@@ -145,7 +145,7 @@ fn default_bundled_web_dir() -> PathBuf {
 }
 
 fn default_plugin_signature_required() -> bool {
-    true
+    false
 }
 
 pub static CONFIG: OnceLock<Config> = OnceLock::new();
@@ -251,9 +251,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn mcp_host_allowlist_is_disabled_by_default() {
+    fn optional_security_features_are_disabled_by_default() {
         let config: Config = serde_json::from_str("{}").unwrap();
 
+        assert!(!config.plugin_signature_required);
         assert!(config.mcp_allowed_hosts.is_empty());
         assert_eq!(config.log_level, "warn");
     }

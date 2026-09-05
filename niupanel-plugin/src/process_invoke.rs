@@ -1,19 +1,23 @@
 use super::*;
 
-pub(super) async fn invoke_worker<F>(
-    worker: Arc<Mutex<ProcessWorker>>,
+pub(super) async fn invoke_worker<F, S>(
+    worker: &mut ProcessWorker,
     spec: ProcessPluginSpec,
     request: PluginInvokeRequest,
     tool_handler: &F,
+    stream: bool,
+    stream_handler: &S,
 ) -> Result<PluginInvokeResponse>
 where
     F: Fn(ProcessPluginToolCall) -> PluginToolFuture + Send + Sync,
+    S: Fn(ProcessPluginStreamEvent) -> PluginStreamFuture + Send + Sync,
 {
-    let mut worker = worker.lock().await;
     if worker.is_exited()? {
         *worker = ProcessWorker::spawn(&spec).await?;
     }
-    worker.invoke(&spec, request, tool_handler).await
+    worker
+        .invoke(&spec, request, tool_handler, stream, stream_handler)
+        .await
 }
 
 pub(super) async fn invoke_single_shot(
@@ -29,7 +33,7 @@ pub(super) async fn invoke_single_shot(
         )));
     }
 
-    let protocol_request = build_protocol_request(&spec, &request);
+    let protocol_request = build_protocol_request(&spec, &request, false);
     let request_id = protocol_request.request_id.clone();
     let payload = serde_json::to_vec(&protocol_request)?;
     let timeout_sec = timeout_sec_for(&spec, &request);
@@ -38,6 +42,7 @@ pub(super) async fn invoke_single_shot(
     let started = Instant::now();
     let mut command = sandboxed_plugin_command(&spec, &plugin_dir, &plugin_data_dir)?;
     command
+        .kill_on_drop(true)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -117,6 +122,7 @@ pub(super) async fn invoke_single_shot(
 pub(super) fn build_protocol_request(
     spec: &ProcessPluginSpec,
     request: &PluginInvokeRequest,
+    stream: bool,
 ) -> ProcessPluginRequest {
     ProcessPluginRequest {
         protocol_version: PROCESS_PROTOCOL_VERSION,
@@ -132,6 +138,8 @@ pub(super) fn build_protocol_request(
         input: request.input.clone(),
         capabilities: spec.capabilities.clone(),
         tools: spec.tools.clone(),
+        invocation_context: spec.invocation_context.clone(),
+        stream,
     }
 }
 

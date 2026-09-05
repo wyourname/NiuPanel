@@ -12,7 +12,7 @@ use crate::modules::auth::service::AuthenticatedUser;
 use axum::{
     Extension, Json,
     extract::{Multipart, Path as AxumPath, Query, State},
-    http::{HeaderValue, Method, StatusCode, header},
+    http::{HeaderMap, HeaderValue, Method, StatusCode, header},
     response::{IntoResponse, Response},
 };
 use niupanel_common::auth::permissions::Permission;
@@ -22,9 +22,9 @@ use niupanel_common::error::{AppError, Result};
 use niupanel_common::response::ApiResponse;
 use niupanel_core::audit::service::AuditService;
 use niupanel_plugin::{
-    PluginCompatibilityManifest, PluginDependency, PluginInvokeRequest, PluginManifest,
-    PluginRecord, PluginRuntimePermission, PluginStatus, PluginUiApiRule, PluginUiManifest,
-    PluginVersionRecord, plugin_has_capability, validate_plugin_capabilities,
+    PluginActionCaller, PluginActionInvokeRequest, PluginCompatibilityManifest, PluginDependency,
+    PluginManifest, PluginRecord, PluginRuntimePermission, PluginStatus, PluginUiApiRule,
+    PluginUiManifest, PluginVersionRecord, plugin_has_capability, validate_plugin_capabilities,
 };
 use serde_json::Value;
 use std::cmp::Ordering;
@@ -37,22 +37,62 @@ use std::time::UNIX_EPOCH;
 
 const MAX_PLUGIN_MARKET_INDEX_BYTES: usize = 2 * 1024 * 1024;
 const PLUGIN_MARKET_SOURCES_KEY: &str = "plugins.market.sources";
+const APPROVAL_GRANT_HEADER: &str = "x-niupanel-approval-grant";
 
+fn invocation_session_id(payload: &PluginActionInvokeRequest) -> Option<String> {
+    payload
+        .input
+        .get("session_id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|session_id| !session_id.is_empty())
+        .map(ToString::to_string)
+}
+
+fn approval_grant_header(headers: &HeaderMap) -> Option<String> {
+    headers
+        .get(APPROVAL_GRANT_HEADER)
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string)
+}
+
+fn ui_invocation_identity(
+    user: &AuthenticatedUser,
+    payload: &PluginActionInvokeRequest,
+    headers: &HeaderMap,
+) -> crate::modules::agent_tools::AgentInvocationIdentity {
+    crate::modules::agent_tools::AgentInvocationIdentity {
+        principal: format!("user:{}", user.id),
+        channel: "ui".to_string(),
+        session_id: invocation_session_id(payload),
+        presented_grant: approval_grant_header(headers),
+        allow_implicit_grant: false,
+    }
+}
+
+mod approval;
 mod health;
 mod impact;
+mod invocation;
 mod market;
 mod operations;
 mod ui;
 mod ui_access;
 mod ui_manifest;
+mod upload_sessions;
 
+pub use approval::*;
 use health::*;
 use impact::*;
+pub use invocation::*;
 pub use market::*;
 pub use operations::*;
 pub use ui::*;
 use ui_access::*;
 use ui_manifest::*;
+pub use upload_sessions::*;
 
 #[cfg(test)]
 mod tests {
@@ -141,6 +181,32 @@ mod tests {
         assert!(permission_for_plugin_api_request(&Method::GET, "/files/file").is_err());
         assert!(permission_for_plugin_api_request(&Method::GET, "/settings").is_err());
         assert!(permission_for_plugin_api_request(&Method::POST, "/plugins/install").is_err());
+    }
+
+    #[test]
+    fn plugin_api_allows_only_the_explicit_bot_configuration_routes() {
+        assert_eq!(
+            permission_for_plugin_api_request(&Method::GET, "/bot").expect("read bot config"),
+            Some(Permission::SettingRead)
+        );
+        for (method, path) in [
+            (Method::PUT, "/bot"),
+            (Method::GET, "/bot/users"),
+            (Method::POST, "/bot/test"),
+        ] {
+            assert_eq!(
+                permission_for_plugin_api_request(&method, path).expect("manage bot config"),
+                Some(Permission::SettingUpdate)
+            );
+        }
+        for (method, path) in [
+            (Method::POST, "/bot"),
+            (Method::GET, "/bot/test"),
+            (Method::GET, "/bot/unknown"),
+            (Method::DELETE, "/bot"),
+        ] {
+            assert!(permission_for_plugin_api_request(&method, path).is_err());
+        }
     }
 
     #[test]

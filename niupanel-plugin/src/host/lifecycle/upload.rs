@@ -5,94 +5,93 @@ pub enum ManifestCompatibility {
     PluginJsonOnly,
 }
 
-#[allow(dead_code)]
-pub async fn upload_install<R, F>(
+pub struct PreparedPluginPackage {
+    _storage: TempDir,
+    package_root: PathBuf,
+    pub file_name: String,
+    pub compressed_size: u64,
+    pub extracted_size: u64,
+    pub sha256: String,
+    pub enable: bool,
+    pub operation: String,
+    pub target_plugin_id: Option<String>,
+}
+
+impl PreparedPluginPackage {
+    pub fn package_root(&self) -> &Path {
+        &self.package_root
+    }
+}
+
+pub async fn prepare_plugin_package_upload(
     multipart: Multipart,
+    upload_root: PathBuf,
     compatibility: ManifestCompatibility,
     package_label: &str,
-    install: F,
-) -> Result<ApiResponse<R>>
-where
-    F: FnOnce(PathBuf, bool) -> Result<R>,
-{
-    upload_install_with_preflight(multipart, compatibility, package_label, |_| Ok(()), install)
+) -> Result<PreparedPluginPackage> {
+    tokio::fs::create_dir_all(&upload_root)
         .await
-}
+        .map_err(AppError::Io)?;
+    let storage = tempfile::Builder::new()
+        .prefix("session-")
+        .tempdir_in(&upload_root)
+        .map_err(AppError::Io)?;
+    let package = read_plugin_package_upload(multipart, storage.path()).await?;
+    let UploadedPluginPackage {
+        file_name,
+        upload,
+        enable,
+        operation,
+        target_plugin_id,
+    } = package;
+    match (operation.as_str(), target_plugin_id.as_deref()) {
+        ("install", None) | ("update", Some(_)) => {}
+        ("install", Some(_)) => {
+            return Err(AppError::ValidationError(
+                "target_plugin_id is only valid for update uploads".to_string(),
+            ));
+        }
+        ("update", None) => {
+            return Err(AppError::ValidationError(
+                "target_plugin_id is required for update uploads".to_string(),
+            ));
+        }
+        _ => {
+            return Err(AppError::ValidationError(
+                "operation must be 'install' or 'update'".to_string(),
+            ));
+        }
+    }
+    let extraction_file_name = file_name.clone();
+    let compressed_size = upload.size;
+    let sha256 = upload.sha256.clone();
+    let package_label = package_label.to_string();
 
-pub async fn upload_install_with_preflight<R, F, P>(
-    multipart: Multipart,
-    compatibility: ManifestCompatibility,
-    package_label: &str,
-    preflight: P,
-    install: F,
-) -> Result<ApiResponse<R>>
-where
-    F: FnOnce(PathBuf, bool) -> Result<R>,
-    P: FnOnce(&Path) -> Result<()>,
-{
-    let package = read_plugin_package_upload(multipart).await?;
-    let extracted = extract_plugin_package_file(&package.file_name, package.upload.path.as_ref())?;
-    let package_root = resolve_plugin_package_root(extracted.path(), compatibility, package_label)?;
-    preflight(&package_root)?;
-    Ok(ApiResponse::success(install(package_root, package.enable)?))
-}
-
-#[allow(dead_code)]
-pub async fn upload_update<R, F, Fut>(
-    id: String,
-    multipart: Multipart,
-    compatibility: ManifestCompatibility,
-    package_label: &str,
-    update: F,
-) -> Result<ApiResponse<R>>
-where
-    F: FnOnce(String, PathBuf) -> Fut,
-    Fut: Future<Output = Result<R>>,
-{
-    upload_update_with_preflight(
-        id,
-        multipart,
-        compatibility,
-        package_label,
-        |_| Ok(()),
-        update,
-    )
+    let (storage, package_root, stats) = tokio::task::spawn_blocking(move || {
+        let extracted_root = storage.path().join("extracted");
+        let stats = extract_plugin_package_file_to(
+            &extraction_file_name,
+            upload.path.as_ref(),
+            &extracted_root,
+        )?;
+        let package_root =
+            resolve_plugin_package_root(&extracted_root, compatibility, &package_label)?;
+        Ok::<_, AppError>((storage, package_root, stats))
+    })
     .await
-}
+    .map_err(|err| AppError::Internal(format!("Plugin extraction task failed: {err}")))??;
 
-pub async fn upload_update_with_preflight<R, F, Fut, P>(
-    id: String,
-    multipart: Multipart,
-    compatibility: ManifestCompatibility,
-    package_label: &str,
-    preflight: P,
-    update: F,
-) -> Result<ApiResponse<R>>
-where
-    F: FnOnce(String, PathBuf) -> Fut,
-    Fut: Future<Output = Result<R>>,
-    P: FnOnce(&Path) -> Result<()>,
-{
-    let package = read_plugin_package_upload(multipart).await?;
-    let extracted = extract_plugin_package_file(&package.file_name, package.upload.path.as_ref())?;
-    let package_root = resolve_plugin_package_root(extracted.path(), compatibility, package_label)?;
-    preflight(&package_root)?;
-    Ok(ApiResponse::success(update(id, package_root).await?))
-}
-
-pub async fn preview_upload<R, P>(
-    multipart: Multipart,
-    compatibility: ManifestCompatibility,
-    package_label: &str,
-    preview: P,
-) -> Result<ApiResponse<R>>
-where
-    P: FnOnce(&Path) -> Result<R>,
-{
-    let package = read_plugin_package_upload(multipart).await?;
-    let extracted = extract_plugin_package_file(&package.file_name, package.upload.path.as_ref())?;
-    let package_root = resolve_plugin_package_root(extracted.path(), compatibility, package_label)?;
-    Ok(ApiResponse::success(preview(&package_root)?))
+    Ok(PreparedPluginPackage {
+        _storage: storage,
+        package_root,
+        file_name,
+        compressed_size,
+        extracted_size: stats.bytes,
+        sha256,
+        enable,
+        operation,
+        target_plugin_id,
+    })
 }
 
 pub fn preview_package_bytes<R, P>(

@@ -41,10 +41,11 @@ mod tests {
             .collect::<HashSet<_>>();
 
         assert_eq!(names.len(), info.tools.len());
-        assert_eq!(info.tools.len(), 49);
+        assert_eq!(info.tools.len(), 50);
         assert!(info.tools.iter().all(|tool| !tool.permission.is_empty()));
         assert!(names.contains("tasks_history"));
         assert!(names.contains("tasks_get_run_log"));
+        assert!(names.contains("tasks_wait"));
         assert!(names.contains("environments_list"));
         assert!(names.contains("environments_create"));
         assert!(names.contains("environments_install_packages"));

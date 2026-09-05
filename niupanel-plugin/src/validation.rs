@@ -166,6 +166,125 @@ pub fn validate_plugin_capabilities(capabilities: &[String]) -> Result<()> {
     Ok(())
 }
 
+pub fn validate_plugin_actions(manifest: &PluginManifest) -> Result<()> {
+    if !matches!(manifest.schema_version, 1 | 2) {
+        return Err(AppError::ValidationError(format!(
+            "Plugin schema_version {} is not supported; expected 1 or 2",
+            manifest.schema_version
+        )));
+    }
+
+    let legacy_invoke = plugin_has_capability(&manifest.capabilities, "ui.invoke")
+        || plugin_has_capability(&manifest.capabilities, "agents.invoke");
+    if manifest.schema_version == 1 {
+        if legacy_invoke || !manifest.actions.is_empty() {
+            return Err(AppError::ValidationError(
+                "Plugin invocation requires schema_version 2 and an explicit actions list; migrate ui.invoke/agents.invoke to actions[].callers"
+                    .to_string(),
+            ));
+        }
+        return Ok(());
+    }
+
+    let mut names = std::collections::HashSet::new();
+    for action in &manifest.actions {
+        validate_action_name(&action.name)?;
+        if !names.insert(action.name.as_str()) {
+            return Err(AppError::ValidationError(format!(
+                "Plugin action '{}' is duplicated",
+                action.name
+            )));
+        }
+        if action.callers.is_empty() {
+            return Err(AppError::ValidationError(format!(
+                "Plugin action '{}' must declare at least one caller",
+                action.name
+            )));
+        }
+        let unique_callers = action
+            .callers
+            .iter()
+            .copied()
+            .collect::<std::collections::HashSet<_>>();
+        if unique_callers.len() != action.callers.len() {
+            return Err(AppError::ValidationError(format!(
+                "Plugin action '{}' contains duplicate callers",
+                action.name
+            )));
+        }
+        if !(1..=MAX_PROCESS_TIMEOUT_SEC).contains(&action.timeout_sec) {
+            return Err(AppError::ValidationError(format!(
+                "Plugin action '{}' timeout_sec must be between 1 and {}",
+                action.name, MAX_PROCESS_TIMEOUT_SEC
+            )));
+        }
+        if action.streaming && !matches!(manifest.protocol, PluginProcessProtocol::JsonLines) {
+            return Err(AppError::ValidationError(format!(
+                "Plugin action '{}' enables streaming but the plugin protocol is not json_lines",
+                action.name
+            )));
+        }
+        if let Some(schema) = &action.input_schema {
+            jsonschema::meta::validate(schema).map_err(|error| {
+                AppError::ValidationError(format!(
+                    "Plugin action '{}' input_schema is invalid: {error}",
+                    action.name
+                ))
+            })?;
+            jsonschema::validator_for(schema).map_err(|error| {
+                AppError::ValidationError(format!(
+                    "Plugin action '{}' input_schema cannot be compiled: {error}",
+                    action.name
+                ))
+            })?;
+        }
+    }
+    Ok(())
+}
+
+pub fn validate_plugin_action_input(
+    action: &PluginActionManifest,
+    input: &serde_json::Value,
+) -> Result<()> {
+    let Some(schema) = &action.input_schema else {
+        return Ok(());
+    };
+    let validator = jsonschema::validator_for(schema).map_err(|error| {
+        AppError::ValidationError(format!(
+            "Plugin action '{}' input_schema cannot be compiled: {error}",
+            action.name
+        ))
+    })?;
+    if let Err(error) = validator.validate(input) {
+        return Err(AppError::ValidationError(format!(
+            "Plugin action '{}' input does not match input_schema: {error}",
+            action.name
+        )));
+    }
+    Ok(())
+}
+
+fn validate_action_name(name: &str) -> Result<()> {
+    let value = name.trim();
+    let valid = !value.is_empty()
+        && value.len() <= 80
+        && value.chars().all(|character| {
+            character.is_ascii_lowercase()
+                || character.is_ascii_digit()
+                || matches!(character, '-' | '_' | '.')
+        })
+        && !value.starts_with('.')
+        && !value.ends_with('.')
+        && !value.contains("..");
+    if valid {
+        Ok(())
+    } else {
+        Err(AppError::ValidationError(format!(
+            "Plugin action '{name}' is invalid"
+        )))
+    }
+}
+
 pub fn validate_plugin_capability(capability: &str) -> Result<()> {
     let value = capability.trim();
     let parts = value.split('.').collect::<Vec<_>>();
@@ -275,6 +394,10 @@ pub(super) fn validate_ui_identifier(value: &str, field: &str) -> Result<()> {
 
 pub(super) fn default_schema_version() -> u32 {
     1
+}
+
+pub(super) fn default_action_timeout_sec() -> u64 {
+    DEFAULT_PROCESS_TIMEOUT_SEC
 }
 
 pub(super) fn default_invoke_action() -> String {

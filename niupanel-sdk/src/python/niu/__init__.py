@@ -336,6 +336,32 @@ class NiuPanelSDK:
         response = self.session.delete(f"{self.base_url}/tasks/", headers=self._get_headers(), json={"ids": ids}, params=params)
         return self._handle_response(response)
 
+    # --- Plugins ---
+
+    def list_plugins(self) -> List[Dict[str, Any]]:
+        """列出当前 token 可以调用的插件。"""
+        response = self.session.get(f"{self.base_url}/plugins", headers=self._get_headers())
+        return self._handle_response(response)
+
+    def list_plugin_actions(self, plugin_id: str) -> List[Dict[str, Any]]:
+        """列出当前 token 可以调用的插件 Action。"""
+        encoded_id = url_parse.quote(str(plugin_id), safe="")
+        response = self.session.get(
+            f"{self.base_url}/plugins/{encoded_id}/actions",
+            headers=self._get_headers(),
+        )
+        return self._handle_response(response)
+
+    def invoke_plugin(self, plugin_id: str, action: str, input: Any = None) -> Any:
+        """调用插件 Action；超时和输入约束由插件 manifest 决定。"""
+        encoded_id = url_parse.quote(str(plugin_id), safe="")
+        response = self.session.post(
+            f"{self.base_url}/plugins/{encoded_id}/invoke",
+            headers=self._get_headers(),
+            json={"action": action, "input": input},
+        )
+        return self._handle_response(response)
+
     def get_task_logs(self, task_id: Union[int, str]) -> str:
         """
         获取任务最新日志内容

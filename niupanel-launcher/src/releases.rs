@@ -1,5 +1,4 @@
 use super::*;
-const BOOTSTRAP_INSTALLED_AT: &str = "1970-01-01T00:00:00Z";
 
 pub(crate) async fn ensure_panel_runtime(config: &LauncherConfig) -> Result<PanelRuntimeState> {
     if runtime_database_path(&config.system_root).exists() {
@@ -150,10 +149,9 @@ fn install_bootstrap_release(config: &LauncherConfig) -> Result<PanelReleaseDesc
         binary_sha256,
         built_at: None,
     });
-    let installed_at = core_manifest
-        .built_at
-        .clone()
-        .unwrap_or_else(|| BOOTSTRAP_INSTALLED_AT.to_string());
+    // A release's installation time is when it becomes available locally, not
+    // when its Core archive happened to be built.
+    let installed_at = Utc::now().to_rfc3339();
     let staging_root = config.system_root.join("staging").join(format!(
         "bootstrap-{}-{}",
         panel_version,

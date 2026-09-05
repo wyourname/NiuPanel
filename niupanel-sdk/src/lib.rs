@@ -143,9 +143,11 @@ mod tests {
 
         let py_content = fs::read_to_string(path.join("python/niu/__init__.py")).unwrap();
         assert!(py_content.contains("class NiuPanelSDK"));
+        assert!(py_content.contains("def invoke_plugin"));
         assert!(py_content.contains("headers[\"X-API-Key\"] = self.api_key"));
 
         let node_content = fs::read_to_string(path.join("node/niu/index.js")).unwrap();
+        assert!(node_content.contains("async invokePlugin"));
         assert!(node_content.contains("headers[\"X-API-Key\"] = this.apiKey"));
 
         let manifest = fs::read_to_string(path.join(MANIFEST_FILE)).unwrap();

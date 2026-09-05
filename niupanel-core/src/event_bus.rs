@@ -40,53 +40,14 @@ pub enum SystemNotification {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum AuthEvent {
-    LoginApprovalRequest {
-        ticket: String,
-        username: String,
-        ip: String,
-        timestamp: u64,
-    },
-    LoginApprovalResponse {
-        ticket: String,
-        approved: bool,
-    },
-    LoginOtpRequest {
-        username: String,
-        ip: String,
-        code: String,
-        timestamp: u64,
-    },
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum TelegramEvent {
-    MessageReceived {
-        chat_id: String,
-        username: Option<String>,
-        text: Option<String>,
-        file_name: Option<String>,
-        file_id: Option<String>,
-        timestamp: u64,
-    },
-    WorkflowTriggered {
-        workflow_id: i32,
-        task_id_context: Option<i32>,
-    },
     MessageSent {
         chat_id: String,
+        #[serde(default)]
+        thread_id: Option<i32>,
         text: Option<String>,
         file_name: Option<String>,
         timestamp: u64,
-    },
-    PackagePreviewRequest {
-        chat_id: String,
-        url: String,
-        staging_id: String,
-    },
-    PackageImportRequest {
-        staging_id: String,
-        user_id: i32,
     },
 }
 
@@ -95,7 +56,6 @@ pub enum SystemEvent {
     Task(TaskEvent),
     System(SystemNotification),
     Telegram(TelegramEvent),
-    Auth(AuthEvent),
 }
 
 #[derive(Clone)]

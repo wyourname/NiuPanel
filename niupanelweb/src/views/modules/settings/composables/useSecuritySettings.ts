@@ -7,22 +7,9 @@ import {
   type FormItemRule,
 } from "element-plus";
 import * as settingsApi from "@/api/settings";
-import * as telegramApi from "@/api/telegram";
 import * as userApi from "@/api/user";
 import { useUserStore } from "@/stores/user";
 import type { SessionInfo } from "@/types";
-
-const createTelegramConfig = (): telegramApi.TelegramBotConfig => ({
-  enabled: false,
-  token: "",
-  admin_chat_id: "",
-  events: [],
-  cf_proxy_enabled: false,
-  cf_host: "",
-  cf_ip: "",
-  cf_token: "",
-  login_2fa: false,
-});
 
 const validateForm = async (form: FormInstance) => {
   try {
@@ -94,9 +81,6 @@ export function useSecuritySettings() {
   const sessions = ref<SessionInfo[]>([]);
   const loadingSessions = ref(false);
 
-  const tgConfig = ref<telegramApi.TelegramBotConfig>(createTelegramConfig());
-  const savingTg2FA = ref(false);
-
   const loadSessions = async () => {
     loadingSessions.value = true;
     try {
@@ -118,11 +102,6 @@ export function useSecuritySettings() {
     const setting = res.data.find((item) => item.key === "auth.max_sessions");
     if (setting) maxSessions.value = Number(setting.value);
 
-    try {
-      const tgRes = await telegramApi.getTelegramConfig();
-      tgConfig.value = tgRes.data;
-    } catch {
-    }
   };
 
   const handleUpdateProfile = async () => {
@@ -192,20 +171,6 @@ export function useSecuritySettings() {
     }
   };
 
-  const handleSaveTg2FA = async () => {
-    savingTg2FA.value = true;
-    try {
-      await telegramApi.updateTelegramConfig(tgConfig.value);
-      ElMessage.success(
-        `Telegram 2FA 已${tgConfig.value.login_2fa ? "启用" : "禁用"}`,
-      );
-    } catch {
-      tgConfig.value.login_2fa = !tgConfig.value.login_2fa;
-    } finally {
-      savingTg2FA.value = false;
-    }
-  };
-
   const handleRevoke = async (id: string) => {
     try {
       await ElMessageBox.confirm("强制下线该设备？", "提示", { type: "warning" });
@@ -225,7 +190,6 @@ export function useSecuritySettings() {
     handleLogout,
     handleRevoke,
     handleSaveMaxSessions,
-    handleSaveTg2FA,
     handleUpdateProfile,
     loadSessions,
     loadingSessions,
@@ -239,9 +203,7 @@ export function useSecuritySettings() {
     savingPass,
     savingProfile,
     savingSecurity,
-    savingTg2FA,
     sessions,
-    tgConfig,
     userStore,
   };
 }

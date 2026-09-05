@@ -44,19 +44,6 @@ pub struct UserInfo {
 }
 
 #[derive(Serialize, ToSchema)]
-#[serde(untagged)]
-pub enum LoginResponse {
-    Requires2FA { ticket: String },
-    Success(UserInfo),
-}
-
-#[derive(Deserialize, ToSchema)]
-pub struct VerifyLogin2faRequest {
-    pub ticket: String,
-    pub code: String,
-}
-
-#[derive(Serialize, ToSchema)]
 pub struct SetupStatus {
     pub initialized: bool,
 }

@@ -6,6 +6,7 @@ export type ApiPermissionGroupId =
   | "job"
   | "sys"
   | "compiler"
+  | "plugin"
   | "webhook";
 
 export type ApiPermissionNavGroupId = "all" | ApiPermissionGroupId;
@@ -41,6 +42,7 @@ export const navGroups: Array<{
   { id: "job", label: "作业记录", icon: "i-ep-monitor" },
   { id: "sys", label: "系统与集成", icon: "i-ep-share" },
   { id: "compiler", label: "代码加密", icon: "i-ep-cpu" },
+  { id: "plugin", label: "插件调用", icon: "i-ep-connection" },
   { id: "webhook", label: "Webhook", icon: "i-ep-notification" },
 ];
 
@@ -133,6 +135,16 @@ export const permissionGroups: Record<
     perms: [
       { label: "读取编译器版本", value: "compiler:read" },
       { label: "执行代码加密", value: "compiler:run" },
+    ],
+  },
+  plugin: {
+    title: "插件调用 (Plugin)",
+    icon: "i-ep-connection",
+    color: "bg-teal-600",
+    perms: [
+      { label: "发现并调用插件 Action", value: "plugin:invoke" },
+      { label: "启用会话级 YOLO 模式", value: "plugin:approve" },
+      { label: "插件调用完全控制", value: "plugin:*" },
     ],
   },
   webhook: {

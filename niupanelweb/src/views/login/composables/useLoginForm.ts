@@ -3,7 +3,6 @@ import { useRouter } from "vue-router";
 import { ElMessage, type FormInstance, type FormRules } from "element-plus";
 import { login as apiLogin, register } from "@/api/auth";
 import { useUserStore } from "@/stores/user";
-import type { LoginResponse, UserInfo } from "@/types";
 import { getApiErrorMessage, getApiErrorStatus } from "./authError";
 
 export type LoginForm = {
@@ -17,10 +16,6 @@ export type LoginForm = {
 
 type ValidatorCallback = (error?: Error) => void;
 
-type UseLoginFormOptions = {
-  onTwoFactorRequired: (ticket: string) => void;
-};
-
 const createInitialForm = (): LoginForm => ({
   username: "",
   password: "",
@@ -30,15 +25,7 @@ const createInitialForm = (): LoginForm => ({
   mail_password: "",
 });
 
-const isTwoFactorLoginResponse = (data: LoginResponse): data is { ticket: string } => {
-  return "ticket" in data;
-};
-
-const isUserInfoResponse = (data: LoginResponse): data is UserInfo => {
-  return !isTwoFactorLoginResponse(data);
-};
-
-export function useLoginForm({ onTwoFactorRequired }: UseLoginFormOptions) {
+export function useLoginForm() {
   const router = useRouter();
   const userStore = useUserStore();
 
@@ -114,13 +101,9 @@ export function useLoginForm({ onTwoFactorRequired }: UseLoginFormOptions) {
             password: form.value.password,
           });
 
-          if (isTwoFactorLoginResponse(res.data)) {
-            onTwoFactorRequired(res.data.ticket);
-          } else if (isUserInfoResponse(res.data)) {
-            userStore.setUserInfo(res.data);
-            ElMessage.success("登录成功");
-            router.push({ name: "tasks" });
-          }
+          userStore.setUserInfo(res.data);
+          ElMessage.success("登录成功");
+          router.push({ name: "tasks" });
         } else {
           await register({
             ...form.value,

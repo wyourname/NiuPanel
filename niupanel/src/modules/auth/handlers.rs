@@ -1,21 +1,17 @@
 use crate::common::extractors::RealIp;
 use crate::common::state::AppState;
 pub use crate::modules::auth::models::{
-    ForgotPasswordRequest, IdentifyRequest, LoginRequest, LoginResponse, RegisterRequest,
-    ResetInfoResponse, ResetPasswordRequest, SetupStatus, UserInfo, VerifyCodeRequest,
-    VerifyLogin2faRequest,
+    ForgotPasswordRequest, IdentifyRequest, LoginRequest, RegisterRequest, ResetInfoResponse,
+    ResetPasswordRequest, SetupStatus, UserInfo, VerifyCodeRequest,
 };
 use crate::modules::auth::service::{AuthService, SessionService, USER_ID_KEY, USER_ROLE_KEY};
 use crate::modules::user::service::UserService;
 use axum::{Json, extract::State};
-use chrono::Utc;
 use niupanel_common::auth::permissions::UserRole;
 use niupanel_common::error::{AppError, Result};
 use niupanel_common::response::ApiResponse;
 use niupanel_core::audit::service::AuditService;
 use niupanel_core::settings::{AUTH_MAX_SESSIONS, SettingsManager};
-use niupanel_entity::users;
-use sea_orm::EntityTrait;
 use std::str::FromStr;
 use tower_sessions::Session;
 
@@ -93,7 +89,7 @@ pub async fn reset_password(
     path = "/api/v1/auth/login",
     request_body = LoginRequest,
     responses(
-        (status = 200, description = "Login successful", body = niupanel_common::response::ApiResponse<LoginResponse>),
+        (status = 200, description = "Login successful", body = niupanel_common::response::ApiResponse<UserInfo>),
         (status = 401, description = "Invalid credentials", body = niupanel_common::response::ApiResponse<Object>)
     ),
     tag = "Auth"
@@ -103,7 +99,7 @@ pub async fn login(
     session: Session,
     RealIp(ip): RealIp,
     Json(payload): Json<LoginRequest>,
-) -> Result<ApiResponse<LoginResponse>> {
+) -> Result<ApiResponse<UserInfo>> {
     AuthService::check_rate_limit(&state, &ip, &payload.username).await?;
 
     let (user_id, role) =
@@ -140,50 +136,6 @@ pub async fn login(
                 return Err(AppError::Auth("用户名或密码错误".to_string()));
             }
         };
-
-    let config_str = SettingsManager::get(&state.db, "plugin.telegram.config")
-        .await
-        .unwrap_or_default();
-    if !config_str.is_empty() {
-        if let Ok(config) =
-            serde_json::from_str::<niupanel_bot::telegram::TelegramBotConfig>(&config_str)
-        {
-            if config.enabled && config.login_2fa {
-                let ticket = nanoid::nanoid!(32);
-                let code: String = (0..6).map(|_| fastrand::digit(10)).collect();
-
-                state
-                    .login_2fa_cache
-                    .insert(ticket.clone(), (code.clone(), user_id))
-                    .await;
-
-                state
-                    .event_bus
-                    .publish(niupanel_core::event_bus::SystemEvent::Auth(
-                        niupanel_core::event_bus::AuthEvent::LoginOtpRequest {
-                            username: payload.username.clone(),
-                            ip: ip.clone(),
-                            code,
-                            timestamp: Utc::now().timestamp() as u64,
-                        },
-                    ));
-
-                AuditService::log(
-                    &state.db,
-                    Some(user_id),
-                    "User",
-                    "LOGIN_2FA_WAITING",
-                    "auth",
-                    None,
-                    Some(format!("用户 '{}' 正在等待 2FA 验证", payload.username)),
-                    Some(ip.clone()),
-                )
-                .await;
-
-                return Ok(ApiResponse::success(LoginResponse::Requires2FA { ticket }));
-            }
-        }
-    }
 
     let role_enum = UserRole::from_str(&role).unwrap_or(UserRole::User);
     let _ = UserService::record_login(&state.db, user_id, ip.clone()).await;
@@ -226,90 +178,11 @@ pub async fn login(
     )
     .await;
 
-    Ok(ApiResponse::success(LoginResponse::Success(UserInfo {
+    Ok(ApiResponse::success(UserInfo {
         id: user_id,
         username: payload.username,
         role: role_enum.as_ref().to_string(),
-    })))
-}
-
-#[utoipa::path(
-    post,
-    path = "/api/v1/auth/verify-2fa",
-    responses(
-        (status = 200, description = "Verify 2FA code for login")
-    ),
-    tag = "Auth"
-)]
-pub async fn verify_login_2fa(
-    State(state): State<AppState>,
-    session: Session,
-    RealIp(ip): RealIp,
-    Json(payload): Json<VerifyLogin2faRequest>,
-) -> Result<ApiResponse<UserInfo>> {
-    if let Some((stored_code, user_id)) = state.login_2fa_cache.get(&payload.ticket).await {
-        if stored_code == payload.code.trim() {
-            state.login_2fa_cache.invalidate(&payload.ticket).await;
-
-            let user = users::Entity::find_by_id(user_id)
-                .one(&state.db)
-                .await?
-                .ok_or_else(|| AppError::Auth("用户不存在".to_string()))?;
-
-            let role_enum = UserRole::from_str(&user.role).unwrap_or(UserRole::User);
-            let _ = UserService::record_login(&state.db, user.id, ip.clone()).await;
-
-            let max_sessions_str = SettingsManager::get(&state.db, AUTH_MAX_SESSIONS).await?;
-            let max_sessions = max_sessions_str.parse::<usize>().unwrap_or(2);
-            if max_sessions > 0 {
-                SessionService::cleanup_user_sessions(&state.db, user.id, max_sessions).await?;
-            }
-
-            session
-                .flush()
-                .await
-                .map_err(|_| AppError::Auth("无法初始化会话".into()))?;
-            session
-                .insert(USER_ID_KEY, user.id)
-                .await
-                .map_err(|e| AppError::Auth(format!("登录失败: {}", e)))?;
-            let _ = session
-                .insert(USER_ROLE_KEY, role_enum.as_ref().to_string())
-                .await;
-
-            AuthService::send_notification(
-                state.db.clone(),
-                state.event_bus.clone(),
-                "二次验证登录成功".into(),
-                format!("用户'{}'在{}完成二次验证并登录成功", user.username, ip),
-                "info",
-            );
-
-            AuditService::log(
-                &state.db,
-                Some(user.id),
-                "User",
-                "登录",
-                "auth",
-                None,
-                Some(format!("用户 {} 二次验证成功登录", user.username)),
-                Some(ip),
-            )
-            .await;
-
-            return Ok(ApiResponse::success(UserInfo {
-                id: user.id,
-                username: user.username,
-                role: role_enum.as_ref().to_string(),
-            }));
-        } else {
-            return Err(AppError::Auth("验证码不正确".to_string()));
-        }
-    }
-
-    Err(AppError::Auth(
-        "验证凭证无效或已过期，请重新登录".to_string(),
-    ))
+    }))
 }
 
 #[utoipa::path(

@@ -97,7 +97,7 @@
               <span v-if="release.active" class="release-badge bg-emerald-500/10 text-emerald-600 dark:text-emerald-300">当前</span>
               <span v-else-if="release.previous" class="release-badge bg-blue-500/10 text-blue-600 dark:text-blue-300">回退点</span>
             </div>
-            <p class="mt-1 text-[10px] text-muted">安装于 {{ formatDate(release.installed_at) }}</p>
+            <p class="mt-1 text-[10px] text-muted">{{ formatInstalledAt(release.installed_at) }}</p>
           </div>
           <el-button
             v-if="!release.active"
@@ -185,9 +185,17 @@ const rollback = async (version: string) => {
   }
 };
 
-const formatDate = (value: string) => {
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString("zh-CN");
+const formatInstalledAt = (value: string) => {
+  const normalized = value.trim();
+  const date = new Date(normalized);
+  if (
+    !normalized ||
+    Number.isNaN(date.getTime()) ||
+    date.getTime() <= 0
+  ) {
+    return "安装时间未知";
+  }
+  return `安装于 ${date.toLocaleString("zh-CN")}`;
 };
 
 onMounted(loadRuntime);
