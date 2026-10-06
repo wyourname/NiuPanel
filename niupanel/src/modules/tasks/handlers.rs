@@ -367,16 +367,15 @@ pub async fn stream_logs(
 
         // 1. Yield History
         if let Ok((history, offset)) = history_result {
-             if !history.is_empty() {
-                last_yielded_offset = Some(offset);
-                yield Ok(Event::default().event("history").data(history));
-             }
+            last_yielded_offset = Some(offset);
+            yield Ok(Event::default().event("history").id(offset.to_string()).data(history));
         }
 
         let mut rx = match rx_result {
             Ok(r) => r,
             Err(_) => {
                 yield Ok(Event::default().event("log").data(serde_json::json!("等待任务输出...").to_string()));
+                yield Ok(Event::default().event("end").data(""));
                 return;
             }
         };
@@ -394,12 +393,14 @@ pub async fn stream_logs(
                         last_yielded_offset = Some(event.offset);
                     }
                 }
-                Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
-                    yield Ok(Event::default().event("log").data(serde_json::json!({ "kind": "system", "content": format!("[系统] 缓冲区溢出，跳过了 {} 条日志.", skipped) }).to_string()));
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                    yield Ok(Event::default().event("resync").data(""));
+                    return;
                 }
                 Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
             }
         }
+        yield Ok(Event::default().event("end").data(""));
     };
     Sse::new(stream).keep_alive(axum::response::sse::KeepAlive::default())
 }
@@ -437,15 +438,16 @@ pub async fn stream_task_run_logs(
         let mut last_yielded_offset: Option<u64> = None;
 
         if let Ok(history) = history_result {
-            if !history.content.is_empty() {
-                last_yielded_offset = Some(history.total_size);
-                yield Ok(Event::default().event("history").data(history.content));
-            }
+            last_yielded_offset = Some(history.total_size);
+            yield Ok(Event::default().event("history").id(history.total_size.to_string()).data(history.content));
         }
 
         let mut rx = match rx_result {
             Ok(r) => r,
-            Err(_) => return,
+            Err(_) => {
+                yield Ok(Event::default().event("end").data(""));
+                return;
+            },
         };
 
         loop {
@@ -461,12 +463,14 @@ pub async fn stream_task_run_logs(
                         last_yielded_offset = Some(event.offset);
                     }
                 }
-                Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
-                    yield Ok(Event::default().event("log").data(serde_json::json!({ "kind": "system", "content": format!("[系统] 缓冲区溢出，跳过了 {} 条日志.", skipped) }).to_string()));
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                    yield Ok(Event::default().event("resync").data(""));
+                    return;
                 }
                 Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
             }
         }
+        yield Ok(Event::default().event("end").data(""));
     };
 
     Sse::new(stream).keep_alive(axum::response::sse::KeepAlive::default())

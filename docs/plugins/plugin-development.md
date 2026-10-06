@@ -163,7 +163,7 @@ Plugins must not open or migrate the panel database. Persistent plugin state
 is limited to non-database files under `NIUPANEL_PLUGIN_DATA_DIR`; panel business
 data must be read or changed through an explicitly allowed host API or tool call.
 
-Telegram 使用 Core 管理的可信传输通道调用 Agent Action。自然语言处理与面板操作属于
+Telegram 集成在 `niupanel-private-agents` 插件内，经 Core 校验绑定身份后调用同一插件的 Agent Action。自然语言处理与面板操作属于
 Agent 插件，Transport 不包含 Telegram 专属任务命令或 workflow；设计见
 [Telegram Agent 通道](telegram-bot.md)。
 

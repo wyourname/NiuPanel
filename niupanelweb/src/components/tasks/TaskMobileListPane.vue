@@ -93,50 +93,14 @@
       </div>
     </div>
 
-    <BulkActionBar
+    <MobileSelectionBar
       :count="selectedIds.length"
-      :show-select-all="true"
+      :actions="mobileActions"
       :is-all-selected="isAllSelected"
       @cancel="emit('cancel-selection')"
-      @delete="emit('bulk-delete')"
       @select-all="emit('select-all')"
-      @command="handleBulkCommand"
+      @command="handleSelectionCommand"
     >
-      <template #actions>
-        <el-button
-          link
-          type="primary"
-          class="!px-2 !py-1"
-          @click="emit('bulk-run')"
-        >
-          <div class="flex flex-col items-center gap-0.5">
-            <div class="i-ep-video-play text-[22px]"></div>
-            <span class="mt-0.5 text-[11px] opacity-80">运行</span>
-          </div>
-        </el-button>
-        <el-button
-          link
-          type="warning"
-          class="!px-2 !py-1"
-          @click="emit('bulk-pause')"
-        >
-          <div class="flex flex-col items-center gap-0.5">
-            <div class="i-ep-video-pause text-[22px]"></div>
-            <span class="mt-0.5 text-[11px] opacity-80">暂停</span>
-          </div>
-        </el-button>
-        <el-button
-          link
-          type="danger"
-          class="!px-2 !py-1"
-          @click="emit('bulk-stop')"
-        >
-          <div class="flex flex-col items-center gap-0.5">
-            <div class="i-ep-switch-button text-[20px]"></div>
-            <span class="mt-0.5 text-[11px] opacity-80">停止</span>
-          </div>
-        </el-button>
-      </template>
       <template #more>
         <el-dropdown-item command="resume">
           <div class="flex items-center gap-2">
@@ -175,7 +139,7 @@
           </div>
         </el-dropdown-item>
       </template>
-    </BulkActionBar>
+    </MobileSelectionBar>
 
   </div>
 </template>
@@ -188,7 +152,7 @@ import {
   type TaskBulkCommand,
 } from "../../composables/taskPageTypes";
 import { statusPills } from "../../composables/useTaskPresentation";
-import BulkActionBar from "../common/BulkActionBar.vue";
+import MobileSelectionBar from "../common/MobileSelectionBar.vue";
 import PullToRefresh from "../common/PullToRefresh.vue";
 import TaskCardList from "./TaskCardList.vue";
 
@@ -258,6 +222,20 @@ const statusValue = computed({
 
 const statusCount = (status: string) =>
   status === "all" ? props.allTasks.length : props.allTasks.filter((task) => task.status === status).length;
+
+const mobileActions = [
+  { command: 'run', label: '运行', icon: 'i-ep-video-play' },
+  { command: 'pause', label: '暂停', icon: 'i-ep-video-pause' },
+  { command: 'stop', label: '停止', icon: 'i-ep-switch-button' },
+  { command: 'delete', label: '删除', icon: 'i-ep-delete', danger: true },
+];
+const handleSelectionCommand = (command: string) => {
+  if (command === 'run') emit('bulk-run');
+  else if (command === 'pause') emit('bulk-pause');
+  else if (command === 'stop') emit('bulk-stop');
+  else if (command === 'delete') emit('bulk-delete');
+  else handleBulkCommand(command);
+};
 </script>
 
 <style scoped>

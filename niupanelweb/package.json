@@ -1,6 +1,6 @@
 {
   "name": "niupanelweb",
-  "version": "2.0.5",
+  "version": "2.0.6",
   "description": "Vue web and mobile interface for NiuPanel",
   "license": "Apache-2.0",
   "repository": {
@@ -10,7 +10,7 @@
   },
   "private": true,
   "type": "module",
-  "packageManager": "pnpm@11.18.0",
+  "packageManager": "pnpm@12.9.1",
   "engines": {
     "node": ">=22.13.0"
   },
@@ -21,6 +21,8 @@
     "verify:plugin-dev-browser": "node scripts/plugin-dev.browser.mjs",
     "build": "vite build",
     "verify:file-scroll-ui": "node scripts/verify-file-scroll-ui.mjs",
+    "verify:panel-reliability": "node scripts/verify-panel-reliability.mjs",
+    "verify:mobile-file-editor": "node scripts/verify-mobile-file-editor.mjs",
     "verify:mobile-responsive-ui": "node scripts/verify-mobile-responsive-ui.mjs",
     "verify:plugin-host-contract": "node scripts/verify-plugin-host-contract.mjs",
     "verify:plugin-route-contract": "node scripts/verify-plugin-route-contract.mjs",
@@ -44,6 +46,16 @@
     "@capacitor/keyboard": "^8.0.5",
     "@capacitor/local-notifications": "^8.2.1",
     "@capacitor/status-bar": "^8.0.3",
+    "@codemirror/commands": "^6.11.1",
+    "@codemirror/lang-javascript": "^6.2.5",
+    "@codemirror/lang-json": "^6.0.2",
+    "@codemirror/lang-python": "^6.2.1",
+    "@codemirror/language": "^6.12.4",
+    "@codemirror/legacy-modes": "^6.5.4",
+    "@codemirror/search": "^6.7.2",
+    "@codemirror/state": "^6.7.6",
+    "@codemirror/theme-one-dark": "^6.1.3",
+    "@codemirror/view": "^6.43.13",
     "@element-plus/icons-vue": "^2.3.2",
     "@guolao/vue-monaco-editor": "^1.6.0",
     "@unocss/preset-attributify": "^66.7.5",

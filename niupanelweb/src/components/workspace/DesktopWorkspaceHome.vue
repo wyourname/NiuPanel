@@ -1,6 +1,6 @@
 <template>
   <section
-    class="desktop-bg relative h-full overflow-hidden bg-base"
+    class="desktop-home relative h-full overflow-hidden bg-base"
     @contextmenu.prevent="openDesktopContextMenu"
     @dragenter.prevent="handleDesktopDragEnter"
     @dragleave.prevent="handleDesktopDragLeave"
@@ -8,7 +8,7 @@
     @drop.prevent="handleDesktopDrop"
   >
     <div class="absolute inset-0 z-10 overflow-y-auto no-scrollbar">
-      <div class="mx-auto flex min-h-full w-full max-w-[1180px] flex-col gap-5 px-6 pb-24 pt-8">
+      <div class="home-content">
         <!-- 签名元素:今日时间轴 -->
         <DesktopTimeline
           :stations="stations"
@@ -20,8 +20,9 @@
           @create="workspace.openTaskCreateWindow()"
         />
 
-        <!-- 小组件区 -->
-        <div class="grid grid-cols-1 gap-5 lg:grid-cols-3">
+        <div class="home-section-heading"><h2>工作动态</h2><span>运行状态与待处理事项</span></div>
+        <div class="home-work-grid">
+          <div class="home-activity">
           <DesktopWidget title="正在运行" :count="runningTasks.length" content-class="overflow-hidden">
             <div v-if="!runningTasks.length" class="flex h-full min-h-[96px] flex-col items-center justify-center text-center">
               <span class="i-ep-cpu text-[22px] text-muted opacity-60"></span>
@@ -30,20 +31,20 @@
             <DesktopTaskPager v-else :items="runningTasks" label="正在运行的任务">
               <template #item="{ task }">
                 <div
-                  class="group flex min-w-0 items-center gap-2 rounded-md px-2 py-1.5 transition-colors hover:bg-soft focus-within:bg-soft"
+                  class="home-task-row group flex min-w-0 items-center gap-3 rounded-md px-2 py-3 transition-colors hover:bg-soft focus-within:bg-soft"
                 >
                   <span class="h-2 w-2 shrink-0 rounded-full bg-emerald-500"></span>
                   <div class="min-w-0 flex-1">
                     <button
                       type="button"
-                      class="block w-full cursor-pointer truncate text-left text-[11px] font-semibold leading-4 text-default hover:text-primary focus-visible:outline-none"
+                      class="block w-full cursor-pointer truncate text-left text-[14px] font-semibold leading-5 text-default hover:text-primary focus-visible:outline-none"
                       @click="openTaskLog(task)"
                     >{{ task.name }}</button>
-                    <span class="block truncate font-mono text-[9px] leading-3 tabular-nums text-muted">{{ cpuUsage(task) }} · {{ memoryUsage(task) }}</span>
+                    <span class="block truncate font-mono text-[12px] leading-5 tabular-nums text-muted">{{ cpuUsage(task) }} · {{ memoryUsage(task) }}</span>
                   </div>
                   <button
                     type="button"
-                    class="h-7 w-7 shrink-0 cursor-pointer rounded-md danger-subtle opacity-0 flex-center transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400/40"
+                    class="h-7 w-7 shrink-0 cursor-pointer rounded-md danger-subtle opacity-75 flex-center transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400/40"
                     :aria-label="`停止任务 ${task.name}`"
                     title="停止"
                     @click="handleTaskAction('stop', task)"
@@ -63,20 +64,20 @@
             <DesktopTaskPager v-else :items="attentionTasks" label="需要处理的任务">
               <template #item="{ task }">
                 <div
-                  class="group flex min-w-0 items-center gap-2 rounded-md px-2 py-1.5 transition-colors hover:bg-soft focus-within:bg-soft"
+                  class="home-task-row group flex min-w-0 items-center gap-3 rounded-md px-2 py-3 transition-colors hover:bg-soft focus-within:bg-soft"
                 >
                   <span class="h-2 w-2 shrink-0 rounded-full" :class="getStatusDotClass(task)"></span>
                   <div class="min-w-0 flex-1">
                     <button
                       type="button"
-                      class="block w-full cursor-pointer truncate text-left text-[11px] font-semibold leading-4 text-default hover:text-primary focus-visible:outline-none"
+                      class="block w-full cursor-pointer truncate text-left text-[14px] font-semibold leading-5 text-default hover:text-primary focus-visible:outline-none"
                       @click="openTaskLog(task)"
                     >{{ task.name }}</button>
-                    <span class="block truncate text-[9px] font-semibold leading-3 text-muted">{{ getStatusLabel(task.status) }}</span>
+                    <span class="block truncate text-[12px] font-semibold leading-5 text-muted">{{ getStatusLabel(task.status) }}</span>
                   </div>
                   <button
                     type="button"
-                    class="h-7 w-7 shrink-0 cursor-pointer rounded-md accent-subtle opacity-0 flex-center transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                    class="h-7 w-7 shrink-0 cursor-pointer rounded-md accent-subtle opacity-75 flex-center transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
                     :aria-label="`重新运行任务 ${task.name}`"
                     title="重新运行"
                     @click="handleTaskAction('run', task)"
@@ -88,9 +89,10 @@
             </DesktopTaskPager>
           </DesktopWidget>
 
-          <DesktopWidget title="快捷操作" content-class="overflow-y-auto no-scrollbar">
+          </div>
+          <DesktopWidget class="home-tools" title="快捷操作" content-class="overflow-y-auto no-scrollbar">
             <div class="flex min-h-[96px] flex-col">
-              <div class="grid grid-cols-3 gap-2">
+              <div class="home-tool-links">
                 <button
                   type="button"
                   class="group flex min-w-0 cursor-pointer flex-col items-center gap-1.5 rounded-lg border border-light bg-card px-2 py-2.5 text-secondary transition-colors hover:border-primary/35 hover:bg-soft hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
@@ -253,3 +255,23 @@ onMounted(() => {
 });
 onUnmounted(() => taskStore.stopStatusStream());
 </script>
+
+<style scoped>
+.desktop-home { background: var(--bg-base); }
+.home-content { width: 100%; max-width: 1320px; margin: auto; padding: 40px 40px 104px; display: flex; flex-direction: column; gap: 24px; }
+.home-section-heading { display: flex; align-items: baseline; gap: 12px; margin-bottom: -10px; }
+.home-section-heading h2 { margin: 0; font-size: 18px; font-weight: 650; }
+.home-section-heading > span { color: var(--text-muted); font-size: 12px; }
+.home-work-grid { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 24px; align-items: start; }
+.home-activity { display: grid; gap: 16px; min-width: 0; }
+.home-activity :deep(.desktop-widget) { min-height: 140px; }
+.home-tools { background: var(--surface-inset); }
+.home-tool-links { display: grid; gap: 8px; margin-bottom: 16px; }
+.home-tool-links > button { flex-direction: row; justify-content: start; gap: 12px; padding: 12px; }
+.home-tool-links > button > span:last-child { font-size: 13px; }
+.home-task-row { border-bottom: 1px solid var(--border-light); }
+.home-task-row:last-child { border-bottom: 0; }
+.home-content :deep(button:focus-visible) { outline: 2px solid var(--el-color-primary); outline-offset: 3px; }
+@media (max-width: 1100px) { .home-content { padding: 28px 24px 104px; } .home-work-grid { grid-template-columns: minmax(0, 1fr) 260px; } }
+@media (max-width: 768px) { .home-content { padding: 24px 16px 100px; } .home-work-grid { grid-template-columns: 1fr; } }
+</style>

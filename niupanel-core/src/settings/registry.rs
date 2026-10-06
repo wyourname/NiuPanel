@@ -333,7 +333,7 @@ pub static SETTINGS_REGISTRY: LazyLock<HashMap<&'static str, SettingDef>> = Lazy
         },
         SettingDef {
             key: PNPM_NODE_DIST_MIRROR,
-            description: "pnpm runtime Node.js distribution mirror URL",
+            description: "Node.js prebuilt distribution mirror URL",
             default_value: "https://mirrors.ustc.edu.cn/node/".to_string(),
             validator: validate_url,
             env_var: Some("PNPM_NODE_DIST_MIRROR"),

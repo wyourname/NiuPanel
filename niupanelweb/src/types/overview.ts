@@ -21,27 +21,24 @@ export interface OverviewChartData {
   failed: number[];
 }
 
-export interface OverviewSystemInfo {
+export interface SystemMetrics {
   cpu_usage: number;
   memory_total: number;
   memory_used: number;
-  disk_total: number;
-  disk_used: number;
+  network_upload_speed?: number | null;
+  network_download_speed?: number | null;
   uptime: number;
   os_info: string;
+}
+
+export interface OverviewSystemInfo extends SystemMetrics {
+  disk_total: number;
+  disk_used: number;
   public_ip: string | null;
 }
 
-export interface OverviewData {
+export interface OverviewData extends OverviewSystemInfo {
   task_stats: OverviewTaskStats;
-  cpu_usage: number;
-  memory_total: number;
-  memory_used: number;
-  disk_total: number;
-  disk_used: number;
-  uptime: number;
-  os_info: string;
-  public_ip: string | null;
   recent_activity: OverviewActivityItem[];
   chart_data: OverviewChartData;
 }

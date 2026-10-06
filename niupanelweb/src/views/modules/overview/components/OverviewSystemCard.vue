@@ -42,6 +42,11 @@
               </div>
             </div>
 
+            <NetworkRateDisplay
+              :upload="sysInfo.network_upload_speed"
+              :download="sysInfo.network_download_speed"
+            />
+
             <div class="flex flex-col gap-1.5">
               <div class="flex justify-between items-center">
                 <span class="text-[10px] text-muted font-medium">磁盘</span>
@@ -59,7 +64,7 @@
             </div>
           </div>
 
-          <div class="mt-auto flex gap-2 border-t border-light/70 pt-4">
+          <div class="mt-4 flex gap-2 border-t border-light/70 pt-4">
             <el-button
               type="primary"
               class="flex-1 !h-9 !rounded-md !text-xs font-semibold"
@@ -85,6 +90,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import type { OverviewSystemInfo } from "@/types";
+import NetworkRateDisplay from "@/components/common/NetworkRateDisplay.vue";
 
 const props = defineProps<{
   diskPercentage: number;

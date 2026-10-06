@@ -171,7 +171,8 @@ pub struct ApiDocAuth;
         jobs::handlers::get_job,
         jobs::handlers::cancel_job,
         jobs::handlers::stream_job_logs,
-        jobs::handlers::get_latest_job_log
+        jobs::handlers::get_latest_job_log,
+        jobs::handlers::get_job_log_content
     ),
     components(schemas(
         niupanel_entity::tasks::Model,
@@ -246,6 +247,9 @@ pub struct ApiDocTasks;
         environment::handlers::set_mirror_source,
         overview::handlers::events_stream,
         overview::handlers::get_overview,
+        overview::handlers::get_metrics,
+        environment::mirror_settings::get_mirror_settings,
+        environment::mirror_settings::update_mirror_settings,
         system_key::handlers::list_api_keys,
         system_key::handlers::create_api_key,
         system_key::handlers::update_api_key,

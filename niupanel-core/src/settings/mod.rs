@@ -7,7 +7,7 @@ pub use niupanel_common::constants::settings::*;
 use niupanel_common::error::Result;
 use niupanel_entity::settings;
 pub use registry::{SETTINGS_REGISTRY, SettingDef};
-use sea_orm::{ActiveModelTrait, ConnectionTrait, EntityTrait, Set};
+use sea_orm::{ActiveModelTrait, ConnectionTrait, EntityTrait, Set, TransactionTrait};
 use std::collections::HashMap;
 
 // --- Settings Service (Stateful) ---
@@ -44,6 +44,26 @@ impl SettingsService {
                 value: value.to_string(),
             }));
 
+        Ok(())
+    }
+
+    /// Commits related settings together and only publishes changes after commit.
+    pub async fn set_many(&self, values: &[(&str, &str)]) -> Result<()> {
+        for (key, value) in values {
+            SettingsManager::validate(key, value)?;
+        }
+        let transaction = self.db.begin().await?;
+        for (key, value) in values {
+            SettingsManager::set(&transaction, key, value, None).await?;
+        }
+        transaction.commit().await?;
+        for (key, value) in values {
+            self.event_bus
+                .publish(SystemEvent::System(SystemNotification::SettingChanged {
+                    key: (*key).to_owned(),
+                    value: (*value).to_owned(),
+                }));
+        }
         Ok(())
     }
 

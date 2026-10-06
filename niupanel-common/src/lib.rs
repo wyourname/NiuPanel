@@ -9,6 +9,7 @@ pub mod metrics;
 pub mod models;
 pub mod panel_runtime;
 pub mod response;
+pub mod telegram_protocol;
 pub mod tools;
 #[cfg(feature = "axum")]
 pub mod upload;

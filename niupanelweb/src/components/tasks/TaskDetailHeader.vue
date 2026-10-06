@@ -1,114 +1,21 @@
 <template>
-  <header
-    class="h-14 px-4 flex items-center justify-between bg-card border-b border-base z-30 shrink-0 sticky top-0"
-  >
-    <div class="flex items-center gap-3 min-w-0">
-      <button
-        v-if="isMobile"
-        class="w-8 h-8 flex-center rounded-md bg-base text-muted hover:text-primary transition-colors cursor-pointer"
-        @click="emit('back')"
-      >
-        <div class="i-ep-arrow-left"></div>
+  <header :aria-label="task.name" class="task-detail-header" :class="{ 'task-detail-header--mobile': isMobile }">
+    <div class="task-detail-heading">
+      <button v-if="isMobile" type="button" class="task-detail-action task-detail-back" aria-label="返回任务列表" @click="emit('back')">
+        <span class="i-ep-arrow-left" aria-hidden="true"></span>
       </button>
-
-      <div class="flex flex-col min-w-0">
-        <div class="flex items-center gap-2">
-          <h2
-            class="text-[14px] font-bold text-default truncate max-w-[45vw] md:max-w-[320px]"
-          >
-            {{ task.name }}
-          </h2>
-
-          <div class="flex items-center gap-1.5 shrink-0">
-            <span
-              class="flex h-1.5 w-1.5 rounded-full"
-              :class="{
-                'bg-emerald-500': task.status === 'Running',
-                'bg-rose-500': task.status === 'Failed',
-                'bg-muted': task.status === 'Stopped' || !task.status,
-                'bg-amber-500': task.status === 'Paused'
-              }"
-            ></span>
-            <span class="text-[9px] font-mono text-muted">#{{ task.id }}</span>
-            <span
-              v-if="task.cron_schedule || task.random_config"
-              class="flex items-center gap-1 px-1.5 py-0.5 rounded bg-soft text-[9px] font-semibold text-secondary"
-            >
-              <div
-                :class="task.random_config ? 'i-ep-opportunity' : 'i-ep-timer'"
-                class="text-[10px]"
-              ></div>
-              {{ task.random_config ? "Random" : "Cron" }}
-            </span>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div class="flex items-center gap-2">
-      <button
-        v-if="activeTab === 'log'"
-        type="button"
-        class="w-8 h-8 shrink-0 flex-center rounded-md transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35"
-        :class="
-          showSearch
-            ? 'bg-primary text-white'
-            : 'text-secondary hover:bg-soft hover:text-primary bg-card border border-light'
-        "
-        title="搜索日志"
-        aria-label="搜索日志"
-        :aria-pressed="showSearch"
-        @click="emit('toggle-search')"
-      >
-        <div class="i-ep-search"></div>
+    <nav class="task-detail-tabs" aria-label="任务详情导航">
+      <button v-for="tab in detailTabs" :key="tab.value" type="button" :class="{ 'is-active': activeTab === tab.value }" :aria-pressed="activeTab === tab.value" @click="emit('update:activeTab', tab.value as TaskDetailTab)">
+        <span :class="tab.value === 'log' ? 'i-carbon-terminal' : tab.icon" aria-hidden="true"></span>
+        {{ tabLabels[tab.value] || tab.label }}
       </button>
-
-      <nav class="hidden lg:flex items-center gap-0.5 rounded-md border border-light bg-base p-0.5">
-        <button
-          v-for="t in detailTabs"
-          :key="t.value"
-          class="h-8 flex items-center gap-1.5 px-3 rounded text-[11px] font-semibold transition-colors cursor-pointer select-none"
-          :class="
-            activeTab === t.value
-              ? 'bg-card text-primary shadow-sm'
-              : 'text-muted hover:text-default hover:bg-soft'
-          "
-          @click="emit('update:activeTab', t.value as TaskDetailTab)"
-        >
-          <div :class="t.icon" class="text-xs"></div>
-          {{
-            {
-              log: "控制台",
-              var: "变量",
-              script: "编辑器",
-              info: "详情",
-            }[t.value] || t.label
-          }}
+    </nav>
+      <div class="task-detail-actions">
+        <button v-if="activeTab === 'log'" type="button" class="task-detail-action" :class="{ 'is-active': showSearch }" title="搜索日志" aria-label="搜索日志" :aria-pressed="showSearch" @click="emit('toggle-search')">
+          <span class="i-ep-search" aria-hidden="true"></span>
         </button>
-      </nav>
-
-      <div class="lg:hidden flex items-center gap-0.5 rounded-md border border-light bg-base p-0.5">
-        <button
-          v-for="t in detailTabs"
-          :key="t.value"
-          class="w-8 h-8 flex-center rounded transition-colors cursor-pointer"
-          :class="activeTab === t.value ? 'bg-card text-primary shadow-sm' : 'text-muted'"
-          @click="emit('update:activeTab', t.value as TaskDetailTab)"
-        >
-          <div :class="t.icon"></div>
-        </button>
-      </div>
-
-      <div class="flex items-center gap-1">
         <el-dropdown trigger="click" @command="handleCommand">
-          <button
-            type="button"
-            class="w-8 h-8 flex-center rounded-md text-secondary hover:bg-soft hover:text-primary transition-colors bg-card border border-light outline-none cursor-pointer"
-            title="更多任务操作"
-            aria-label="更多任务操作"
-          >
-            <div class="i-ep-more-filled"></div>
-          </button>
+          <button type="button" class="task-detail-action" title="更多任务操作" aria-label="更多任务操作"><span class="i-ep-more-filled" aria-hidden="true"></span></button>
           <template #dropdown>
             <el-dropdown-menu class="modern-dropdown">
               <el-dropdown-item command="edit_config">
@@ -121,6 +28,12 @@
                 <div class="flex items-center gap-2">
                   <div class="i-ep-document"></div>
                   编辑脚本
+                </div>
+              </el-dropdown-item>
+              <el-dropdown-item :command="task.enabled ? 'disable' : 'enable'">
+                <div class="flex items-center gap-2">
+                  <div :class="task.enabled ? 'i-ep-turn-off text-amber-500' : 'i-ep-open text-emerald-500'"></div>
+                  {{ task.enabled ? '禁用任务' : '启用任务' }}
                 </div>
               </el-dropdown-item>
               <el-dropdown-item command="share">
@@ -152,6 +65,7 @@
         </el-dropdown>
       </div>
     </div>
+
   </header>
 </template>
 
@@ -172,6 +86,8 @@ defineProps<{
   showSearch: boolean;
 }>();
 
+const tabLabels: Record<string, string> = { log: "控制台", var: "变量", script: "编辑器", info: "详情" };
+
 const emit = defineEmits<{
   (event: "back"): void;
   (event: "command", command: TaskDetailMoreCommand): void;
@@ -185,3 +101,28 @@ const handleCommand = (command: unknown) => {
   }
 };
 </script>
+
+<style scoped>
+.task-detail-header { position: sticky; top: 0; z-index: 30; flex-shrink: 0; min-width: 0; container-type: inline-size; border-bottom: 1px solid var(--border-light); background: var(--bg-card); }
+.task-detail-heading { display: flex; align-items: center; gap: 12px; min-height: 56px; padding: 8px 16px; }
+.task-detail-tabs { display: flex; flex: 0 1 auto; min-width: 0; gap: 4px; padding: 3px; margin-right: auto; border: 1px solid var(--border-light); border-radius: 8px; background: var(--surface-inset); }
+.task-detail-tabs button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-width: 70px; min-height: 36px; padding: 0 10px; border-radius: 5px; color: var(--text-secondary); font-size: 12px; font-weight: 600; white-space: nowrap; transition: color .16s, background-color .16s; }
+.task-detail-tabs button > span { font-size: 15px; }
+.task-detail-tabs button:hover { color: var(--el-color-primary); }
+.task-detail-tabs button.is-active { color: var(--text-default); background: var(--bg-card); box-shadow: var(--shadow-sm); }
+.task-detail-actions { display: flex; align-items: center; flex-shrink: 0; gap: 6px; }
+.task-detail-action { display: grid; place-items: center; width: 36px; height: 36px; flex-shrink: 0; border: 1px solid var(--border-light); border-radius: var(--radius-sm); background: var(--bg-card); color: var(--text-secondary); transition: background-color .16s, color .16s, border-color .16s; }
+.task-detail-action:hover, .task-detail-action.is-active { background: var(--accent-subtle-bg); color: var(--accent-subtle-text); border-color: var(--accent-subtle-border); }
+.task-detail-header button { cursor: pointer; }
+.task-detail-header button:focus-visible { outline: 2px solid var(--el-color-primary); outline-offset: -2px; }
+.task-detail-header--mobile .task-detail-action { width: 44px; height: 44px; }
+.task-detail-header--mobile .task-detail-tabs { flex: 1; padding: 0; border: none; background: transparent; gap: 0; }
+.task-detail-header--mobile .task-detail-tabs button { flex: 1; min-width: 44px; min-height: 44px; padding: 0 4px; }
+@container (max-width: 520px) {
+  .task-detail-heading { gap: 2px; padding: 6px 4px; }
+  .task-detail-tabs { gap: 0; }
+  .task-detail-tabs button { min-width: 44px; padding: 0 4px; }
+  .task-detail-tabs button > span { display: none; }
+  .task-detail-actions { gap: 0; }
+}
+</style>

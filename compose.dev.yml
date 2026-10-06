@@ -25,7 +25,6 @@ services:
       NIUPANEL_TOOLS_DIR: /opt/niupanel/tools
       TRUSTED_PLUGIN_PUBLIC_KEYS: ${TRUSTED_PLUGIN_PUBLIC_KEYS:-sha256:655e4bf8f3150e7e643714e0750c03c49d343f23c7f914b208a8e174e36f9d39}
       PLUGIN_SIGNATURE_REQUIRED: "true"
-      PNPM_NODE_DIST_MIRROR: https://mirrors.ustc.edu.cn/node/
       RUST_LOG: info
     ports:
       - "7788:7788"

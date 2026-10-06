@@ -3,6 +3,7 @@ import type { ApiResponse, FileItem, FileListQueryParams } from '@/types'
 import { uploadMultipart, type UploadRequestOptions } from './upload'
 
 const BASE_URL = '/files'
+const encodeFilePath = (path: string) => path.split('/').filter(Boolean).map(encodeURIComponent).join('/')
 
 // Helper to construct path for /scripts or /scripts/{*path}
 const getScriptsPath = (path: string) => {
@@ -10,7 +11,7 @@ const getScriptsPath = (path: string) => {
     return `${BASE_URL}/scripts`
   }
   // Remove leading slash if exists
-  const cleanPath = path.startsWith('/') ? path.substring(1) : path
+  const cleanPath = encodeFilePath(path)
   return `${BASE_URL}/scripts/${cleanPath}`
 }
 
@@ -19,7 +20,7 @@ export const listDirectoryContents = (path = '/', params?: FileListQueryParams):
 }
 
 export const readFileContent = (path: string): Promise<ApiResponse<string>> => {
-  return request.get(`${BASE_URL}/file/${path}`)
+  return request.get(`${BASE_URL}/file/${encodeFilePath(path)}`)
 }
 
 export const writeFileContent = (path: string, content: string): Promise<ApiResponse<void>> => {
@@ -55,12 +56,12 @@ export const uploadFile = (
   formData: FormData,
   options: UploadRequestOptions = {}
 ): Promise<ApiResponse<void>> => {
-  const url = path && path !== '/' ? `${BASE_URL}/upload/${path}` : `${BASE_URL}/upload`;
+  const url = path && path !== '/' ? `${BASE_URL}/upload/${encodeFilePath(path)}` : `${BASE_URL}/upload`;
   return uploadMultipart(url, formData, { ...options, skipMessage: true })
 }
 
 export const downloadFile = (path: string): Promise<Blob> => {
-  return request.get<Blob, Blob>(`${BASE_URL}/download/${path}`, {
+  return request.get<Blob, Blob>(`${BASE_URL}/download/${encodeFilePath(path)}`, {
     responseType: 'blob'
   })
 }

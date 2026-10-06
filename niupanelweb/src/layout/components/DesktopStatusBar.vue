@@ -1,25 +1,31 @@
 <template>
-  <header class="flex h-12 shrink-0 items-center border-b border-light bg-card px-4 text-[12px] select-none">
+  <header class="desktop-status-bar flex h-12 shrink-0 items-center px-4 text-[12px] select-none">
     <div class="flex min-w-0 items-center gap-2.5">
-      <div class="h-7 w-7 shrink-0 rounded-md bg-primary text-[12px] font-extrabold text-white flex-center">N</div>
+      <div class="status-brand-mark h-7 w-7 shrink-0 rounded-md text-[12px] font-extrabold flex-center">N</div>
       <span class="max-w-[200px] truncate text-[13px] font-bold text-default">{{ systemName }}</span>
-      <span class="h-2 w-2 shrink-0 rounded-full bg-emerald-500" title="服务已连接"></span>
+      <span class="status-connection" :class="{ 'is-connected': metrics }" :title="metrics ? '监控指标已更新' : '监控指标暂不可用'" :aria-label="metrics ? '监控指标已更新' : '监控指标暂不可用'"></span>
     </div>
 
-    <div class="ml-5 hidden items-center gap-1.5 lg:flex">
-      <span class="rounded-md px-2.5 py-1.5 text-secondary hover:bg-subtle">
+    <div class="status-metrics ml-4 hidden shrink-0 items-center gap-1 xl:flex">
+      <span class="status-metric">
         CPU <strong class="ml-1 font-mono text-default">{{ cpuLabel }}</strong>
       </span>
-      <span class="rounded-md px-2.5 py-1.5 text-secondary hover:bg-subtle">
+      <span class="status-metric">
         内存 <strong class="ml-1 font-mono text-default">{{ memoryLabel }}</strong>
       </span>
       <span
-        class="rounded-md px-2.5 py-1.5"
-        :class="runningJobs > 0 ? 'warning-subtle' : 'text-secondary hover:bg-subtle'"
+        class="status-metric"
+        :class="runningJobs > 0 ? 'status-metric--active' : ''"
       >
         作业 <strong class="ml-1 font-mono">{{ runningJobs }}</strong>
       </span>
     </div>
+
+    <NetworkRateDisplay
+      class="ml-3 shrink-0"
+      :upload="metrics?.network_upload_speed"
+      :download="metrics?.network_download_speed"
+    />
 
     <div class="ml-auto flex items-center gap-1.5">
       <button
@@ -32,17 +38,19 @@
       </button>
       <button
         type="button"
-        class="flex h-8 min-w-[190px] items-center gap-2 rounded-md border border-light bg-base px-3 text-muted transition-colors hover:border-base hover:text-default"
+        class="status-search flex h-8 items-center gap-2 rounded-md px-3 transition-colors xl:min-w-[160px]"
+        aria-label="搜索"
         @click="emit('open-search')"
       >
         <span class="i-ep-search"></span>
-        <span class="flex-1 text-left">搜索</span>
-        <kbd class="rounded border border-light bg-card px-1 text-[9px] font-mono">Ctrl K</kbd>
+        <span class="hidden flex-1 text-left xl:inline">搜索</span>
+        <kbd class="hidden rounded border border-light px-1 text-[9px] font-mono xl:inline">Ctrl K</kbd>
       </button>
       <el-dropdown trigger="click" @command="handleAccountCommand">
         <button
           type="button"
-          class="flex h-8 max-w-[170px] items-center gap-2 rounded-md px-2 text-secondary transition-colors hover:bg-subtle hover:text-default"
+          aria-label="账户菜单"
+          class="status-account flex h-8 max-w-[170px] items-center gap-2 rounded-md px-2 transition-colors"
         >
           <span class="h-6 w-6 shrink-0 rounded-full accent-subtle flex-center text-[10px] font-bold">
             {{ accountInitial }}
@@ -81,7 +89,8 @@ import { computed, onMounted, onUnmounted, ref } from "vue";
 import { ElMessageBox } from "element-plus";
 import { useRouter } from "vue-router";
 import { getJobs } from "@/api/jobs";
-import { getSystemOverview } from "@/api/overview";
+import { useSystemMetrics } from "@/composables/useSystemMetrics";
+import NetworkRateDisplay from "@/components/common/NetworkRateDisplay.vue";
 import { useSystemSettings } from "@/composables/useSystemSettings";
 import { useAppStore } from "@/stores/app";
 import { useUserStore } from "@/stores/user";
@@ -93,28 +102,23 @@ const userStore = useUserStore();
 const workspace = useWorkspaceStore();
 const router = useRouter();
 const { systemName } = useSystemSettings();
-const cpuUsage = ref<number | null>(null);
-const memoryUsed = ref(0);
-const memoryTotal = ref(0);
+const { metrics } = useSystemMetrics();
 const runningJobs = ref(0);
 let refreshTimer: number | undefined;
 
-const cpuLabel = computed(() => cpuUsage.value === null ? "--" : `${cpuUsage.value.toFixed(0)}%`);
+const cpuLabel = computed(() => metrics.value === null ? "--" : `${metrics.value.cpu_usage.toFixed(0)}%`);
 const accountInitial = computed(() => (userStore.userInfo.username || "U").slice(0, 1).toUpperCase());
 const memoryLabel = computed(() => {
-  if (!memoryTotal.value) return "--";
-  return `${Math.round((memoryUsed.value / memoryTotal.value) * 100)}%`;
+  if (!metrics.value?.memory_total) return "--";
+  return `${Math.round((metrics.value.memory_used / metrics.value.memory_total) * 100)}%`;
 });
 
 const refresh = async () => {
-  const [overview, jobs] = await Promise.allSettled([getSystemOverview(), getJobs()]);
-  if (overview.status === "fulfilled") {
-    cpuUsage.value = overview.value.data.cpu_usage;
-    memoryUsed.value = overview.value.data.memory_used;
-    memoryTotal.value = overview.value.data.memory_total;
-  }
-  if (jobs.status === "fulfilled") {
-    runningJobs.value = jobs.value.data.filter((job) => job.status === "Running" || job.status === "Pending").length;
+  try {
+    const jobs = await getJobs();
+    runningJobs.value = jobs.data.filter((job) => job.status === "Running" || job.status === "Pending").length;
+  } catch {
+    // The request interceptor reports job refresh failures.
   }
 };
 
@@ -148,3 +152,17 @@ onUnmounted(() => {
   if (refreshTimer) window.clearInterval(refreshTimer);
 });
 </script>
+
+<style scoped>
+.desktop-status-bar { position: relative; z-index: 31; background: var(--bg-card); color: var(--text-default); border-bottom: 1px solid var(--border-light); }
+.status-brand-mark { color: var(--button-primary-text); background: var(--button-primary-bg); box-shadow: var(--shadow-sm); }
+.status-connection { width: 6px; height: 6px; border-radius: 50%; background: var(--text-muted); }
+.status-connection.is-connected { background: var(--success-subtle-text); }
+.status-metrics { padding-left: 12px; border-left: 1px solid var(--border-light); }
+.status-metric { padding: 5px 10px; border-radius: 5px; color: var(--text-muted); font-size: 11px; }
+.status-metric--active { color: var(--warning-subtle-text); background: var(--warning-subtle-bg); }
+.status-search { color: var(--text-muted); border: 1px solid var(--border-light); background: var(--bg-subtle); }
+.status-search:hover { color: var(--text-default); border-color: var(--border-base); background: var(--bg-soft); }
+.status-account { color: var(--text-default); }
+.status-account:hover { background: var(--bg-subtle); }
+</style>

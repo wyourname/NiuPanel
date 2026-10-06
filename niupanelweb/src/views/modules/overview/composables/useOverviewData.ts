@@ -1,5 +1,6 @@
 import { computed, nextTick, onMounted, onScopeDispose, ref } from "vue";
 import { getSystemOverview } from "@/api/overview";
+import { useSystemMetrics } from "@/composables/useSystemMetrics";
 import type {
   OverviewActivityItem,
   OverviewChartData,
@@ -20,7 +21,8 @@ export function useOverviewData() {
     failed_today: 0,
     next_run: null,
   });
-  const sysInfo = ref<OverviewSystemInfo>({
+  const { metrics } = useSystemMetrics();
+  const overviewInfo = ref<OverviewSystemInfo>({
     cpu_usage: 0,
     memory_total: 0,
     memory_used: 0,
@@ -30,6 +32,13 @@ export function useOverviewData() {
     os_info: "-",
     public_ip: null,
   });
+  const sysInfo = computed<OverviewSystemInfo>(() => ({
+    ...overviewInfo.value,
+    ...(metrics.value ?? {}),
+    cpu_usage: Number((metrics.value?.cpu_usage ?? overviewInfo.value.cpu_usage).toFixed(1)),
+    network_upload_speed: metrics.value?.network_upload_speed ?? null,
+    network_download_speed: metrics.value?.network_download_speed ?? null,
+  }));
   const recentActivity = ref<OverviewActivityItem[]>([]);
   const chartData = ref<OverviewChartData>({
     hours: [],
@@ -69,7 +78,7 @@ export function useOverviewData() {
       const res = await getSystemOverview();
       const data = res.data;
       stats.value = data.task_stats;
-      sysInfo.value = {
+      overviewInfo.value = {
         cpu_usage: parseFloat(data.cpu_usage.toFixed(1)),
         memory_total: data.memory_total,
         memory_used: data.memory_used,

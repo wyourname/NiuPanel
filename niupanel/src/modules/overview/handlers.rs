@@ -2,6 +2,7 @@ use crate::common::state::AppState;
 use axum::extract::State;
 use chrono::Utc;
 use niupanel_common::error::{AppError, Result};
+use niupanel_common::metrics::SystemMetrics;
 use niupanel_common::response::ApiResponse;
 use niupanel_entity::task_status::TaskStatus;
 use niupanel_entity::{task_runs, tasks};
@@ -50,6 +51,8 @@ pub struct SystemOverview {
     cpu_usage: f32,
     memory_total: u64,
     memory_used: u64,
+    network_upload_speed: Option<f64>,
+    network_download_speed: Option<f64>,
     disk_total: u64,
     disk_used: u64,
     uptime: u64,
@@ -86,6 +89,17 @@ pub struct ChartData {
 
 #[utoipa::path(
     get,
+    path = "/api/v1/overview/metrics",
+    responses((status = 200, description = "Cached system metrics; network speeds in bytes per second", body = ApiResponse<SystemMetrics>)),
+    tag = "Overview",
+    security(("session_cookie" = []))
+)]
+pub async fn get_metrics(State(state): State<AppState>) -> ApiResponse<SystemMetrics> {
+    ApiResponse::success(state.system_metrics.read().await.clone())
+}
+
+#[utoipa::path(
+    get,
     path = "/api/v1/overview",
     responses(
         (status = 200, description = "Get system overview data")
@@ -95,16 +109,7 @@ pub struct ChartData {
 )]
 pub async fn get_overview(State(state): State<AppState>) -> Result<ApiResponse<SystemOverview>> {
     // 1. System Metrics (Read from cache)
-    let (cpu_usage, memory_total, memory_used, uptime, os_info) = {
-        let metrics = state.system_metrics.read().await.clone();
-        (
-            metrics.cpu_usage,
-            metrics.memory_total,
-            metrics.memory_used,
-            metrics.uptime,
-            metrics.os_info.clone(),
-        )
-    };
+    let metrics = state.system_metrics.read().await.clone();
 
     let disks = Disks::new_with_refreshed_list();
 
@@ -323,13 +328,15 @@ pub async fn get_overview(State(state): State<AppState>) -> Result<ApiResponse<S
     }
 
     Ok(ApiResponse::success(SystemOverview {
-        cpu_usage,
-        memory_total,
-        memory_used,
+        cpu_usage: metrics.cpu_usage,
+        memory_total: metrics.memory_total,
+        memory_used: metrics.memory_used,
+        network_upload_speed: metrics.network_upload_speed,
+        network_download_speed: metrics.network_download_speed,
         disk_total,
         disk_used,
-        uptime,
-        os_info,
+        uptime: metrics.uptime,
+        os_info: metrics.os_info,
         public_ip,
         task_stats: TaskStats {
             total: total_tasks as i64,

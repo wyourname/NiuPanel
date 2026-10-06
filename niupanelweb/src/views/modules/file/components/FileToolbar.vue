@@ -40,18 +40,6 @@
       </el-input>
 
       <div class="flex shrink-0 items-center justify-end gap-1">
-        <transition name="el-zoom-in-center">
-          <button
-            v-if="clipboardFilesCount > 0"
-            type="button"
-            class="h-8 cursor-pointer rounded-md border border-amber-500/20 bg-amber-500/10 px-2.5 text-[11px] font-semibold text-amber-700 inline-flex items-center gap-1.5 transition-colors hover:bg-amber-500/16 dark:text-amber-300"
-            @click="emit('paste')"
-          >
-            <div class="i-ep-copy-document text-[14px]"></div>
-            粘贴 {{ clipboardFilesCount }}
-          </button>
-        </transition>
-
         <el-dropdown trigger="click" @command="handleSortCommand">
           <button
             type="button"
@@ -142,123 +130,42 @@
     </div>
   </div>
 
-  <div
-    v-else
-    class="sticky top-0 z-20 shrink-0 border-b border-light bg-card/95 px-3 pb-2.5 pt-2.5 shadow-sm backdrop-blur-sm"
-  >
-    <div class="flex min-w-0 items-center gap-2">
-      <button
-        type="button"
-        class="h-11 w-11 shrink-0 cursor-pointer rounded-md text-secondary flex-center transition-colors hover:bg-soft hover:text-default"
-        title="刷新"
-        aria-label="刷新当前目录"
-        @click="emit('refresh')"
-      >
-        <div class="i-ep-refresh text-[17px]" :class="{ 'animate-spin': loading }"></div>
-      </button>
+  <div v-else class="file-mobile-toolbar shrink-0 border-b border-light bg-card px-2 py-1.5">
+    <div class="flex min-w-0 items-center gap-1">
       <FileBreadcrumbs
-        class="min-w-0 flex-1 !h-auto !border-none !bg-transparent !px-0"
+        class="min-w-0 flex-1"
+        :mobile="true"
         :current-path="currentPath"
         :collapsed-breadcrumbs="collapsedBreadcrumbs"
         @back="emit('back')"
-        @navigate="(path) => emit('navigate', path)"
+        @navigate="path => emit('navigate', path)"
       />
-      <span class="shrink-0 text-[11px] font-medium tabular-nums text-muted">
-        {{ itemCount }} 项
-      </span>
-    </div>
-
-    <div class="mt-2 flex min-w-0 items-center">
-      <el-input
-        :model-value="searchQuery"
-        placeholder="搜索文件"
-        class="modern-input !w-full"
-        clearable
-        @update:model-value="handleSearchInput"
-      >
-        <template #prefix>
-          <div class="i-ep-search text-sm text-muted"></div>
-        </template>
-      </el-input>
-    </div>
-
-    <div class="mt-2 flex min-w-0 items-center gap-1.5">
-      <el-dropdown trigger="click" @command="handleSortCommand">
-        <button
-          type="button"
-          class="h-11 w-11 shrink-0 cursor-pointer rounded-md text-secondary flex-center transition-colors hover:bg-soft hover:text-default"
-          :title="`排序：${sortLabel}`"
-          :aria-label="`文件排序：${sortLabel}`"
-        >
-          <div class="i-ep-sort text-lg"></div>
-        </button>
+      <el-dropdown trigger="click" @command="handleMobileTools">
+        <button type="button" class="mobile-file-tool" aria-label="目录选项"><span class="i-ep-more-filled text-lg" /></button>
         <template #dropdown>
           <el-dropdown-menu class="modern-dropdown">
-            <el-dropdown-item
-              v-for="option in FILE_SORT_OPTIONS"
-              :key="option.value"
-              :command="option.value"
-            >
-              <div class="flex items-center gap-2">
-                <div :class="sortMode === option.value ? 'i-ep-check' : option.icon"></div>
-                {{ option.label }}
-              </div>
+            <el-dropdown-item command="refresh"><span class="i-ep-refresh mr-2" />刷新目录</el-dropdown-item>
+            <el-dropdown-item command="path"><span class="i-ep-position mr-2" />跳转路径</el-dropdown-item>
+            <el-dropdown-item v-for="(option, index) in FILE_SORT_OPTIONS" :key="option.value" :command="option.value" :divided="index === 0">
+              <span :class="sortMode === option.value ? 'i-ep-check' : option.icon" class="mr-2" />{{ option.label }}
             </el-dropdown-item>
           </el-dropdown-menu>
         </template>
       </el-dropdown>
-
-      <button
-        v-if="clipboardFilesCount > 0"
-        type="button"
-        class="h-11 w-11 shrink-0 cursor-pointer rounded-md border border-orange-200/60 bg-orange-50 text-orange-600 flex-center dark:border-orange-500/20 dark:bg-orange-500/10 dark:text-orange-300"
-        :title="`粘贴 ${clipboardFilesCount} 个项目`"
-        aria-label="粘贴剪贴板文件"
-        @click="emit('paste')"
-      >
-        <div class="i-ep-copy-document text-lg"></div>
-      </button>
-
-      <button
-        type="button"
-        class="h-11 w-11 shrink-0 cursor-pointer rounded-md text-secondary flex-center transition-colors hover:bg-soft"
-        title="上传文件"
-        aria-label="上传文件"
-        @click="emit('trigger-upload')"
-      >
-        <div class="i-ep-upload-filled text-lg"></div>
-      </button>
-
+    </div>
+    <div class="flex min-w-0 items-center gap-1.5">
+      <el-input :model-value="searchQuery" placeholder="搜索文件名" aria-label="搜索文件名" class="modern-input min-w-0 flex-1" clearable @update:model-value="handleSearchInput">
+        <template #prefix><span class="i-ep-search text-sm text-muted" /></template>
+        <template #suffix><span v-if="!searchQuery" class="text-[10px] text-muted">{{ itemCount }} 项</span></template>
+      </el-input>
+      <button type="button" class="mobile-file-tool" aria-label="上传文件" @click="emit('trigger-upload')"><span class="i-ep-upload text-lg" /></button>
       <el-dropdown trigger="click" @command="handleCreateCommand">
-        <button
-          type="button"
-          class="h-11 w-11 shrink-0 cursor-pointer rounded-md bg-primary text-white flex-center transition-colors hover:bg-primary/90"
-          title="新建"
-          aria-label="新建文件或目录"
-        >
-          <div class="i-ep-plus text-lg"></div>
-        </button>
+        <button type="button" class="mobile-file-tool mobile-file-create" aria-label="新建文件或目录"><span class="i-ep-plus text-lg" /></button>
         <template #dropdown>
           <el-dropdown-menu class="modern-dropdown">
-            <el-dropdown-item command="file">
-              <div class="flex items-center gap-2">
-                <div class="i-ep-document"></div>
-                新建文件
-              </div>
-            </el-dropdown-item>
-            <el-dropdown-item command="directory">
-              <div class="flex items-center gap-2">
-                <div class="i-ep-folder"></div>
-                新建目录
-              </div>
-            </el-dropdown-item>
-            <div class="mx-2 my-1 h-px bg-light/50"></div>
-            <el-dropdown-item command="download_url">
-              <div class="flex items-center gap-2 text-primary">
-                <div class="i-ep-link"></div>
-                远程下载
-              </div>
-            </el-dropdown-item>
+            <el-dropdown-item command="file"><span class="i-ep-document mr-2" />新建文件</el-dropdown-item>
+            <el-dropdown-item command="directory"><span class="i-ep-folder mr-2" />新建目录</el-dropdown-item>
+            <el-dropdown-item command="download_url" divided><span class="i-ep-link mr-2" />远程下载</el-dropdown-item>
           </el-dropdown-menu>
         </template>
       </el-dropdown>
@@ -268,6 +175,7 @@
 
 <script setup lang="ts">
 import { computed } from "vue";
+import { ElMessageBox } from "element-plus";
 import type { Breadcrumb } from "../../../../composables/useFileOperations";
 import FileBreadcrumbs from "./FileBreadcrumbs.vue";
 import {
@@ -281,7 +189,6 @@ type FileCreateCommand = "file" | "directory" | "download_url";
 type FileViewMode = "detail" | "grid";
 
 const props = defineProps<{
-  clipboardFilesCount: number;
   collapsedBreadcrumbs: Breadcrumb[];
   currentPath: string;
   itemCount: number;
@@ -296,7 +203,6 @@ const emit = defineEmits<{
   (event: "back"): void;
   (event: "create-command", command: FileCreateCommand): void;
   (event: "navigate", path: string): void;
-  (event: "paste"): void;
   (event: "refresh"): void;
   (event: "trigger-upload"): void;
   (event: "update:searchQuery", query: string): void;
@@ -322,4 +228,22 @@ const handleCreateCommand = (command: unknown) => {
 const handleSortCommand = (command: unknown) => {
   if (isFileSortMode(command)) emit("update:sortMode", command);
 };
+const handleMobileTools = async (command: string) => {
+  if (command === "refresh") { emit("refresh"); return; }
+  if (command !== "path") { handleSortCommand(command); return; }
+  try {
+    const { value } = await ElMessageBox.prompt("输入相对于根目录的文件夹路径", "跳转路径", {
+      inputValue: props.currentPath, confirmButtonText: "打开", cancelButtonText: "取消",
+      inputPlaceholder: "例如 scripts/tools", closeOnClickModal: false,
+    });
+    emit("navigate", value.trim() || "/");
+  } catch { /* Cancel keeps the current directory. */ }
+};
 </script>
+
+<style scoped>
+.mobile-file-tool { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 44px; height: 44px; border-radius: 6px; color: var(--text-secondary); background: transparent; cursor: pointer; }
+.mobile-file-tool:active { background: var(--bg-soft); color: var(--el-color-primary); }
+.mobile-file-create { color: var(--el-color-primary); background: var(--bg-soft); }
+.file-mobile-toolbar :deep(.el-input__wrapper) { min-height: 40px; box-sizing: border-box; }
+</style>

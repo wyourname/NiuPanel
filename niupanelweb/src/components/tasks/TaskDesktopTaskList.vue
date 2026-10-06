@@ -1,6 +1,6 @@
 <template>
   <div
-    class="flex-1 overflow-y-auto custom-scrollbar"
+    class="task-navigator-list flex-1 overflow-y-auto custom-scrollbar"
     @scroll.passive="handleScroll"
   >
     <div v-if="loading && totalTasks === 0" class="p-3 space-y-2">
@@ -41,6 +41,8 @@
         class="block w-full"
       >
         <TaskCardItem
+          class="task-navigator-item"
+          :class="{ 'is-active': isTaskSelected(task) }"
           :task="task"
           :is-selected="isTaskSelected(task)"
           :selection-mode="selectionMode"
@@ -55,13 +57,7 @@
         />
         <template #dropdown>
           <el-dropdown-menu class="modern-dropdown w-48">
-            <el-dropdown-item command="run" v-if="task.status !== 'Running'">
-              <div class="flex items-center gap-3">
-                <div class="i-ep-video-play text-lg text-primary"></div>
-                立即运行
-              </div>
-            </el-dropdown-item>
-            <el-dropdown-item command="stop" v-else>
+            <el-dropdown-item command="stop" v-if="task.status === 'Running'">
               <div class="flex items-center gap-3">
                 <div class="i-ep-video-pause text-lg text-rose-500"></div>
                 停止执行
@@ -89,6 +85,15 @@
               <div class="flex items-center gap-3">
                 <div class="i-ep-clock text-lg text-orange-400"></div>
                 定时规则
+              </div>
+            </el-dropdown-item>
+            <el-dropdown-item :command="task.enabled ? 'disable' : 'enable'">
+              <div class="flex items-center gap-3">
+                <div
+                  class="text-lg"
+                  :class="task.enabled ? 'i-ep-turn-off text-amber-500' : 'i-ep-open text-emerald-500'"
+                ></div>
+                {{ task.enabled ? '禁用任务' : '启用任务' }}
               </div>
             </el-dropdown-item>
             <el-dropdown-item command="share">
@@ -184,3 +189,10 @@ const isTaskSelected = (task: Task) => {
     : props.selectedTaskId === task.id;
 };
 </script>
+
+<style scoped>
+.task-navigator-list { padding: 6px; }
+.task-navigator-item { margin-bottom: 5px; border: 1px solid var(--border-light); border-radius: var(--radius-md); background: var(--bg-card); transition: border-color .16s, box-shadow .16s; }
+.task-navigator-item:hover { border-color: var(--border-base); box-shadow: var(--shadow-sm); }
+.task-navigator-item.is-active { border-color: var(--accent-subtle-border); box-shadow: var(--shadow-sm); }
+</style>

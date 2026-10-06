@@ -9,11 +9,12 @@
     </div>
     <div>
       <div class="text-sm font-bold text-default mb-1">
-        Linux Shell 暂不支持换源
+        Linux 软件源由容器配置管理
       </div>
       <div class="text-xs text-muted leading-relaxed max-w-xs">
         Linux 系统依赖（apt 包管理）的镜像配置需要修改
-        <code class="bg-base px-1 rounded">/etc/apt/sources.list</code>，
+        <code class="bg-base px-1 rounded">/etc/apt/sources.list</code> 或
+        <code class="bg-base px-1 rounded">/etc/apt/sources.list.d/*.sources</code>，
         目前面板不支持自动修改系统 apt 源。<br /><br />
         请在容器中手动修改，或在 Dockerfile 中预先配置好镜像源。
       </div>

@@ -141,16 +141,15 @@ const loadFile = async () => {
 const saveFile = async () => {
   if (loading.value || saving.value || loadError.value) return;
 
-  const sanitizedContent = session.content.replace(/\r\n/g, "\n");
+  const submittedContent = session.content;
   session.saving = true;
 
   try {
     await fileManagerApi.writeFileContent(
       props.payload.filePath,
-      sanitizedContent,
+      submittedContent,
     );
-    session.content = sanitizedContent;
-    session.savedContent = sanitizedContent;
+    session.savedContent = submittedContent;
     ElMessage.success("保存成功");
   } finally {
     session.saving = false;

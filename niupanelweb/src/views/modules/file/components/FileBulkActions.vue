@@ -1,39 +1,11 @@
 <template>
-  <BulkActionBar
-    v-if="appStore.isMobile"
-    :count="count"
-    :show-select-all="true"
-    :is-all-selected="isAllSelected"
-    @select-all="emit('select-all')"
-    @cancel="emit('cancel')"
-    @delete="emit('delete')"
-  >
-    <template #actions>
-      <div class="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto no-scrollbar">
-        <el-button class="shrink-0" type="primary" plain size="small" @click="emit('copy')">
-          <div class="i-ep-copy-document mr-1"></div>
-          复制
-        </el-button>
-        <el-button class="shrink-0" type="primary" plain size="small" @click="emit('download')">
-          <div class="i-ep-download mr-1"></div>
-          打包下载
-        </el-button>
-        <el-button class="shrink-0" type="danger" plain size="small" @click="emit('cut')">
-          <div class="i-ep-scissor mr-1"></div>
-          剪切
-        </el-button>
-        <el-button class="shrink-0" type="success" plain size="small" @click="emit('move')">
-          <div class="i-ep-position mr-1"></div>
-          移动
-        </el-button>
-      </div>
-    </template>
-  </BulkActionBar>
+  <MobileSelectionBar v-if="appStore.isMobile" class="file-selection-bar" label="已选文件操作" :count="count" :busy="busy" :is-all-selected="isAllSelected" :actions="mobileActions" @select-all="emit('select-all')" @cancel="emit('cancel')" @command="mobileHandlers[$event]?.()" />
 
   <transition name="el-zoom-in-top">
     <div
       v-if="count > 0 && !appStore.isMobile"
       class="shrink-0 border-b border-light bg-card px-3 py-2"
+      :inert="busy"
     >
       <div class="grid min-h-8 grid-cols-[auto_repeat(7,minmax(0,1fr))] items-center gap-1">
         <div class="flex shrink-0 items-center justify-center gap-1.5 px-1">
@@ -104,12 +76,13 @@
 </template>
 
 <script setup lang="ts">
+import MobileSelectionBar from "@/components/common/MobileSelectionBar.vue";
 import { useAppStore } from "../../../../stores/app";
-import BulkActionBar from "../../../../components/common/BulkActionBar.vue";
 
 defineProps<{
   count: number;
   isAllSelected: boolean;
+  busy?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -122,5 +95,13 @@ const emit = defineEmits<{
   (event: "select-all"): void;
 }>();
 
+const mobileActions = [
+  { command: 'copy', label: '复制', icon: 'i-ep-copy-document' },
+  { command: 'cut', label: '剪切', icon: 'i-ep-scissor' },
+  { command: 'move', label: '移动', icon: 'i-ep-position' },
+  { command: 'download', label: '打包下载', icon: 'i-ep-download' },
+  { command: 'delete', label: '删除', icon: 'i-ep-delete', danger: true },
+];
+const mobileHandlers: Record<string, () => void> = { copy: () => emit('copy'), cut: () => emit('cut'), move: () => emit('move'), download: () => emit('download'), delete: () => emit('delete') };
 const appStore = useAppStore();
 </script>

@@ -34,3 +34,10 @@ export type PackageListPayload =
 export type InstallPackagesRequest = {
   packages: string[];
 };
+
+export interface EnvironmentMirrorSettings {
+  package_url: string;
+  runtime_url: string;
+  package_override: string | null;
+  runtime_override: string | null;
+}

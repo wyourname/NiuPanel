@@ -61,6 +61,10 @@ export function useTaskMobileCommandRouter({
     if (!task) return;
 
     switch (command) {
+      case "enable":
+      case "disable":
+        handleToggleEnable(task, command === "enable");
+        break;
       case "logs":
         openLogs(task);
         break;

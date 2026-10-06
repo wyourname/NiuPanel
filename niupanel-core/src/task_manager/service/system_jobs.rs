@@ -21,6 +21,20 @@ impl TaskManagerService {
         F: FnOnce(mpsc::UnboundedSender<String>) -> Fut + Send + 'static,
         Fut: Future<Output = Result<(), AppError>> + Send + 'static,
     {
+        self.submit_system_task_with_metadata(name, None, task_fn)
+            .await
+    }
+
+    pub async fn submit_system_task_with_metadata<F, Fut>(
+        &self,
+        name: String,
+        metadata: Option<serde_json::Value>,
+        task_fn: F,
+    ) -> Result<i32, AppError>
+    where
+        F: FnOnce(mpsc::UnboundedSender<String>) -> Fut + Send + 'static,
+        Fut: Future<Output = Result<(), AppError>> + Send + 'static,
+    {
         let permit = self
             .running_permits
             .clone()
@@ -31,6 +45,7 @@ impl TaskManagerService {
 
         let new_job = system_jobs::ActiveModel {
             name: Set(name.clone()),
+            metadata: Set(metadata),
             status: Set(TaskStatus::Pending),
             created_at: Set(chrono::Utc::now().into()),
             ..Default::default()

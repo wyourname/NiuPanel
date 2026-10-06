@@ -1,5 +1,5 @@
 <template>
-  <div class="flex h-full min-h-[196px] flex-col">
+  <div class="flex flex-col">
     <div
       ref="viewport"
       class="min-h-0 flex-1 snap-x snap-mandatory overflow-x-auto overflow-y-hidden no-scrollbar focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35"
@@ -14,7 +14,7 @@
         <section
           v-for="(page, pageIndex) in pages"
           :key="pageIndex"
-          class="grid h-full min-w-full snap-start snap-always grid-cols-2 grid-rows-5 content-start gap-1 pr-px"
+          class="grid min-w-full snap-start snap-always grid-cols-1 content-start gap-1 pr-px"
           :aria-hidden="pageIndex !== currentPage"
           :aria-label="`第 ${pageIndex + 1} 页，共 ${pages.length} 页`"
           :inert="pageIndex !== currentPage"
@@ -80,7 +80,7 @@
 import { computed, nextTick, ref, watch } from "vue";
 import type { Task } from "@/types";
 
-const PAGE_SIZE = 10;
+const PAGE_SIZE = 5;
 
 const props = defineProps<{
   items: Task[];

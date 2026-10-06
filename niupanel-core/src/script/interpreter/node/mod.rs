@@ -1,9 +1,10 @@
 mod pnpm;
+mod prebuilt;
 
 use crate::sys::tools::ToolService;
 use niupanel_common::config::Config;
 use niupanel_common::error::{AppError, Result};
-use niupanel_common::{debug, info};
+use niupanel_common::info;
 use pnpm::PnpmManager;
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -13,6 +14,8 @@ use std::time::Duration;
 use tokio::sync::mpsc::UnboundedSender;
 
 const DEFAULT_NODE_DIST_MIRROR: &str = "https://mirrors.ustc.edu.cn/node/";
+static PACKAGE_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 const DEFAULT_VERSION_FILE: &str = "default-version";
 
 pub struct NodeEnvironment {
@@ -61,7 +64,7 @@ impl NodeEnvironment {
         })
     }
 
-    /// 创建或打开一个由 `pnpm runtime` 管理的 Node 版本目录。
+    /// 直接安装预构建 Node，包管理器在操作依赖时按需安装。
     pub async fn new(
         _env_dir: PathBuf,
         version: String,
@@ -72,7 +75,6 @@ impl NodeEnvironment {
             AppError::ValidationError("Node version must be specified".to_string())
         })?;
 
-        Self::ensure_pnpm_installed(Some(&mirrors)).await?;
         Self::ensure_runtime_project(&version, &mirrors).await?;
 
         Ok(Self {
@@ -88,7 +90,10 @@ impl NodeEnvironment {
         mirrors: Option<HashMap<String, String>>,
     ) -> Result<()> {
         info!("Downloading Node runtime version...");
-        let _ = sender.send(format!("Downloading Node {} with pnpm runtime...", version));
+        let _ = sender.send(format!(
+            "Downloading prebuilt Node {} (streaming, SHA-256 verified)...",
+            version
+        ));
         Self::new(env_dir, version, mirrors).await?;
         let _ = sender.send("Node version installed successfully.".to_string());
         Ok(())
@@ -137,7 +142,12 @@ impl NodeEnvironment {
     }
 
     pub fn node_bin_for_version(version: &str) -> PathBuf {
-        Self::shared_bin_for_version(version).join("node")
+        let direct = Self::shared_root_for_version(version).join("runtime/bin/node");
+        if direct.is_file() {
+            direct
+        } else {
+            Self::shared_bin_for_version(version).join("node")
+        }
     }
 
     pub fn package_install_path(pkg: &str) -> PathBuf {
@@ -230,6 +240,8 @@ impl NodeEnvironment {
         let version = Self::normalize_version(version).ok_or_else(|| {
             AppError::ValidationError("Node version must be specified".to_string())
         })?;
+        let _packages = PACKAGE_LOCK.lock().await;
+        let _runtime = prebuilt::INSTALL_LOCK.lock().await;
         let root = Self::shared_root_for_version(&version);
         let metadata = match tokio::fs::symlink_metadata(&root).await {
             Ok(metadata) => metadata,
@@ -319,7 +331,11 @@ impl NodeEnvironment {
                 "Node version must be specified for package install".to_string(),
             )
         })?;
+        let _ =
+            sender.send("依赖操作将串行执行；下载并发 2，构建并发 1。等待安装锁...".to_string());
+        let _guard = PACKAGE_LOCK.lock().await;
         Self::ensure_runtime_project(&version, &self.mirrors).await?;
+        Self::ensure_pnpm_installed(Some(&self.mirrors)).await?;
         let shared_root = Self::shared_root_for_version(&version);
         let package_list = packages.join(" ");
         let _ = sender.send(format!(
@@ -352,7 +368,9 @@ impl NodeEnvironment {
         sender: UnboundedSender<String>,
     ) -> Result<()> {
         let version = self.resolved_version().await?;
+        let _guard = PACKAGE_LOCK.lock().await;
         Self::ensure_runtime_project(&version, &self.mirrors).await?;
+        Self::ensure_pnpm_installed(Some(&self.mirrors)).await?;
         let shared_root = Self::shared_root_for_version(&version);
         let mut envs = self.runtime_envs()?;
         Self::inject_shared_dependency_env(&mut envs, &version);
@@ -378,7 +396,9 @@ impl NodeEnvironment {
 
     pub async fn list_packages(&self) -> Result<String> {
         let version = self.resolved_version().await?;
+        let _guard = PACKAGE_LOCK.lock().await;
         Self::ensure_runtime_project(&version, &self.mirrors).await?;
+        Self::ensure_pnpm_installed(Some(&self.mirrors)).await?;
         let shared_root = Self::shared_root_for_version(&version);
         let mut envs = self.runtime_envs()?;
         Self::inject_shared_dependency_env(&mut envs, &version);
@@ -469,8 +489,9 @@ impl NodeEnvironment {
 
     pub async fn get_default_node_bin_dir() -> Option<PathBuf> {
         let version = Self::resolve_default_version().await.ok()?;
-        let bin = Self::shared_bin_for_version(&version);
-        bin.is_dir().then_some(bin)
+        Self::node_bin_for_version(&version)
+            .parent()
+            .map(Path::to_path_buf)
     }
 
     pub fn runtime_envs(&self) -> Result<HashMap<String, String>> {
@@ -483,6 +504,9 @@ impl NodeEnvironment {
         let node_modules = Self::shared_node_modules_for_version(version);
         let bin_dir = Self::shared_bin_for_version(version);
         Self::inject_dependency_paths(env, &node_modules, &bin_dir);
+        if let Some(runtime_bin) = Self::node_bin_for_version(version).parent() {
+            prepend_path_like(env, "PATH", runtime_bin.to_path_buf());
+        }
     }
 
     /// Adds a Node.js dependency root and its executable directory to a child-process environment.
@@ -509,37 +533,17 @@ impl NodeEnvironment {
         version: &str,
         mirrors: &HashMap<String, String>,
     ) -> Result<()> {
+        let _guard = prebuilt::INSTALL_LOCK.lock().await;
         let shared_root = Self::shared_root_for_version(version);
         tokio::fs::create_dir_all(&shared_root)
             .await
             .map_err(AppError::Io)?;
         ensure_shared_package_json(&shared_root).await?;
         ensure_pnpm_workspace(&shared_root, mirrors).await?;
-
-        let node = Self::node_bin_for_version(version);
-        if node_matches_version(&node, version).await {
-            debug!("Node {} already installed via pnpm runtime.", version);
+        if node_matches_version(&Self::node_bin_for_version(version), version).await {
             return Ok(());
         }
-
-        debug!("Installing Node {} via pnpm runtime...", version);
-        let pnpm = Self::ensure_pnpm_installed(Some(mirrors)).await?;
-        let envs = PnpmManager::build_env(Some(mirrors));
-        ToolService::run_checked(
-            &pnpm,
-            &["runtime", "set", "node", version],
-            Some(&shared_root),
-            Some(&envs),
-            "pnpm runtime set node",
-        )
-        .await?;
-
-        if !node_matches_version(&node, version).await {
-            return Err(AppError::Environment(format!(
-                "pnpm completed but Node.js {version} is unavailable"
-            )));
-        }
-        Ok(())
+        prebuilt::install(&shared_root, version, &node_dist_mirror(mirrors)?).await
     }
 
     fn shared_root() -> PathBuf {
@@ -586,7 +590,9 @@ async fn ensure_pnpm_workspace(
     let mirror = node_dist_mirror(mirrors)?;
     let quoted =
         serde_json::to_string(&mirror).map_err(|error| AppError::Generic(error.to_string()))?;
-    let content = format!("nodeDownloadMirrors:\n  release: {quoted}\n");
+    let content = format!(
+        "networkConcurrency: 2\nchildConcurrency: 1\nnodeDownloadMirrors:\n  release: {quoted}\n"
+    );
     tokio::fs::write(shared_root.join("pnpm-workspace.yaml"), content)
         .await
         .map_err(AppError::Io)

@@ -4,6 +4,7 @@ import * as fileManagerApi from '../api/file_manager'
 import { useFileClipboard } from './file/useFileClipboard'
 import { useFileListState } from './file/useFileListState'
 import { useFileTransfers } from './file/useFileTransfers'
+import { useFileEditorSession } from './file/useFileEditorSession'
 import {
   getRenamedPath,
   joinDirectoryPath,
@@ -32,10 +33,8 @@ export function useFileOperations(fileTableRef: Ref<FileTableRef | null>) {
   const movingFile = ref(false)
   const moveForm = ref<{ targetPath: string; items: FileItem[] }>({ targetPath: '', items: [] })
 
-  const editFileDialogVisible = ref(false)
-  const currentFile = ref<FileItem | null>(null)
-  const fileContent = ref('')
-  const savingFile = ref(false)
+  const editorSession = useFileEditorSession()
+  const deletingFiles = ref(false)
 
   // Download URL Dialog
   const downloadUrlDialogVisible = ref(false)
@@ -55,6 +54,8 @@ export function useFileOperations(fileTableRef: Ref<FileTableRef | null>) {
     loadContents,
     loadNode,
     loading,
+    listError,
+    retryLoad,
     navigate,
     searchQuery,
     selectedFiles,
@@ -68,6 +69,7 @@ export function useFileOperations(fileTableRef: Ref<FileTableRef | null>) {
     cutToClipboard,
     pasteFromClipboard,
     pasting,
+    clearClipboard,
   } = useFileClipboard({
     clearSelection,
     currentPath,
@@ -75,7 +77,6 @@ export function useFileOperations(fileTableRef: Ref<FileTableRef | null>) {
   })
 
   const {
-    cancelUpload,
     handleBatchDownload,
     handleDownload,
     extractArchive,
@@ -83,11 +84,6 @@ export function useFileOperations(fileTableRef: Ref<FileTableRef | null>) {
     imageUrl,
     performUpload,
     previewImage,
-    uploadLabel,
-    uploadLoadedBytes,
-    uploadProgress,
-    uploadTotalBytes,
-    uploading,
   } = useFileTransfers({
     currentPath,
     loading,
@@ -105,17 +101,34 @@ export function useFileOperations(fileTableRef: Ref<FileTableRef | null>) {
   }
 
   const batchDelete = async () => {
-    if (selectedFiles.value.length === 0) return
+    if (deletingFiles.value || selectedFiles.value.length === 0) return
+    const files = [...selectedFiles.value]
+    const sourcePath = currentPath.value
+    deletingFiles.value = true
     try {
-      await ElMessageBox.confirm(`确定删除选中的 ${selectedFiles.value.length} 项?`, '警告', { type: 'warning' })
-      loading.value = true
-      for (const file of selectedFiles.value) {
-        await fileManagerApi.deleteItem(file.path)
+      try {
+        await ElMessageBox.confirm(`确定删除选中的 ${files.length} 项?`, '删除文件', {
+          type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消',
+        })
+      } catch { return }
+
+      const deleted = new Set<string>()
+      for (const file of files) {
+        try {
+          await fileManagerApi.deleteItem(file.path)
+          deleted.add(file.path)
+        } catch { /* Keep failed items selected for retry. */ }
       }
-      ElMessage.success('删除成功')
-      loadContents(currentPath.value)
+      if (deleted.size) {
+        fileList.value = fileList.value.filter(file => !deleted.has(file.path))
+        selectedFiles.value = selectedFiles.value.filter(file => !deleted.has(file.path))
+        ElMessage.success(`已删除 ${deleted.size} 项`)
+        if (currentPath.value === sourcePath && !loading.value) await loadContents(sourcePath)
+      }
+      const failedCount = files.length - deleted.size
+      if (failedCount) ElMessage.warning(`${failedCount} 项删除失败，可重试`)
     } finally {
-      loading.value = false
+      deletingFiles.value = false
     }
   }
 
@@ -145,27 +158,6 @@ export function useFileOperations(fileTableRef: Ref<FileTableRef | null>) {
       renameDialogVisible.value = false
       loadContents(currentPath.value)
     } finally { renaming.value = false }
-  }
-
-  const showEditFileDialog = async (item: FileItem) => {
-    currentFile.value = item
-    editFileDialogVisible.value = true
-    fileContent.value = ''
-    try {
-      const res = await fileManagerApi.readFileContent(item.path)
-      fileContent.value = res.data
-    } catch (e) { }
-  }
-
-  const saveFileContent = async () => {
-    if (!currentFile.value) return
-    savingFile.value = true
-    try {
-      // 统一转换为 Unix 换行符
-      const sanitizedContent = fileContent.value.replace(/\r\n/g, '\n')
-      await fileManagerApi.writeFileContent(currentFile.value.path, sanitizedContent)
-      ElMessage.success('保存成功')
-    } finally { savingFile.value = false }
   }
 
   const showRenameDialog = (item: FileItem) => {
@@ -268,23 +260,21 @@ export function useFileOperations(fileTableRef: Ref<FileTableRef | null>) {
   }
 
   return {
-    loading, fileList, currentPath, selectedFiles,
+    loading, listError, retryLoad, fileList, currentPath, selectedFiles,
     searchQuery, filteredFileList,
-    clipboard, pasting,
+    clipboard, pasting, clearClipboard,
     createDialogVisible, createType, creating, createForm,
     renameDialogVisible, renaming, renameForm,
-    editFileDialogVisible, currentFile, fileContent, savingFile,
+    ...editorSession,
     imagePreviewVisible, imageUrl,
     collapsedBreadcrumbs,
     downloadUrlDialogVisible, downloadingUrl, downloadUrlForm,
     loadContents, navigate, goUp,
     handleSelectionChange, toggleSelection, isSelected, clearSelection, handleSelectAll,
     copyToClipboard, cutToClipboard, pasteFromClipboard,
-    deleteItem, batchDelete,
+    deleteItem, batchDelete, deletingFiles,
     handleCreateItem, handleRenameItem,
-    showEditFileDialog, saveFileContent,
-    cancelUpload, performUpload, handleDownload, handleBatchDownload, extractArchive, previewImage,
-    uploadLabel, uploadLoadedBytes, uploadProgress, uploadTotalBytes, uploading,
+    performUpload, handleDownload, handleBatchDownload, extractArchive, previewImage,
     showRenameDialog,
     moveDialogVisible,
     movingFile,

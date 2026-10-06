@@ -24,7 +24,7 @@ Environment:
   RUST_IMAGE             Rust development image, default: rust:bookworm
   NODE_IMAGE             Node.js development image, default: node:22.23.1-bookworm-slim
   COMPOSE_FILE           Docker Compose file, default: compose.dev.yml
-  NIUPANEL_DOCKER_ARCH   Docker architecture override: amd64, arm64, or arm
+  NIUPANEL_DOCKER_ARCH   Docker architecture override: amd64 or arm64
 EOF
 }
 
@@ -59,12 +59,12 @@ detect_docker_arch() {
             NIUPANEL_DOCKER_PLATFORM="linux/arm64"
             ;;
         arm|armv7|armv7l|armhf)
-            NIUPANEL_DOCKER_ARCH="arm"
-            NIUPANEL_DOCKER_PLATFORM="linux/arm/v7"
+            echo "pnpm 12 does not provide ARMv7 binaries; use amd64 or arm64." >&2
+            exit 1
             ;;
         *)
             echo "Unsupported Docker architecture: $detected_arch" >&2
-            echo "Supported architectures: x86_64/amd64, aarch64/arm64, armv7/armhf." >&2
+            echo "Supported architectures: x86_64/amd64, aarch64/arm64." >&2
             exit 1
             ;;
     esac

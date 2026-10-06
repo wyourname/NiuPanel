@@ -353,7 +353,7 @@ pub async fn install_shell_packages(
         ("package" = String, Path, description = "Package name")
     ),
     responses(
-        (status = 200, description = "Uninstall system shell package")
+        (status = 200, description = "Uninstall Linux package, returns job ID")
     ),
     tag = "Environments",
     security(("session_cookie" = []))
@@ -363,11 +363,11 @@ pub async fn uninstall_shell_package(
     Extension(user): Extension<AuthenticatedUser>,
     RealIp(ip): RealIp,
     Path(package): Path<String>,
-) -> Result<ApiResponse<()>> {
-    EnvironmentUseCase::from_state(&state)
+) -> Result<ApiResponse<i32>> {
+    let job_id = EnvironmentUseCase::from_state(&state)
         .uninstall_shell_package(&user, ip, package)
         .await?;
-    Ok(ApiResponse::success(()))
+    Ok(ApiResponse::success(job_id))
 }
 
 #[utoipa::path(

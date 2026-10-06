@@ -5,7 +5,7 @@
   >
     <aside
       v-if="$slots.sidebar"
-      class="shrink-0 border-r border-light bg-subtle dark:bg-white/[0.025]"
+      class="shrink-0 border-r border-light bg-[var(--surface-inset)]"
       :class="sidebarClass"
     >
       <slot name="sidebar" />
@@ -14,7 +14,7 @@
     <div class="flex min-w-0 flex-1 flex-col overflow-hidden">
       <header
         v-if="$slots.toolbar"
-        class="shrink-0 border-b border-light bg-card px-3 py-2 dark:bg-white/[0.035]"
+        class="shrink-0 border-b border-light bg-card px-3 py-2"
         :class="toolbarClass"
       >
         <slot name="toolbar" />

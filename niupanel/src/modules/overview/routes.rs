@@ -7,6 +7,7 @@ use niupanel_common::auth::permissions::Permission;
 pub fn create_router() -> Router<AppState> {
     Router::new()
         .route("/", get(handlers::get_overview))
+        .route("/metrics", get(handlers::get_metrics))
         .route("/events", get(handlers::events_stream))
         .require(Permission::OverviewRead)
 }

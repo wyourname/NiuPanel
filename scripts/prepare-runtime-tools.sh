@@ -9,12 +9,11 @@ fi
 INPUT_ARCH=$1
 OUTPUT_DIR=$2
 UV_VERSION=${UV_VERSION:-0.8.15}
-PNPM_VERSION=${PNPM_VERSION:-11.18.0}
+PNPM_VERSION=${PNPM_VERSION:-12.9.1}
 GITHUB_RELEASE_MIRROR=${GITHUB_RELEASE_MIRROR:-https://git.365676.xyz/https://github.com}
 PNPM_BOOTSTRAP_REGISTRY=${PNPM_BOOTSTRAP_REGISTRY:-https://registry.npmmirror.com}
 PNPM_NODE_DIST_MIRROR=${PNPM_NODE_DIST_MIRROR:-https://mirrors.ustc.edu.cn/node}
 NIUPANEL_RUNTIME_TOOLS=${NIUPANEL_RUNTIME_TOOLS:-all}
-ARMV7_NODE_VERSION=22.23.1
 
 case "$NIUPANEL_RUNTIME_TOOLS" in
     all|uv|pnpm) ;;
@@ -28,18 +27,18 @@ case "$INPUT_ARCH" in
     amd64|x86_64)
         ARCH=x86_64
         UV_TRIPLE=x86_64-unknown-linux-gnu
-        PNPM_PLATFORM_PACKAGE=@pnpm/linux-x64
-        PNPM_PLATFORM_ARCHIVE=linux-x64
-        PNPM_PLATFORM_SIZE=47159229
-        PNPM_PLATFORM_SHA512=f70804928e17fe3c433a933ecdcbb909c26d6a6dbe9c4be4b84d5845100b744938870cc97636c2825f715ca215103d7d64262902e175cc0b7189772e931937c4
+        PNPM_PLATFORM_PACKAGE=@pnpm/exe.linux-x64
+        PNPM_PLATFORM_ARCHIVE=exe.linux-x64
+        PNPM_PLATFORM_SIZE=23369948
+        PNPM_PLATFORM_SHA512=f8ce4def884ce1f73cec001c931c7f5085be7549d67f67a4a3e1dc849b3f3595317a12e17a4372308fc635a35796f77e91647ef7b5d7043e755d192436252dac
         ;;
     arm64|aarch64)
         ARCH=aarch64
         UV_TRIPLE=aarch64-unknown-linux-gnu
-        PNPM_PLATFORM_PACKAGE=@pnpm/linux-arm64
-        PNPM_PLATFORM_ARCHIVE=linux-arm64
-        PNPM_PLATFORM_SIZE=47358242
-        PNPM_PLATFORM_SHA512=716384af9c5b994459a63d97668ff7a6ab2bb434f3aa6b3c836ed9e1c881d7e71d8f7485f003edcf20bfcc9909ebe8139d1c12d2b2156a59ee952c030ca89ab0
+        PNPM_PLATFORM_PACKAGE=@pnpm/exe.linux-arm64
+        PNPM_PLATFORM_ARCHIVE=exe.linux-arm64
+        PNPM_PLATFORM_SIZE=21515849
+        PNPM_PLATFORM_SHA512=731fae17ac6ac04b66ec1f0d57ed6f7b4c4183d81cbb3419e51fb45a0396bca1bf87defc5258d2e81816b358a9206b8681475e5619b73ca98196d5c871cccb5c
         ;;
     arm|armv7|armhf)
         ARCH=armv7
@@ -174,15 +173,15 @@ prepare_pnpm() {
     local staging base_archive platform_archive package_root
     local registry npmjs_registry
 
+    if [ "$ARCH" = "armv7" ]; then
+        echo "pnpm 12 upstream does not publish a Linux ARMv7 binary; use amd64/arm64 for the bundled Docker runtime." >&2
+        return 1
+    fi
     if [ -x "$OUTPUT_DIR/pnpm" ] &&
-        [ -f "$OUTPUT_DIR/dist/pnpm.mjs" ] &&
+        [ -d "$OUTPUT_DIR/dist" ] &&
         [ "$(cat "$marker" 2>/dev/null || true)" = "$PNPM_VERSION" ]; then
-        if [ "$ARCH" != "armv7" ] || {
-                [ -x "$OUTPUT_DIR/node-v$ARMV7_NODE_VERSION-linux-armv7l/bin/node" ]
-        }; then
-            echo "✓ pnpm $PNPM_VERSION ($ARCH)"
-            return
-        fi
+        echo "✓ pnpm $PNPM_VERSION ($ARCH)"
+        return
     fi
 
     echo "📦 Preparing pnpm $PNPM_VERSION ($ARCH)..."
@@ -194,56 +193,30 @@ prepare_pnpm() {
 
     download_verified \
         sha512 \
-        f5a3e07936a73db94f2c613457e4924c500498dd5a174cb7384fa23543bf456e685e865fc8f4b7e214830f00e6572f32a2403ff84bb041910d303c5a6880b2b0 \
-        3988555 \
+        4d9395bd8abc9f0ce6c3c211dcfd4629993ceed57bbc33c24f7a0994bec886060d65f2c6a2fe235f427c449c6e017c484f7bb183fba27289eb2cb06ff97e4ac8 \
+        908979 \
         "$base_archive" \
         "$registry/@pnpm/exe/-/exe-$PNPM_VERSION.tgz" \
         "$npmjs_registry/@pnpm/exe/-/exe-$PNPM_VERSION.tgz"
     tar -xzf "$base_archive" -C "$staging"
     package_root="$staging/package"
 
-    if [ "$ARCH" = "armv7" ]; then
-        local node_archive node_archive_name node_mirror
-        node_archive_name="node-v$ARMV7_NODE_VERSION-linux-armv7l.tar.gz"
-        node_archive="$staging/$node_archive_name"
-        node_mirror=${PNPM_NODE_DIST_MIRROR%/}
-        download_verified \
-            sha256 \
-            03c56ac0bd3ef3cce967c2f7b2f7ac2259a4ae7ceeaa661291aadf65729a8b53 \
-            51527978 \
-            "$node_archive" \
-            "$node_mirror/v$ARMV7_NODE_VERSION/$node_archive_name" \
-            "https://nodejs.org/dist/v$ARMV7_NODE_VERSION/$node_archive_name"
-        tar -xzf "$node_archive" -C "$package_root"
-        {
-            printf '%s\n' '#!/bin/sh'
-            printf '%s\n' 'base=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)'
-            printf '%s\n' "exec \"\$base/node-v$ARMV7_NODE_VERSION-linux-armv7l/bin/node\" \"\$base/dist/pnpm.mjs\" \"\$@\""
-        } > "$package_root/pnpm"
-        chmod 0755 "$package_root/pnpm"
-
-        rm -rf -- "$OUTPUT_DIR/node-v$ARMV7_NODE_VERSION-linux-armv7l"
-        cp -a -- \
-            "$package_root/node-v$ARMV7_NODE_VERSION-linux-armv7l" \
-            "$OUTPUT_DIR/node-v$ARMV7_NODE_VERSION-linux-armv7l"
-    else
-        platform_archive="$staging/pnpm-platform.tgz"
-        download_verified \
-            sha512 \
-            "$PNPM_PLATFORM_SHA512" \
-            "$PNPM_PLATFORM_SIZE" \
-            "$platform_archive" \
-            "$registry/$PNPM_PLATFORM_PACKAGE/-/$PNPM_PLATFORM_ARCHIVE-$PNPM_VERSION.tgz" \
-            "$npmjs_registry/$PNPM_PLATFORM_PACKAGE/-/$PNPM_PLATFORM_ARCHIVE-$PNPM_VERSION.tgz"
-        tar -xzf "$platform_archive" -C "$staging"
-    fi
+    platform_archive="$staging/pnpm-platform.tgz"
+    download_verified \
+        sha512 \
+        "$PNPM_PLATFORM_SHA512" \
+        "$PNPM_PLATFORM_SIZE" \
+        "$platform_archive" \
+        "$registry/$PNPM_PLATFORM_PACKAGE/-/$PNPM_PLATFORM_ARCHIVE-$PNPM_VERSION.tgz" \
+        "$npmjs_registry/$PNPM_PLATFORM_PACKAGE/-/$PNPM_PLATFORM_ARCHIVE-$PNPM_VERSION.tgz"
+    tar -xzf "$platform_archive" -C "$staging"
 
     if [ ! -f "$package_root/pnpm" ]; then
         echo "pnpm archive does not contain the expected executable" >&2
         return 1
     fi
-    if [ ! -f "$package_root/dist/pnpm.mjs" ]; then
-        echo "pnpm archive does not contain dist/pnpm.mjs" >&2
+    if [ ! -d "$package_root/dist" ]; then
+        echo "pnpm archive does not contain runtime support files" >&2
         return 1
     fi
     rm -rf -- "$OUTPUT_DIR/dist"

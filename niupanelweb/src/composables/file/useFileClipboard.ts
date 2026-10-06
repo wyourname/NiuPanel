@@ -33,11 +33,14 @@ export function useFileClipboard({
   };
 
   const pasteFromClipboard = async () => {
-    if (!clipboard.value.action || clipboard.value.files.length === 0) return;
+    if (pasting.value || !clipboard.value.action || clipboard.value.files.length === 0) return;
 
     pasting.value = true;
     const action = clipboard.value.action;
+    const originalClipboard = clipboard.value;
+    const destination = currentPath.value;
     const files = clipboard.value.files.map((file) => ({ ...file }));
+    const failedFiles: FileItem[] = [];
     let successCount = 0;
     let failCount = 0;
     const chunkSize = 5;
@@ -46,7 +49,7 @@ export function useFileClipboard({
       for (let i = 0; i < files.length; i += chunkSize) {
         const chunk = files.slice(i, i + chunkSize);
         const results = await Promise.all(chunk.map(async (file) => {
-          const targetPath = joinDirectoryPath(currentPath.value, file.name);
+          const targetPath = joinDirectoryPath(destination, file.name);
           if (targetPath === file.path) return false;
 
           try {
@@ -61,16 +64,19 @@ export function useFileClipboard({
           }
         }));
 
-        results.forEach((success) => {
+        results.forEach((success, index) => {
           if (success) successCount++;
-          else failCount++;
+          else { failCount++; failedFiles.push(chunk[index]!); }
         });
       }
 
       if (successCount > 0) {
         ElMessage.success(`成功${action === "copy" ? "复制" : "移动"} ${successCount} 项`);
-        await loadContents(currentPath.value);
-        clipboardStore.clearClipboard();
+        if (currentPath.value === destination) await loadContents(destination);
+      }
+      if (clipboard.value === originalClipboard) {
+        if (failedFiles.length) clipboardStore.setClipboard(action, failedFiles);
+        else clipboardStore.clearClipboard();
       }
       if (failCount > 0) ElMessage.warning(`${failCount} 项操作失败`);
     } finally {
@@ -80,6 +86,7 @@ export function useFileClipboard({
 
   return {
     clipboard,
+    clearClipboard: clipboardStore.clearClipboard,
     copyToClipboard,
     cutToClipboard,
     pasteFromClipboard,

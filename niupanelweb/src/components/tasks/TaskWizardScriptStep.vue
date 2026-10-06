@@ -4,8 +4,9 @@
       <button
         v-for="mode in scriptSourceModes"
         :key="mode"
+        :aria-pressed="scriptSourceMode === mode"
         type="button"
-        class="flex flex-1 cursor-pointer items-center justify-center gap-2 rounded py-2 text-xs font-bold transition-colors duration-200"
+        class="flex min-h-11 flex-1 cursor-pointer items-center justify-center gap-2 rounded py-2 text-xs font-bold transition-colors duration-200"
         :class="
           scriptSourceMode === mode
             ? 'bg-card text-primary shadow-sm'
@@ -30,8 +31,9 @@
         <span class="label-xs mb-2 block">执行命令</span>
         <el-input
           :model-value="command"
+          aria-label="执行命令"
           type="textarea"
-          :rows="10"
+          :rows="6"
           placeholder="请输入执行命令，例如：python main.py"
           class="modern-input font-mono !text-xs"
           @update:model-value="emit('update:command', String($event))"

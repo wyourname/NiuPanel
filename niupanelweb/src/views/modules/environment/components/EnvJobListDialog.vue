@@ -37,7 +37,7 @@
           >
             <template #default="{ row }">
               <el-tag :type="getStatusType(row.status)" size="small" effect="plain" class="!border-none !bg-opacity-10">
-                {{ row.status }}
+                {{ statusLabel(row.status) }}
               </el-tag>
             </template>
           </el-table-column>
@@ -58,10 +58,11 @@
           >
             <template #default="{ row }">
               <el-button
-                v-if="row.status === 'Running'"
+                v-if="row.status === 'Running' || row.status === 'Pending'"
                 size="small"
                 link
                 type="danger"
+                :disabled="cancelling === row.id"
                 @click="handleCancelJob(row)"
                 >取消</el-button
               >
@@ -81,7 +82,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from "vue";
+import { useMobileBackCloseAction } from "@/composables/useMobileBackCloseAction";
+import { ref, watch, onUnmounted } from "vue";
 import { ElMessage } from "element-plus";
 import * as jobApi from "../../../../api/jobs";
 import { useAppStore } from "../../../../stores/app";
@@ -108,18 +110,26 @@ const appStore = useAppStore();
 const visible = ref(false);
 const loading = ref(false);
 const jobs = ref<Job[]>([]);
+const cancelling = ref<number | null>(null);
+let timer: ReturnType<typeof setTimeout> | undefined;
+let disposed = false;
+const statusLabel = (status: string) => ({ Pending: "排队中", Running: "执行中", Success: "成功", Finished: "完成", Failed: "失败", Cancelled: "已取消" } as Record<string, string>)[status] || status;
+
 
 watch(
   () => props.modelValue,
   (val: boolean) => {
     visible.value = val;
-    if (val) fetchJobs();
+    if (val) void fetchJobs();
+    else clearTimeout(timer);
   },
 );
 
 watch(visible, (val: boolean) => emit("update:modelValue", val));
 
 const fetchJobs = async () => {
+  if (loading.value) return;
+  clearTimeout(timer);
   loading.value = true;
   try {
     const res = await jobApi.getJobs();
@@ -127,16 +137,21 @@ const fetchJobs = async () => {
   } catch (e) {
   } finally {
     loading.value = false;
+    if (!disposed && visible.value) timer = setTimeout(fetchJobs, 3000);
   }
 };
 
 const handleCancelJob = async (job: Job) => {
+  if (cancelling.value !== null) return;
+  cancelling.value = job.id;
   try {
     await jobApi.cancelJob(job.id);
     ElMessage.success("已发送取消指令");
     fetchJobs();
-  } catch (e) {}
+  } catch (e) {} finally { cancelling.value = null; }
 };
+
+onUnmounted(() => { disposed = true; clearTimeout(timer); });
 
 const getStatusType = (status: string): TagType => {
   return status === "Running"
@@ -145,4 +160,5 @@ const getStatusType = (status: string): TagType => {
       ? "danger"
       : "success";
 };
+useMobileBackCloseAction({ appStore: useAppStore(), visible, close: () => { visible.value = false; } });
 </script>

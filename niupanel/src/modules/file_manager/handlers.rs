@@ -141,8 +141,7 @@ pub async fn download_file(
 
     res.headers_mut().insert(
         axum::http::header::CONTENT_DISPOSITION,
-        axum::http::HeaderValue::from_str(&format!("attachment; filename=\"{}\"", filename))
-            .map_err(|_| AppError::Generic("Invalid filename".to_string()))?,
+        super::download::attachment(&filename)?,
     );
 
     Ok(res)
@@ -329,4 +328,24 @@ pub async fn download_batch(
     Json(payload): Json<DownloadBatchRequest>,
 ) -> Result<impl IntoResponse> {
     FileManagerService::download_batch(payload).await
+}
+
+#[derive(serde::Deserialize)]
+pub struct DownloadBatchForm {
+    paths: String,
+}
+
+pub async fn download_batch_form(
+    axum::extract::Form(form): axum::extract::Form<DownloadBatchForm>,
+) -> Result<impl IntoResponse> {
+    let paths = serde_json::from_str::<Vec<String>>(&form.paths)
+        .map_err(|_| AppError::Generic("无效的下载文件列表".into()))?;
+    FileManagerService::download_batch(DownloadBatchRequest { paths }).await
+}
+
+pub async fn check_download_batch(
+    Json(payload): Json<DownloadBatchRequest>,
+) -> Result<ApiResponse<()>> {
+    super::download::resolve_batch(&payload.paths)?;
+    Ok(ApiResponse::success(()))
 }

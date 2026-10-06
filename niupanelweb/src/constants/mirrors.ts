@@ -7,6 +7,7 @@ export const PYTHON_MIRRORS = [
 ]
 
 export const UV_PYTHON_MIRRORS = [
+  { name: '官方源', url: 'https://github.com/astral-sh/python-build-standalone/releases/download/' },
   { name: 'gh-proxy (推荐)', url: 'https://gh-proxy.com/https://github.com/astral-sh/python-build-standalone/releases/download/' },
 ]
 
@@ -22,4 +23,10 @@ export const SHELL_MIRRORS = [
   { name: '阿里源', url: 'https://mirrors.aliyun.com/debian/' },
   { name: '中科大', url: 'https://mirrors.ustc.edu.cn/debian/' },
   { name: '华为源', url: 'https://repo.huaweicloud.com/debian/' },
+]
+
+export const NODE_DIST_MIRRORS = [
+  { name: '官方源', url: 'https://nodejs.org/dist/' },
+  { name: '中科大源', url: 'https://mirrors.ustc.edu.cn/node/' },
+  { name: '清华源', url: 'https://mirrors.tuna.tsinghua.edu.cn/nodejs-release/' },
 ]

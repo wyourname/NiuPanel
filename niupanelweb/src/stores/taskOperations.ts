@@ -95,8 +95,11 @@ export const createTaskOperations = ({
     }
   };
 
+  const pendingEnableChanges = new Set<number>();
   const toggleEnable = async (task: Task, enabled: boolean) => {
-    const originalState = !enabled;
+    if (pendingEnableChanges.has(task.id)) return;
+    pendingEnableChanges.add(task.id);
+    const originalState = task.enabled;
     task.enabled = enabled;
     try {
       if (enabled) {
@@ -108,6 +111,8 @@ export const createTaskOperations = ({
       }
     } catch (e) {
       task.enabled = originalState;
+    } finally {
+      pendingEnableChanges.delete(task.id);
     }
   };
 

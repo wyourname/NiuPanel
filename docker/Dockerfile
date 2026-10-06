@@ -10,13 +10,9 @@ WORKDIR /app
 # 设置时区和环境变量
 ENV TZ=Asia/Shanghai \
     DEBIAN_FRONTEND=noninteractive \
-    UV_INDEX_URL=https://pypi.mirrors.ustc.edu.cn/simple/ \
-    UV_PIP_INDEX_URL=https://pypi.mirrors.ustc.edu.cn/simple/ \
     UV_TOOL_DIR=/app/data/uv/tool \
     UV_CACHE_DIR=/app/data/uv/cache \
-    UV_PYTHON_INSTALL_DIR=/app/data/uv/python \
-    PNPM_NODE_DIST_MIRROR=https://mirrors.ustc.edu.cn/node/ \
-    NPM_CONFIG_REGISTRY=https://registry.npmmirror.com/
+    UV_PYTHON_INSTALL_DIR=/app/data/uv/python
 
 RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
@@ -44,7 +40,7 @@ RUN set -ex; \
     rm -rf /var/lib/apt/lists/* /var/cache/apt/*;
 
 # 2. 归档仅通过 BuildKit 临时挂载解压，避免将压缩包及其解压内容重复写入镜像层。
-# `packages/{amd64,arm64,arm}/niupanel.tar.gz` 和 Web 包由本地构建脚本或 CI 准备。
+# `packages/{amd64,arm64}/niupanel.tar.gz` 和 Web 包由本地构建脚本或 CI 准备。
 RUN --mount=type=bind,source=packages,target=/mnt/packages,readonly \
     set -ex; \
     FILE_ARCH=""; \
@@ -52,7 +48,6 @@ RUN --mount=type=bind,source=packages,target=/mnt/packages,readonly \
     case "${DETECTED_ARCH}" in \
         "amd64"|"x86_64") FILE_ARCH="x86_64" ;; \
         "arm64"|"aarch64") FILE_ARCH="aarch64" ;; \
-        "arm"|"armv7"|"armhf") FILE_ARCH="armv7" ;; \
         *) echo "Unsupported app architecture: ${DETECTED_ARCH}"; exit 1 ;; \
     esac; \
      \
@@ -65,7 +60,7 @@ RUN --mount=type=bind,source=packages,target=/mnt/packages,readonly \
     chmod +x /app/niupanel /app/niupanel-launcher /app/tools/uv /app/tools/pnpm; \
     test ! -e /app/tools/fnm; \
     BUNDLED_PNPM_VERSION=$(/app/tools/pnpm --version); \
-    if [ "$BUNDLED_PNPM_VERSION" != "11.18.0" ]; then \
+    if [ "$BUNDLED_PNPM_VERSION" != "12.9.1" ]; then \
         echo "Unexpected bundled pnpm version: $BUNDLED_PNPM_VERSION"; \
         exit 1; \
     fi; \

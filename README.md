@@ -77,6 +77,8 @@ cd NiuPanel
 - 创建和删除 Python 虚拟环境。
 - 安装、卸载并查看 Python 软件包。
 - 安装、删除和切换 Node.js 版本，可设置默认版本。
+- Node.js 安装直接下载 Linux glibc 预构建包，SHA-256 校验后流式提取二进制，不在设备上编译或启动 pnpm；已有 pnpm runtime 环境继续兼容。
+- 依赖管理按需安装 pnpm 12，面板内的 Node 依赖操作串行执行，下载并发为 2、构建并发为 1，降低小内存设备的安装峰值。没有预构建产物的原生依赖仍可能需要编译。
 - 管理不同 Node.js 环境的软件包。
 - 查看、安装和卸载系统级软件包。
 - 配置 Python、Node.js 和系统软件源镜像。
@@ -162,7 +164,7 @@ cd NiuPanel
 ### Telegram
 
 - Core 只负责 Telegram Long Polling、可信 Chat ID、代理、通知、登录二次验证和通道生命周期。
-- Telegram 文本统一进入配置的 Ops Agent 插件，由 Agent 理解自然语言并调用权限受控的面板工具。
+- Telegram Bot 与 Ops Agent 合并为一个插件；文本统一进入该 Agent 插件，由 Agent 理解自然语言并调用权限受控的面板工具。
 - 查询工具可直接执行；修改工具先生成 10 分钟有效的确认单，明确确认后才执行并写入审计。
 - 每个 Chat 使用独立 Agent 会话和确认作用域，模型不可伪造用户身份或绕过宿主权限。
 - 用户可以直接回复任务结果或系统告警，Core 会按 Telegram message ID 将对应实体上下文安全地交给 Agent。
@@ -187,8 +189,9 @@ cd NiuPanel
 - Launcher 负责完整 Panel Release 的进程监督、健康检查、数据库快照、原子激活和失败恢复。
 - Core 与 Web 可以独立构建，但只能由 Panel Release 一起激活或回退；纯前端修复可以复用原 Core 组件。
 - Core 使用 `Core-vX.Y.Z` Tag，Web UI 使用 `web-vX.Y.Z` Tag，Panel 使用 `vX.Y.Z[-prerelease]` Tag；组件资产不可覆盖。
+- 日常发布只需运行 Actions 中的 **Release NiuPanel**，填写 Panel 版本和发布通道；Core/Web Tag、并行构建、配套校验和 Panel 发布由同一流水线完成。组件版本仍从源码读取，详细步骤见[发布文档](docs/maintainers/open-source-release.md#publishing-model)。
 - `main` 分支的 `release/channels/preview.json` 与 `release/channels/stable.json` 是唯一更新入口。切换通道不会自动安装；从 0.8.0 起不读取 0.7.x 的旧状态格式。
-- Docker 环境镜像独立使用 `3.0.2` 与 `latest` 标签，仅在容器基线需要变化时手动重建，不使用 preview 镜像标签。
+- Docker 环境镜像独立使用 `3.0.3` 与 `latest` 标签，仅在容器基线需要变化时手动重建，不使用 preview 镜像标签。
 - 构建期 JSON manifest 在安装校验后丢弃；运行状态统一保存在 `data/system/runtime.db`。
 - 更新镜像时，Launcher 只会把更高的内置 Panel 版本加入正常激活队列；不会覆盖更高的在线更新版本，也不会隐式降级。
 - 内置 `/recovery` 恢复入口不依赖当前 Web UI 包。
@@ -208,7 +211,7 @@ docker run -d \
   wyourname/niupanel:latest
 ```
 
-镜像使用多架构 Manifest，Docker 会自动选择 AMD64、ARM64 或 ARMv7 产物。Docker 从 `main/release/channels` 的指定通道读取并校验完整 Panel Release，镜像保持独立环境版本，例如 `wyourname/niupanel:3.0.2`，并同步更新 `latest`。
+镜像使用多架构 Manifest，Docker 会自动选择 AMD64 或 ARM64 产物（pnpm 12 不再提供 ARMv7 原生包）。Docker 从 `main/release/channels` 的指定通道读取并校验完整 Panel Release，镜像保持独立环境版本，例如 `wyourname/niupanel:3.0.3`，并同步更新 `latest`。
 
 启动后访问：
 
@@ -297,7 +300,6 @@ niupanel/           HTTP API 与应用组合
 niupanel-core/      调度、执行、环境和系统核心能力
 niupanel-launcher/  Core 激活、健康检查与回退
 niupanel-plugin/    插件 manifest、沙箱、安装和运行时
-niupanel-bot/       Telegram Agent 传输与通知通道
 niupanelweb/        Vue Web UI
 packages/           TypeScript 公共包和插件 SDK
 examples/           可运行插件示例与模板

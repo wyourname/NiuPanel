@@ -1,15 +1,14 @@
 <template>
-  <div class="min-h-0 flex-1 overflow-y-auto px-3 pb-3 custom-scrollbar sm:px-4 sm:pb-4">
-    <div v-if="loading" class="grid grid-cols-1 gap-3">
-      <el-skeleton v-for="item in 5" :key="item" animated :loading="true">
+  <div class="dependency-package-list custom-scrollbar" :aria-busy="loading">
+    <div v-if="loading" aria-label="正在加载依赖列表" class="px-5">
+      <el-skeleton v-for="item in 7" :key="item" animated :loading="true">
         <template #template>
-          <div class="flex items-center gap-3 rounded-xl bg-soft p-3.5">
-            <el-skeleton-item variant="circle" style="width: 40px; height: 40px" />
+          <div class="flex items-center gap-3 border-b border-light py-3.5">
             <div class="min-w-0 flex-1">
-              <el-skeleton-item variant="text" style="width: 38%" />
-              <el-skeleton-item variant="text" style="width: 22%; margin-top: 10px" />
+              <el-skeleton-item variant="text" style="display: block; width: 55%" />
+              <el-skeleton-item variant="text" style="display: block; width: 25%; margin-top: 8px" />
             </div>
-            <el-skeleton-item variant="button" style="width: 70px; height: 40px" />
+            <el-skeleton-item variant="button" style="width: 60px; height: 32px" />
           </div>
         </template>
       </el-skeleton>
@@ -17,35 +16,22 @@
 
     <div
       v-else-if="packages.length === 0"
-      class="h-full min-h-[240px] rounded-xl bg-soft px-5 py-10 text-center flex-col-center"
+      class="dependency-package-empty text-center flex-col-center"
     >
       <span
-        :class="searchQuery ? 'i-ep-search' : 'i-ep-box'"
-        class="mb-4 h-12 w-12 rounded-xl bg-card text-xl text-primary flex-center"
+        class="i-ep-box mb-4 h-12 w-12 text-3xl text-secondary"
         aria-hidden="true"
       ></span>
-      <div class="text-[13px] font-semibold text-default">
-        {{ searchQuery ? "没有匹配的依赖" : "暂未安装依赖" }}
+      <div class="text-sm font-semibold text-default">
+        暂未安装依赖
       </div>
-      <div class="mt-2 max-w-[280px] text-[10px] leading-5 text-secondary">
-        {{
-          searchQuery
-            ? `没有找到与“${searchQuery}”相关的包，请换个关键词。`
-            : "安装依赖后，可在这里查看版本并按包卸载。"
-        }}
+      <div class="mt-2 max-w-[280px] break-all text-xs leading-5 text-secondary">
+        安装依赖后，可在这里查看版本并按包卸载。
       </div>
       <ToolbarButton
-        v-if="searchQuery"
         variant="soft"
-        class="mt-4 !min-h-11"
-        @click="emit('clear-search')"
-      >
-        清除搜索
-      </ToolbarButton>
-      <ToolbarButton
-        v-else
-        variant="primary"
-        class="mt-4 !min-h-11"
+        class="mt-4 !min-h-11 gap-2"
+        :disabled="busy"
         @click="emit('install')"
       >
         <template #icon>
@@ -55,55 +41,48 @@
       </ToolbarButton>
     </div>
 
-    <div v-else class="surface-list !rounded-xl">
-      <article
-        v-for="row in packages"
-        :key="row.name"
-        class="surface-list__row !items-start !gap-3 !px-3 !py-3 sm:!items-center sm:!px-4"
-      >
-        <span
-          class="h-10 w-10 shrink-0 rounded-lg bg-soft text-primary flex-center"
-          aria-hidden="true"
-        >
-          <span class="i-ep-box"></span>
-        </span>
-
-        <div class="min-w-0 flex-1 self-center">
-          <div class="break-all text-[13px] font-semibold leading-5 text-default">
-            {{ row.name }}
-          </div>
-          <div class="mt-1 flex flex-wrap items-center gap-2">
-            <span
-              class="rounded-md bg-soft px-2 py-0.5 font-mono text-[10px] font-semibold text-secondary"
-              :title="`版本 ${row.version}`"
+    <table v-else class="dependency-package-table" aria-label="已安装的依赖包">
+      <colgroup>
+        <col class="dependency-package-index" />
+        <col />
+        <col class="dependency-package-version" />
+        <col class="dependency-package-action" />
+      </colgroup>
+      <thead>
+        <tr>
+          <th scope="col" class="dependency-package-index">序号</th>
+          <th scope="col">依赖名称</th>
+          <th scope="col" class="dependency-package-version">当前版本</th>
+          <th scope="col" class="dependency-package-action">操作</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr v-for="(row, index) in packages" :key="row.name" class="dependency-package-row">
+          <td class="dependency-package-index tabular-nums text-secondary">{{ index + 1 }}</td>
+          <td>
+            <span class="break-all font-mono text-[13px] font-medium text-default">{{ row.name }}</span>
+            <span class="mt-1 block break-all font-mono text-xs text-secondary md:hidden">版本 {{ row.version }}</span>
+          </td>
+          <td class="dependency-package-version break-all font-mono text-xs text-secondary">{{ row.version }}</td>
+          <td class="dependency-package-action">
+            <button
+              type="button"
+              class="dependency-package-uninstall min-h-11 cursor-pointer rounded-lg px-3 text-xs font-medium text-secondary inline-flex items-center justify-center gap-1.5 transition-colors hover:bg-rose-500/10 hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:text-rose-300"
+              :disabled="busy || Boolean(uninstallingPackage)"
+              :title="`卸载 ${row.name}`"
+              :aria-label="`卸载 ${row.name}`"
+              @click="emit('uninstall', row.name)"
             >
-              {{ row.version }}
-            </span>
-            <span class="text-[10px] text-muted">已安装</span>
-          </div>
-        </div>
-
-        <button
-          type="button"
-          class="min-h-11 shrink-0 self-center rounded-lg px-3 text-[11px] font-semibold text-rose-600 flex-center gap-1.5 transition-colors hover:bg-rose-500/10 disabled:cursor-not-allowed disabled:opacity-50 dark:text-rose-300"
-          :disabled="Boolean(uninstallingPackage)"
-          :title="`卸载 ${row.name}`"
-          :aria-label="`卸载 ${row.name}`"
-          @click="emit('uninstall', row.name)"
-        >
-          <span
-            :class="
-              uninstallingPackage === row.name
-                ? 'i-ep-loading animate-spin'
-                : 'i-ep-delete'
-            "
-          ></span>
-          <span>
-            {{ uninstallingPackage === row.name ? "处理中" : "卸载" }}
-          </span>
-        </button>
-      </article>
-    </div>
+              <span
+                :class="uninstallingPackage === row.name ? 'i-ep-loading animate-spin motion-reduce:animate-none' : 'i-ep-delete'"
+                aria-hidden="true"
+              ></span>
+              {{ uninstallingPackage === row.name ? "处理中" : "卸载" }}
+            </button>
+          </td>
+        </tr>
+      </tbody>
+    </table>
   </div>
 </template>
 
@@ -112,15 +91,107 @@ import type { Package } from "@/types";
 import ToolbarButton from "../../../../components/common/ToolbarButton.vue";
 
 defineProps<{
+  busy: boolean;
   loading: boolean;
   packages: Package[];
-  searchQuery: string;
   uninstallingPackage: string;
 }>();
 
 const emit = defineEmits<{
-  (event: "clear-search"): void;
   (event: "install"): void;
   (event: "uninstall", packageName: string): void;
 }>();
 </script>
+
+<style scoped>
+.dependency-package-list {
+  min-width: 0;
+  flex: 1 0 auto;
+}
+
+.dependency-package-table {
+  width: 100%;
+  table-layout: fixed;
+  border-spacing: 0;
+  text-align: left;
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.dependency-package-table th {
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border-light);
+  background: var(--bg-subtle);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.dependency-package-table td {
+  height: 52px;
+  padding: 4px 16px;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.dependency-package-table .dependency-package-index {
+  display: none;
+  width: 64px;
+}
+
+.dependency-package-table .dependency-package-version {
+  display: none;
+  width: 28%;
+}
+
+.dependency-package-table .dependency-package-action {
+  width: 100px;
+  padding-right: 12px;
+  padding-left: 8px;
+  text-align: center;
+}
+
+.dependency-package-row:hover {
+  background: var(--bg-subtle);
+}
+
+.dependency-package-row:last-child td {
+  border-bottom: 0;
+}
+
+.dependency-package-empty {
+  min-height: 180px;
+  padding: 24px 20px;
+}
+
+.dependency-package-uninstall:focus-visible {
+  outline: 2px solid var(--el-color-primary);
+  outline-offset: 2px;
+}
+
+@media (min-width: 769px) {
+  .dependency-package-list {
+    min-height: 0;
+    max-height: min(560px, calc(var(--app-viewport-height) - 220px));
+    flex: 0 1 auto;
+    overflow-y: auto;
+  }
+
+  .dependency-package-table th {
+    position: sticky;
+    z-index: 1;
+    top: 0;
+  }
+
+  .dependency-package-table col.dependency-package-index,
+  .dependency-package-table col.dependency-package-version {
+    display: table-column;
+  }
+
+  .dependency-package-table th.dependency-package-index,
+  .dependency-package-table td.dependency-package-index,
+  .dependency-package-table th.dependency-package-version,
+  .dependency-package-table td.dependency-package-version {
+    display: table-cell;
+  }
+}
+</style>

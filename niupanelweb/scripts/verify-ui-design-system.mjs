@@ -126,10 +126,10 @@ if (
 }
 if (
   taskDetailHeader.indexOf('aria-label="搜索日志"') === -1 ||
-  taskDetailHeader.indexOf('aria-label="搜索日志"') >
-    taskDetailHeader.indexOf('<nav class="hidden lg:flex')
+  taskDetailHeader.indexOf('aria-label="搜索日志"') <
+    taskDetailHeader.indexOf('<nav class="task-detail-tabs"')
 ) {
-  fail("task log search must appear before the desktop detail tabs");
+  fail("task log search must remain available after the detail tabs");
 }
 
 const responsiveDialog = read("src/components/common/ResponsiveDialog.vue");

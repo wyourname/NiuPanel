@@ -9,7 +9,7 @@
     >
       <button
         type="button"
-        class="group dock-item-base h-11 w-11 overflow-hidden rounded-lg bg-primary text-sm font-extrabold text-white shadow-sm md:h-10 md:w-10"
+        class="group dock-item-base h-11 w-11 overflow-hidden rounded-lg bg-[var(--button-primary-bg)] text-sm font-extrabold text-[var(--button-primary-text)] shadow-sm md:h-10 md:w-10"
         :class="isOverviewActive ? 'ring-2 ring-primary/25' : 'hover:opacity-90'"
         :aria-current="isOverviewActive ? 'page' : undefined"
         :title="systemName"
@@ -29,7 +29,7 @@
           v-for="item in primaryDockItems"
           :key="item.index"
           type="button"
-          class="group dock-item-base h-11 w-11 rounded-lg md:h-10 md:w-10"
+          class="dock-labeled group dock-item-base h-11 w-11 rounded-lg md:h-10 md:w-10"
           :class="isMenuItemActive(item) ? activeDockItemClass : 'dock-item-idle'"
           :aria-current="isMenuItemActive(item) ? 'page' : undefined"
           :aria-label="item.title"
@@ -48,9 +48,7 @@
             v-if="isMenuItemActive(item)"
             :class="activeDockDotClass"
           ></div>
-          <div v-if="!appStore.isMobile" class="dock-tooltip">
-            {{ item.title }}
-          </div>
+          <span v-if="!appStore.isMobile" class="dock-label">{{ item.title }}</span>
         </button>
       </nav>
 
@@ -61,7 +59,7 @@
             v-for="item in visibleWindowItems"
             :key="item.id"
             type="button"
-            class="group dock-item-base h-11 w-11 rounded-lg md:h-10 md:w-10"
+            class="dock-labeled group dock-item-base h-11 w-11 rounded-lg md:h-10 md:w-10"
             :class="workspace.activeWindowId === item.id ? activeDockItemClass : 'dock-item-idle'"
             :aria-current="workspace.activeWindowId === item.id ? 'page' : undefined"
             :aria-label="item.title"
@@ -90,7 +88,7 @@
             v-for="item in systemDockItems"
             :key="item.index"
             type="button"
-            class="group dock-item-base h-11 w-11 rounded-lg md:h-10 md:w-10"
+            class="dock-labeled group dock-item-base h-11 w-11 rounded-lg md:h-10 md:w-10"
             :class="isMenuItemActive(item) ? activeDockItemClass : 'dock-item-idle'"
             :aria-current="isMenuItemActive(item) ? 'page' : undefined"
             :aria-label="item.title"
@@ -160,9 +158,9 @@ const dockContextMenuVisible = ref(false);
 const dockContextMenuPosition = ref<ContextMenuPosition>({ x: 0, y: 0 });
 const dockContextItem = ref<DockMenuItem | null>(null);
 const dockScrollRef = ref<HTMLElement | null>(null);
-const activeDockItemClass = "dock-item-active !bg-slate-100 !text-slate-900 !ring-slate-900/10 dark:!bg-white/12 dark:!text-white dark:!ring-white/12";
-const activeDockIconClass = "!text-slate-900 opacity-100 dark:!text-white";
-const activeDockDotClass = "absolute -bottom-1 left-1/2 h-1 w-1 -translate-x-1/2 rounded-full bg-slate-900/70 dark:bg-white/80";
+const activeDockItemClass = "dock-item-active";
+const activeDockIconClass = "text-[var(--accent-subtle-text)] opacity-100";
+const activeDockDotClass = "absolute -bottom-1 left-1/2 h-1 w-1 -translate-x-1/2 rounded-full bg-primary";
 
 const overviewDockItem: DockMenuItem = {
   appId: "overview",
@@ -428,6 +426,11 @@ watch(
 </script>
 
 <style scoped>
+.dock-label { font-size: 11px; line-height: 1; white-space: nowrap; }
+@media (min-width: 769px) {
+  .dock-labeled:has(.dock-label) { width: auto; min-width: 66px; height: 48px; padding: 6px 10px; flex-direction: column; gap: 5px; }
+}
+
 .dock-mobile-scroll {
   justify-content: safe center;
 }

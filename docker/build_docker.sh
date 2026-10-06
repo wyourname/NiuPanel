@@ -16,7 +16,6 @@ WEB_TAR_FILE=""
 declare -A ARCH_MAP=(
     ["x86_64"]="linux/amd64"
     ["aarch64"]="linux/arm64"
-    ["armv7"]="linux/arm/v7"
 )
 
 # --- Helper Functions ---
@@ -37,7 +36,7 @@ cleanup() {
         local docker_arch=$(echo "${ARCH_MAP[$suffix]}" | cut -d'/' -f2) # Extract amd64/arm64/arm
         local variant=$(echo "${ARCH_MAP[$suffix]}" | cut -d'/' -f3)     # Extract v7 if exists
 
-        # Normalize arch name for tagging (amd64, arm64, armv7)
+        # Normalize arch name for tagging (amd64, arm64)
         local tag_arch="${docker_arch}"
         [[ -n "$variant" ]] && tag_arch="${docker_arch}${variant}"
 
@@ -54,7 +53,7 @@ build_and_push() {
     local pkg_suffix=$1
     local platform=$2
 
-    # Normalize tag architecture: amd64, arm64, armv7
+    # Normalize tag architecture: amd64, arm64
     local tag_arch=$(echo "$platform" | awk -F/ '{if ($3) print $2$3; else print $2}')
     local tar_file="niupanel_linux_${pkg_suffix}.tar.gz"
     local context_arch=$(echo "$platform" | awk -F/ '{print $2}')
@@ -176,9 +175,7 @@ create_manifest() {
     # Annotate
     for arch in "${BUILT_TAGS[@]}"; do
         local full_image="${BASE_IMAGE}:${VERSION}-${arch}"
-        if [[ "$arch" == "armv7" ]]; then
-            docker manifest annotate "${target_tag}" "${full_image}" --os linux --arch arm --variant v7
-        elif [[ "$arch" == "arm64" ]]; then
+        if [[ "$arch" == "arm64" ]]; then
             docker manifest annotate "${target_tag}" "${full_image}" --os linux --arch arm64
         else
             docker manifest annotate "${target_tag}" "${full_image}" --os linux --arch amd64

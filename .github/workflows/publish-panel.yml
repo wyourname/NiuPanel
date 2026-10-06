@@ -1,6 +1,26 @@
 name: Publish Panel Release
 
 on:
+  workflow_call:
+    inputs:
+      panel_version:
+        required: true
+        type: string
+      channel:
+        required: true
+        type: string
+      core_tag:
+        required: true
+        type: string
+      web_tag:
+        required: true
+        type: string
+      source_sha:
+        required: true
+        type: string
+    secrets:
+      RELEASE_TOKEN:
+        required: true
   workflow_dispatch:
     inputs:
       panel_version:
@@ -36,8 +56,8 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: main
-          fetch-depth: 1
+          ref: ${{ inputs.source_sha || 'main' }}
+          fetch-depth: 0
           token: ${{ secrets.RELEASE_TOKEN }}
 
       - name: Validate release identity
@@ -65,9 +85,7 @@ jobs:
           test -n "$GH_TOKEN" || { echo 'RELEASE_TOKEN is required' >&2; exit 1; }
           mkdir release-assets
           gh release download "$CORE_TAG" --repo "$GITHUB_REPOSITORY" --dir release-assets \
-            --pattern niupanel_linux_x86_64.tar.gz \
-            --pattern niupanel_linux_aarch64.tar.gz \
-            --pattern niupanel_linux_armv7.tar.gz
+            --pattern 'niupanel_linux_*.tar.gz'
           gh release download "$WEB_TAG" --repo "$GITHUB_REPOSITORY" --dir release-assets \
             --pattern 'niupanel_web_*.tar.gz'
           node scripts/generate-update-component.mjs \
@@ -83,6 +101,7 @@ jobs:
       - name: Prepare Panel release
         id: panel_release
         env:
+          SOURCE_SHA: ${{ inputs.source_sha || github.sha }}
           GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
           PANEL_VERSION: ${{ inputs.panel_version }}
           CHANNEL: ${{ inputs.channel }}
@@ -109,7 +128,7 @@ jobs:
           args=(
             "$TAG"
             --repo "$GITHUB_REPOSITORY"
-            --target "$GITHUB_SHA"
+            --target "$SOURCE_SHA"
             --title "NiuPanel $PANEL_VERSION"
             --generate-notes
             --draft
@@ -194,6 +213,8 @@ jobs:
           PANEL_VERSION: ${{ inputs.panel_version }}
         run: |
           set -euo pipefail
+          git fetch origin main
+          git checkout -B release-channel origin/main
           mkdir -p release/channels
           cp index.json "release/channels/${CHANNEL}.json"
           git config user.name 'niupanel-release-bot'

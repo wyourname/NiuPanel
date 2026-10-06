@@ -1,6 +1,16 @@
 import { defineConfig, presetUno, presetAttributify, presetIcons } from 'unocss'
 
 export default defineConfig({
+  content: {
+    // File-type icons and colors live in TS helpers, which the default scan skips.
+    pipeline: {
+      include: [
+        /\.(vue|svelte|[jt]sx|vine\.ts|mdx?|astro|elm|php|phtml|marko|html)($|\?)/,
+        /\/src\/.*\.[jt]s($|\?)/,
+      ],
+    },
+  },
+
   safelist: [
     'i-ep-data-analysis',
     'i-carbon-task',
@@ -94,7 +104,7 @@ export default defineConfig({
     'title-md': 'text-sm font-semibold text-default',
 
     // --- Components ---
-    'common-card': 'bg-card text-default rounded-lg border border-light shadow-sm transition-colors duration-200',
+    'common-card': 'bg-card text-default rounded-lg border border-light shadow-[var(--shadow-surface)] transition-colors duration-200',
     'card-header': 'px-4 py-3 border-b border-light flex items-center justify-between',
     'card-body': 'p-4',
     'btn-icon': 'bg-transparent border-none outline-none p-2 rounded-md cursor-pointer transition-colors duration-150 hover:bg-hover text-secondary hover:text-primary',
@@ -106,14 +116,14 @@ export default defineConfig({
     'glass-panel': 'bg-card dark:bg-[#17212b] border-r border-[var(--border-light)]',
     'glass-header': 'bg-card dark:bg-[#17212b] border-b border-[var(--border-light)] transition-colors',
     'glass-bottom-nav': 'bg-card dark:bg-[#17212b] border-t border-[var(--border-light)] transition-colors pb-safe',
-    'glass-card': 'bg-card dark:bg-[#17212b] rounded-lg border border-light shadow-sm transition-colors duration-200',
+    'glass-card': 'bg-card rounded-lg border border-light shadow-[var(--shadow-surface)] transition-colors duration-200',
 
     // --- Floating Dock ---
-    'dock-shell': 'pointer-events-auto flex items-center gap-1 rounded-xl border border-light bg-card px-1.5 py-1.5 shadow-[0_8px_24px_rgba(15,23,42,0.14)] dark:bg-[#151d27] dark:shadow-[0_10px_28px_rgba(0,0,0,0.34)] md:px-2 md:py-2',
+    'dock-shell': 'pointer-events-auto flex items-center gap-1 rounded-xl border border-light bg-card px-1.5 py-1.5 shadow-[0_2px_4px_rgba(15,23,42,0.05),0_12px_36px_rgba(15,23,42,0.16)] dark:shadow-[0_2px_0_rgba(255,255,255,0.025)_inset,0_12px_36px_rgba(0,0,0,0.40)] md:px-2 md:py-2',
     'dock-divider': 'h-7 w-px shrink-0 bg-slate-900/10 dark:bg-white/10',
     'dock-item-base': 'relative grid shrink-0 cursor-pointer place-items-center outline-none transition-colors duration-150 active:opacity-80 focus-visible:ring-2 focus-visible:ring-primary/35',
     'dock-item-idle': 'text-muted hover:bg-soft hover:text-default dark:hover:bg-white/8',
-    'dock-item-active': 'bg-slate-100 text-slate-900 shadow-sm ring-1 ring-slate-900/10 dark:bg-white/12 dark:text-white dark:ring-white/12',
+    'dock-item-active': 'bg-[var(--accent-subtle-bg)] text-[var(--accent-subtle-text)] shadow-sm ring-1 ring-[var(--accent-subtle-border)]',
     'dock-tooltip': 'pointer-events-none absolute bottom-[calc(100%+10px)] left-1/2 z-50 hidden -translate-x-1/2 whitespace-nowrap rounded-lg bg-gray-900 px-2.5 py-1.5 text-xs text-white shadow-lg group-hover:block',
 
     // --- Utilities ---

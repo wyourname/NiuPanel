@@ -644,6 +644,73 @@ impl PluginService {
         Ok(Some(response))
     }
 
+    pub async fn stop_processes(&self, id: &str) {
+        self.process_runtime.stop_plugin(id).await;
+    }
+
+    /// Runs the Agent's Telegram channel in its own pool, sharing the plugin lifecycle and data.
+    pub async fn invoke_telegram_channel(
+        &self,
+        id: &str,
+        request: PluginInvokeRequest,
+    ) -> Result<PluginInvokeResponse> {
+        let plugin = self.get_plugin(id)?;
+        if !plugin.enabled || !matches!(plugin.status, PluginStatus::Enabled) {
+            return Err(AppError::ValidationError(
+                "Agent plugin is disabled".to_string(),
+            ));
+        }
+        if !matches!(request.action.as_str(), "transport_tick" | "transport_test") {
+            return Err(AppError::ValidationError(
+                "Unknown Telegram channel action".to_string(),
+            ));
+        }
+        let spec = self.telegram_process_spec(&plugin)?;
+        self.process_runtime
+            .invoke_json_lines(spec, request, |_| {
+                Box::pin(async {
+                    Err(AppError::Forbidden(
+                        "Channel workers cannot call host tools".to_string(),
+                    ))
+                })
+            })
+            .await
+    }
+
+    pub async fn stop_telegram_channel(&self, id: &str) {
+        if let Ok(plugin) = self.get_plugin(id)
+            && let Ok(spec) = self.telegram_process_spec(&plugin)
+        {
+            self.process_runtime.stop_worker_pool(&spec).await;
+        }
+    }
+
+    fn telegram_process_spec(&self, plugin: &PluginRecord) -> Result<ProcessPluginSpec> {
+        if !plugin
+            .manifest
+            .capabilities
+            .iter()
+            .any(|capability| capability == niupanel_common::telegram_protocol::TELEGRAM_CAPABILITY)
+            || !plugin
+                .manifest
+                .capabilities
+                .iter()
+                .any(|capability| capability == "agents.chat")
+            || !matches!(plugin.manifest.protocol, PluginProcessProtocol::JsonLines)
+        {
+            return Err(AppError::ValidationError(
+                "Agent plugin does not support the Telegram channel; upgrade the Agent plugin"
+                    .to_string(),
+            ));
+        }
+        let mut spec = self.process_spec_for(plugin)?;
+        spec.args.push("--telegram-transport".to_string());
+        spec.worker.min = 1;
+        spec.worker.max = 1;
+        spec.tools.clear();
+        Ok(spec)
+    }
+
     pub async fn invoke_plugin(
         &self,
         id: &str,

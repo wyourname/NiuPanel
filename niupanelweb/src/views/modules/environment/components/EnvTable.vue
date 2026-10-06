@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { useAppStore } from "../../../../stores/app";
 import { useHaptics } from "../../../../composables/useHaptics";
+import { environmentLabel } from "../composables/packageInput";
 import type { Env } from "@/types";
 
 defineProps<{
@@ -22,10 +23,11 @@ const isNodeDefault = (env: Env) =>
   (env.path === "System Default" || env.path === "Active Default (Global)");
 
 const getSummary = (env: Env) => {
+  if (env.env_type === "sh") return "管理当前容器的 Linux 系统依赖（apt）";
   if (env.env_type === "node") {
     return env.version
-      ? `依赖安装在该版本共享目录 data/runtimes/node/shared/${env.version}/node_modules`
-      : "依赖安装在对应 Node 版本共享目录";
+      ? `同一 Node.js ${env.version} 版本的任务共用这些依赖`
+      : "同一 Node.js 版本的任务共用这些依赖";
   }
   if (env.is_installed) {
     return env.path || "已安装";
@@ -78,9 +80,9 @@ const handleMobileCommand = ({ action, env }: MobileEnvCommand) => {
         <div
           v-for="row in data"
           :key="row.name"
-          class="flex items-start gap-3 px-4 py-3 transition-colors hover:bg-soft/45"
+          class="environment-row flex items-stretch gap-3 px-4 py-3 transition-colors hover:bg-soft/45"
         >
-          <div class="h-10 w-10 shrink-0 rounded-lg border border-light/70 bg-base/70 flex-center text-primary">
+          <div class="environment-row-icon h-11 w-11 shrink-0 self-center rounded-lg border border-light/70 bg-base/70 flex-center text-primary">
             <div
               :class="
                 row.env_type === 'python'
@@ -93,10 +95,10 @@ const handleMobileCommand = ({ action, env }: MobileEnvCommand) => {
             ></div>
           </div>
 
-          <div class="min-w-0 flex-1">
-            <div class="flex flex-wrap items-center gap-2">
-              <span class="text-[14px] font-semibold text-default">
-                {{ row.env_type === 'node' ? row.name.replace(' (Active Default)', '') : row.name }}
+          <div class="environment-row-details min-h-11 min-w-0 flex flex-1 flex-col justify-center">
+            <div class="flex flex-wrap items-center gap-2 leading-5">
+              <span class="min-w-0 break-all text-[14px] font-semibold text-default">
+                {{ environmentLabel(row) }}
               </span>
               <span
                 v-if="row.version"
@@ -123,26 +125,29 @@ const handleMobileCommand = ({ action, env }: MobileEnvCommand) => {
             </div>
           </div>
 
-          <div class="flex shrink-0 items-center gap-1">
+          <div class="environment-row-actions flex shrink-0 items-stretch gap-1">
             <button
               v-if="row.is_installed"
-              class="h-8 rounded-md px-2.5 text-[11px] font-bold text-secondary flex-center gap-1 transition-colors hover:bg-soft hover:text-default"
+              type="button"
+              class="environment-row-action min-h-11 cursor-pointer rounded-md px-3 text-xs font-medium text-secondary flex-center gap-1.5 transition-colors hover:bg-soft hover:text-default"
               @click="handlePackages(row)"
             >
               <div class="i-ep-box"></div>
               包管理
             </button>
             <button
-              v-if="row.env_type === 'node' && !isNodeDefault(row)"
-              class="h-8 rounded-md px-2.5 text-[11px] font-bold text-secondary flex-center gap-1 transition-colors hover:bg-soft hover:text-default"
+              v-if="row.env_type === 'node' && row.is_installed && !isNodeDefault(row)"
+              type="button"
+              class="environment-row-action min-h-11 cursor-pointer rounded-md px-3 text-xs font-medium text-secondary flex-center gap-1.5 transition-colors hover:bg-soft hover:text-default"
               @click="emit('set-default', row)"
             >
               <div class="i-ep-aim"></div>
               设为默认
             </button>
             <button
-              v-if="row.env_type !== 'node' && !row.is_installed"
-              class="h-8 rounded-md px-2.5 text-[11px] font-bold text-secondary flex-center gap-1 transition-colors hover:bg-soft hover:text-default"
+              v-if="row.env_type !== 'sh' && !row.is_installed"
+              type="button"
+              class="environment-row-action min-h-11 cursor-pointer rounded-md px-3 text-xs font-medium text-secondary flex-center gap-1.5 transition-colors hover:bg-soft hover:text-default"
               @click="handleCreate(row)"
             >
               <div class="i-ep-refresh"></div>
@@ -150,7 +155,8 @@ const handleMobileCommand = ({ action, env }: MobileEnvCommand) => {
             </button>
             <button
               v-if="row.env_type === 'python' || row.env_type === 'node'"
-              class="h-8 rounded-md px-2.5 text-[11px] font-bold text-rose-600 flex-center gap-1 transition-colors hover:bg-rose-500/10 dark:text-rose-300"
+              type="button"
+              class="environment-row-action min-h-11 cursor-pointer rounded-md px-3 text-xs font-medium text-rose-600 flex-center gap-1.5 transition-colors hover:bg-rose-500/10 dark:text-rose-300"
               @click="handleDelete(row)"
             >
               <div class="i-ep-delete"></div>
@@ -195,7 +201,7 @@ const handleMobileCommand = ({ action, env }: MobileEnvCommand) => {
 
             <div class="min-w-0 flex-1">
               <div class="flex flex-wrap items-center gap-2">
-                <h3 class="m-0 truncate text-[13px] font-semibold text-default">{{ env.name }}</h3>
+                <h3 class="m-0 truncate text-[13px] font-semibold text-default">{{ environmentLabel(env) }}</h3>
                 <span
                   v-if="isNodeDefault(env)"
                   class="rounded bg-emerald-500/10 px-1.5 py-0.5 text-[9px] font-bold text-emerald-600 dark:text-emerald-300"
@@ -205,7 +211,7 @@ const handleMobileCommand = ({ action, env }: MobileEnvCommand) => {
                   class="rounded bg-rose-500/10 px-1.5 py-0.5 text-[9px] font-bold text-rose-500"
                 >未安装</span>
               </div>
-              <div class="mt-0.5 font-mono text-[10px] text-muted">{{ env.version || env.env_type }}</div>
+              <div class="mt-0.5 font-mono text-[10px] text-muted">{{ env.env_type === 'sh' ? 'Linux' : env.version || env.env_type }}</div>
               <p class="mt-1.5 break-all text-[11px] leading-5 text-secondary">{{ getSummary(env) }}</p>
             </div>
 
@@ -224,13 +230,13 @@ const handleMobileCommand = ({ action, env }: MobileEnvCommand) => {
                     <span class="i-ep-box mr-2"></span>包管理
                   </el-dropdown-item>
                   <el-dropdown-item
-                    v-if="env.env_type === 'node' && !isNodeDefault(env)"
+                    v-if="env.env_type === 'node' && env.is_installed && !isNodeDefault(env)"
                     :command="{ action: 'default', env }"
                   >
                     <span class="i-ep-aim mr-2"></span>设为默认
                   </el-dropdown-item>
                   <el-dropdown-item
-                    v-if="env.env_type !== 'node' && !env.is_installed"
+                    v-if="env.env_type !== 'sh' && !env.is_installed"
                     :command="{ action: 'restore', env }"
                   >
                     <span class="i-ep-refresh mr-2"></span>恢复安装
@@ -252,3 +258,10 @@ const handleMobileCommand = ({ action, env }: MobileEnvCommand) => {
     </div>
   </div>
 </template>
+
+<style scoped>
+.environment-row-action:focus-visible {
+  outline: 2px solid var(--el-color-primary);
+  outline-offset: 2px;
+}
+</style>

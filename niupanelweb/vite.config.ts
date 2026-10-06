@@ -149,7 +149,20 @@ export default defineConfig({
       'vue-router',
       'pinia',
       'axios',
-      '@vueuse/core'
+      '@vueuse/core',
+      // Prebundle the touch editor before opening a file so first use cannot reload a draft.
+      '@codemirror/state',
+      '@codemirror/view',
+      '@codemirror/commands',
+      '@codemirror/language',
+      '@codemirror/search',
+      '@codemirror/theme-one-dark',
+      '@codemirror/lang-javascript',
+      '@codemirror/lang-json',
+      '@codemirror/lang-python',
+      '@codemirror/legacy-modes/mode/shell',
+      '@codemirror/legacy-modes/mode/yaml',
+      '@codemirror/legacy-modes/mode/toml'
     ],
     exclude: ['@guolao/vue-monaco-editor', 'monaco-editor']
   },

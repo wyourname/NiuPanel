@@ -2,6 +2,7 @@
   <div
     class="flex-1 overflow-y-auto custom-scrollbar transition-all duration-300"
     :class="isMobile ? 'px-0 py-1' : 'px-2 py-2'"
+    :style="isMobile ? { paddingBottom: `calc(var(--mobile-dock-clearance) + ${selectedIds.length ? 128 : 16}px)` } : undefined"
     @scroll.passive="handleScroll"
   >
     <div

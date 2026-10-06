@@ -166,22 +166,34 @@ impl TaskManagerService {
             let metadata = file.metadata().await.map_err(AppError::Io)?;
             let total_len = metadata.len();
 
-            if total_len > effective_limit {
-                use tokio::io::{AsyncReadExt, AsyncSeekExt};
-                let seek_pos = total_len - effective_limit;
-                file.seek(std::io::SeekFrom::Start(seek_pos))
-                    .await
-                    .map_err(AppError::Io)?;
-
-                let mut buf = Vec::new();
-                file.read_to_end(&mut buf).await.map_err(AppError::Io)?;
-                return Ok((String::from_utf8_lossy(&buf).to_string(), total_len));
-            }
-
-            let content = tokio::fs::read_to_string(path_str)
+            use tokio::io::{AsyncReadExt, AsyncSeekExt};
+            let seek_pos = total_len.saturating_sub(effective_limit);
+            file.seek(std::io::SeekFrom::Start(seek_pos))
                 .await
                 .map_err(AppError::Io)?;
-            Ok((content, total_len))
+            let length = usize::try_from(total_len - seek_pos)
+                .map_err(|error| AppError::Generic(error.to_string()))?;
+            let mut buf = vec![0; length];
+            // Read exactly the snapshot size so newer live events are not duplicated.
+            file.read_exact(&mut buf).await.map_err(AppError::Io)?;
+            let start = if seek_pos > 0 {
+                buf.iter()
+                    .position(|byte| byte & 0xc0 != 0x80)
+                    .unwrap_or(buf.len())
+            } else {
+                0
+            };
+            let mut end = buf.len();
+            if let Err(error) = std::str::from_utf8(&buf[start..])
+                && error.error_len().is_none()
+            {
+                end = start + error.valid_up_to();
+            }
+            let offset = seek_pos + end as u64;
+            Ok((
+                String::from_utf8_lossy(&buf[start..end]).into_owned(),
+                offset,
+            ))
         } else {
             Ok(("".to_string(), 0))
         }

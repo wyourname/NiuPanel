@@ -61,6 +61,8 @@ export function useTaskLogWorkspace({
   });
 
   const {
+    logConnectionState,
+    retryLogConnection,
     closeLogStream,
     connectLogStream,
   } = useTaskLogStream({
@@ -107,6 +109,8 @@ export function useTaskLogWorkspace({
     historyLogContent,
     historyLogRunId,
     historyLogLoading,
+    logConnectionState,
+    retryLogConnection,
     closeLogStream,
     connectLogStream,
     downloadLogs,

@@ -69,8 +69,7 @@ pub async fn inject_default_node_runtime_environment(env: &mut HashMap<String, S
     };
 
     let node_modules = NodeEnvironment::shared_node_modules_for_version(&version);
-    let bin_dir = NodeEnvironment::shared_bin_for_version(&version);
-    inject_node_runtime_environment_for_paths(env, &node_modules, &bin_dir);
+    NodeEnvironment::inject_shared_dependency_env(env, &version);
     inject_node_shared_dependency_loader(env, &version, &node_modules);
 }
 
@@ -104,14 +103,6 @@ pub fn inject_node_shared_dependency_loader(
         node_modules.to_string_lossy().to_string(),
     );
     append_node_option(env, option);
-}
-
-fn inject_node_runtime_environment_for_paths(
-    env: &mut HashMap<String, String>,
-    node_modules: &std::path::Path,
-    bin_dir: &std::path::Path,
-) {
-    NodeEnvironment::inject_dependency_paths(env, node_modules, bin_dir);
 }
 
 fn config_paths(value: &Option<String>) -> Vec<PathBuf> {
@@ -186,7 +177,7 @@ mod tests {
         let node_modules = PathBuf::from("/managed/node/node_modules");
         let bin_dir = node_modules.join(".bin");
         let mut env = HashMap::new();
-        inject_node_runtime_environment_for_paths(&mut env, &node_modules, &bin_dir);
+        NodeEnvironment::inject_dependency_paths(&mut env, &node_modules, &bin_dir);
 
         let path_entries = std::env::split_paths(
             &env.get("PATH")

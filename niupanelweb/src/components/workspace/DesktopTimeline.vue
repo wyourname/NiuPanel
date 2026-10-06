@@ -207,7 +207,7 @@ const clusters = computed<StationCluster[]>(() => {
   return result;
 });
 
-const showInlineLabels = computed(() => clusters.value.length > 0 && clusters.value.length <= 6);
+const showInlineLabels = computed(() => clusters.value.length > 0 && clusters.value.length <= 6 && clusters.value.every((cluster, index, items) => index === 0 || cluster.pct - items[index - 1].pct >= 12));
 
 const hourTicks = [0, 3, 6, 9, 12, 15, 18, 21, 24].map((hour) => ({
   hour,

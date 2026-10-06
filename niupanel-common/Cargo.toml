@@ -26,6 +26,7 @@ dotenvy = { workspace = true }
 http = { workspace = true }
 reqwest = { workspace = true }
 tokio = { workspace = true }
+tokio-util = { workspace = true }
 futures = { workspace = true }
 which = { workspace = true }
 home = "0.5.12"

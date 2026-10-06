@@ -103,8 +103,8 @@ const checks = [
       workspaceLayer.includes("<FileEditorWorkspaceWindow"),
   ],
   [
-    "desktop and mobile file editors share one automatically resizing Monaco surface",
-    editorDialog.includes("<FileCodeEditor") &&
+    "mobile uses a touch editor while desktop retains automatically resizing Monaco",
+    editorDialog.includes("<FileMobileCodeEditor") && fileCodeEditor.includes("<FileMobileCodeEditor") &&
       fileWorkspaceEditor.includes("<FileCodeEditor") &&
       fileCodeEditor.includes("automaticLayout: true"),
   ],

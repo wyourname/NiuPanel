@@ -25,6 +25,7 @@
     <div
       class="environment-log-shell flex h-full min-h-[420px] flex-col overflow-hidden bg-[var(--editor-bg)] md:h-[min(640px,72vh)]"
     >
+      <LogConnectionStatus :state="connectionState" @retry="emit('retry-connection')" />
       <div class="relative min-h-0 flex-1 overflow-hidden">
         <LogViewer
           ref="logViewerRef"
@@ -38,18 +39,24 @@
 </template>
 
 <script setup lang="ts">
+import { useMobileBackCloseAction } from "@/composables/useMobileBackCloseAction";
+import { useAppStore } from "@/stores/app";
 import { computed, ref } from "vue";
+import LogConnectionStatus from "@/components/common/LogConnectionStatus.vue";
+import type { LogConnectionState } from "@/utils/logConnection";
 import LogViewer from "../../../../components/common/LogViewer.vue";
 import ResponsiveDialog from "../../../../components/common/ResponsiveDialog.vue";
 import type { LogFetcher, LogViewerRef, LogViewerWriteInput } from "@/types";
 
 const props = defineProps<{
+  connectionState?: LogConnectionState;
   isMobile: boolean;
   modelValue: boolean;
   title: string;
 }>();
 
 const emit = defineEmits<{
+  (event: "retry-connection"): void;
   (event: "update:modelValue", value: boolean): void;
 }>();
 
@@ -102,4 +109,5 @@ defineExpose({
   write,
   writeln,
 });
+useMobileBackCloseAction({ appStore: useAppStore(), visible, close: () => { visible.value = false; } });
 </script>

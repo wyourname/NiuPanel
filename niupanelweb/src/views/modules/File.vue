@@ -11,7 +11,6 @@
       v-model:search-query="searchQuery"
       v-model:sort-mode="sortMode"
       v-model:view-mode="viewMode"
-      :clipboard-files-count="clipboard?.files?.length || 0"
       :collapsed-breadcrumbs="collapsedBreadcrumbs"
       :current-path="currentPath"
       :item-count="sortedFileList.length"
@@ -20,22 +19,15 @@
       @back="goUp"
       @create-command="handleCreateCommand"
       @navigate="navigate"
-      @paste="pasteFromClipboard"
       @refresh="refreshCurrentPath"
       @trigger-upload="triggerFileUpload"
     />
 
-    <FileUploadProgress
-      :label="uploadLabel"
-      :loaded-bytes="uploadLoadedBytes"
-      :percentage="uploadProgress"
-      :total-bytes="uploadTotalBytes"
-      :visible="uploading"
-      @cancel="cancelUpload"
-    />
+    <FileTransferPanel />
 
     <FileBulkActions
       :count="selectedFiles.length"
+      :busy="deletingFiles"
       :is-all-selected="isAllVisibleSelected"
       @cancel="clearSelection"
       @copy="copyToClipboard(selectedFiles)"
@@ -45,6 +37,11 @@
       @move="showMoveDialog(selectedFiles)"
       @select-all="handleSelectAll"
     />
+
+    <FileClipboardBar :count="clipboard.files.length" :action="clipboard.action" :path="currentPath" :pasting="pasting" @paste="pasteFromClipboard" @clear="clearClipboard" />
+    <div v-if="listError" class="flex items-center gap-2 border-b border-light bg-soft px-3 py-2 text-xs text-secondary" role="alert">
+      <span class="min-w-0 flex-1">{{ listError }}</span><button type="button" class="min-h-11 px-3 font-semibold text-primary" @click="retryLoad">重试</button>
+    </div>
 
     <section class="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
       <FileDesktopList
@@ -78,7 +75,6 @@
           v-model:search-query="searchQuery"
           v-model:sort-mode="sortMode"
           v-model:view-mode="viewMode"
-          :clipboard-files-count="clipboard?.files?.length || 0"
           :collapsed-breadcrumbs="collapsedBreadcrumbs"
           :current-path="currentPath"
           :item-count="sortedFileList.length"
@@ -87,22 +83,15 @@
           @back="goUp"
           @create-command="handleCreateCommand"
           @navigate="navigate"
-          @paste="pasteFromClipboard"
           @refresh="refreshCurrentPath"
           @trigger-upload="triggerFileUpload"
         />
 
-        <FileUploadProgress
-          :label="uploadLabel"
-          :loaded-bytes="uploadLoadedBytes"
-          :percentage="uploadProgress"
-          :total-bytes="uploadTotalBytes"
-          :visible="uploading"
-          @cancel="cancelUpload"
-        />
+        <FileTransferPanel />
 
         <FileBulkActions
           :count="selectedFiles.length"
+          :busy="deletingFiles"
           :is-all-selected="isAllVisibleSelected"
           @cancel="clearSelection"
           @copy="copyToClipboard(selectedFiles)"
@@ -113,6 +102,10 @@
           @select-all="handleSelectAll"
         />
 
+        <FileClipboardBar :count="clipboard.files.length" :action="clipboard.action" :path="currentPath" :pasting="pasting" @paste="pasteFromClipboard" @clear="clearClipboard" />
+        <div v-if="listError" class="flex items-center gap-2 border-b border-light bg-soft px-3 py-2 text-xs text-secondary" role="alert">
+          <span class="min-w-0 flex-1">{{ listError }}</span><button type="button" class="min-h-11 px-3 font-semibold text-primary" @click="retryLoad">重试</button>
+        </div>
         <FileMobileList
           :items="sortedFileList"
           :loading="loading"
@@ -155,14 +148,19 @@
     />
 
     <FileEditorDialog
-      v-if="appStore.isMobile"
+      v-if="editFileDialogVisible"
       v-model:visible="editFileDialogVisible"
       v-model:content="fileContent"
       :current-file="currentFile"
       :is-dark="appStore.isDark"
       :is-mobile="appStore.isMobile"
       :saving="savingFile"
+      :loading="loadingFile"
+      :load-error="fileLoadError"
+      :dirty="fileIsDirty"
+      :confirm-close="confirmCloseEditor"
       @save="saveFileContent"
+      @retry="loadFileContent"
     />
 
     <FileImagePreviewDialog v-model="imagePreviewVisible" :src="imageUrl" />
@@ -191,6 +189,8 @@ import {
   ref,
   watch,
 } from "vue";
+import { onBeforeRouteLeave } from 'vue-router';
+import { useMobileBackCloseAction } from '@/composables/useMobileBackCloseAction';
 import { useAppStore } from "../../stores/app";
 import { useWorkspaceStore } from "../../stores/workspace";
 import { useFileOperations } from "../../composables/useFileOperations";
@@ -214,7 +214,8 @@ import FileEditorDialog from "./file/components/FileEditorDialog.vue";
 import FileImagePreviewDialog from "./file/components/FileImagePreviewDialog.vue";
 import FileMobileList from "./file/components/FileMobileList.vue";
 import FileToolbar from "./file/components/FileToolbar.vue";
-import FileUploadProgress from "./file/components/FileUploadProgress.vue";
+import FileTransferPanel from "./file/components/FileTransferPanel.vue";
+import FileClipboardBar from './file/components/FileClipboardBar.vue';
 
 import type {
   FileItem,
@@ -257,13 +258,16 @@ const sortMode = ref<FileSortMode>(
 );
 
 const {
-  cancelUpload,
   loading,
+  listError,
+  retryLoad,
   currentPath,
   selectedFiles,
   searchQuery,
   filteredFileList,
   clipboard,
+  pasting,
+  clearClipboard,
   createDialogVisible,
   createType,
   creating,
@@ -275,6 +279,12 @@ const {
   currentFile,
   fileContent,
   savingFile,
+  loadingFile,
+  fileLoadError,
+  fileIsDirty,
+  loadFileContent,
+  confirmCloseEditor,
+  closeFileEditor,
   imagePreviewVisible,
   imageUrl,
   collapsedBreadcrumbs,
@@ -292,6 +302,7 @@ const {
   pasteFromClipboard,
   deleteItem,
   batchDelete,
+  deletingFiles,
   handleCreateItem,
   handleRenameItem,
   showEditFileDialog: showResponsiveFileEditor,
@@ -309,11 +320,6 @@ const {
   executeMove,
   copyDroppedFiles,
   handleDownloadFromUrl,
-  uploadLabel,
-  uploadLoadedBytes,
-  uploadProgress,
-  uploadTotalBytes,
-  uploading,
 } = useFileOperations(fileTableRef);
 
 const selectedFilePaths = computed(() =>
@@ -445,12 +451,13 @@ watch(sortMode, (mode) => {
   window.localStorage.setItem(SORT_MODE_KEY, mode);
 });
 
-watch(
-  () => appStore.isMobile,
-  (isMobile) => {
-    if (!isMobile) editFileDialogVisible.value = false;
-  },
-);
+onBeforeRouteLeave(async () => {
+  if (!editFileDialogVisible.value) return true;
+  await closeFileEditor();
+  return false;
+});
+useMobileBackCloseAction({ appStore, visible: computed(() => selectedFiles.value.length > 0), close: () => { if (deletingFiles.value) return false; clearSelection(); } });
+useMobileBackCloseAction({ appStore, visible: editFileDialogVisible, close: closeFileEditor });
 
 useFileSaveShortcut({
   isEditing: editFileDialogVisible,

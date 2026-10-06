@@ -1,5 +1,6 @@
 <template>
   <div class="relative min-h-0 flex-1 overflow-hidden">
+    <div v-if="loading" class="absolute inset-0 z-10 bg-card/70 flex-center" role="status" aria-label="正在加载文件"><span class="i-ep-loading animate-spin text-xl text-primary" /></div>
     <div class="h-full min-h-0 overflow-y-auto custom-scrollbar">
       <div
         v-if="items.length === 0 && !loading"
@@ -19,8 +20,9 @@
       <div
         v-else
         class="divide-y divide-light/70 border-b border-light/70 bg-card"
+        :inert="loading"
         :class="selectedPaths.length > 0
-          ? 'pb-[calc(var(--mobile-dock-clearance)+96px)]'
+          ? 'pb-[calc(var(--mobile-dock-clearance)+128px)]'
           : 'pb-[var(--mobile-dock-clearance)]'"
       >
         <article
@@ -28,23 +30,24 @@
           :key="row.path"
           class="group relative transition-colors"
           :class="isSelected(row) ? 'bg-soft/60' : 'hover:bg-soft/30'"
-          @click="emit('item-click', row)"
+          @contextmenu.prevent
           @touchstart="emit('touch-start', row)"
           @touchend="emit('touch-end')"
           @touchmove="emit('touch-move')"
+          @touchcancel="emit('touch-move'); emit('touch-end')"
         >
           <div
             v-if="isSelected(row)"
             class="absolute bottom-0 left-0 top-0 w-[2px] bg-primary"
           ></div>
 
-          <div class="flex min-h-[72px] items-center gap-2.5 px-3 py-2.5">
+          <div class="flex min-h-[64px] items-center gap-2 px-2 py-1.5">
             <button
               type="button"
-              class="h-8 w-8 shrink-0 cursor-pointer rounded-md border flex-center transition-colors"
+              class="h-11 w-11 shrink-0 cursor-pointer rounded-md flex-center transition-colors"
               :class="isSelected(row)
-                ? 'border-primary bg-primary text-white'
-                : 'border-light bg-card text-transparent hover:border-primary/50 hover:text-muted'"
+                ? 'bg-primary text-white'
+                : getFileIconBgClass(row)"
               :aria-label="isSelected(row) ? `取消选择 ${row.name}` : `选择 ${row.name}`"
               :aria-pressed="isSelected(row)"
               @click.stop="emit('toggle-selection', row)"
@@ -52,21 +55,15 @@
               @touchend.stop
               @touchmove.stop
             >
-              <div class="i-ep-check text-[14px]"></div>
+              <div :class="isSelected(row) ? 'i-ep-check' : getFileIconClass(row)" class="text-[20px]" aria-hidden="true"></div>
             </button>
 
-            <div
-              class="h-10 w-10 shrink-0 rounded-md flex-center"
-              :class="getFileIconBgClass(row)"
-            >
-              <div :class="getFileIconClass(row)" class="text-[18px]"></div>
-            </div>
-
-            <div class="flex-1 min-w-0 pointer-events-none">
-              <span class="block truncate text-[14px] font-semibold leading-tight text-default">
+            <button type="button" class="min-h-11 min-w-0 flex-1 cursor-pointer text-left" :aria-label="`${row.is_dir ? '打开目录' : '打开文件'} ${row.name}`" @click="emit('item-click', row)">
+              <span class="line-clamp-2 break-all text-[13px] font-medium leading-5 text-default">
                 {{ row.name }}
               </span>
-              <div class="mt-1 flex min-w-0 items-center gap-1.5 truncate">
+              <span v-if="searchQuery" class="block truncate text-[10px] text-muted">{{ row.path }}</span>
+              <span class="mt-0.5 flex min-w-0 items-center gap-2 truncate">
                 <span v-if="!row.is_dir" class="font-mono text-[11px] text-muted tabular-nums">
                   {{ formatFileSize(row.size) }}
                 </span>
@@ -79,8 +76,8 @@
                 <span v-if="row.mtime" class="text-[11px] text-muted">
                   {{ formatRelativeFileDate(row.mtime) }}
                 </span>
-              </div>
-            </div>
+              </span>
+            </button>
 
             <el-dropdown trigger="click" @command="handleCommand($event, row)">
               <button

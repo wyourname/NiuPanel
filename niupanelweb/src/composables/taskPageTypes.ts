@@ -54,6 +54,8 @@ export type TaskBulkMoreCommand = (typeof taskBulkMoreCommands)[number];
 export const isTaskBulkMoreCommand = createCommandGuard(taskBulkMoreCommands);
 
 export const taskContextCommands = [
+  "enable",
+  "disable",
   "run",
   "stop",
   "edit",
@@ -70,6 +72,8 @@ export type TaskContextCommand = (typeof taskContextCommands)[number];
 export const isTaskContextCommand = createCommandGuard(taskContextCommands);
 
 export const taskDetailMoreCommands = [
+  "enable",
+  "disable",
   "edit_config",
   "edit_script",
   "share",
@@ -84,6 +88,8 @@ export const isTaskDetailMoreCommand = createCommandGuard(
 );
 
 export type TaskMobileActionCommand =
+  | "enable"
+  | "disable"
   | "logs"
   | "edit"
   | "script"

@@ -12,7 +12,7 @@ use tracing::debug;
 /// Node.js 执行策略 — 版本共享依赖模式
 ///
 /// 不再有"沙盒"概念：
-/// - 运行时：使用 pnpm runtime 管理的版本（来自任务配置或 NiuPanel 默认版本）
+/// - 运行时：使用面板安装的预构建版本（来自任务配置或 NiuPanel 默认版本）
 /// - 依赖：安装在 data/runtimes/node/shared/<version>/node_modules
 /// - 执行：直接调用该版本的 `node`，并注入共享依赖路径
 pub struct NodeStrategy {

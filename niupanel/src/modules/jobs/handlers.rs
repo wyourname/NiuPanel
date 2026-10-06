@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     response::sse::{Event, Sse},
 };
 use futures::stream::Stream;
@@ -8,6 +8,10 @@ use std::convert::Infallible;
 use tracing::info;
 
 use crate::common::state::AppState;
+use crate::modules::tasks::{
+    models::{LogPagination, LogResponse},
+    service::read_log_response,
+};
 use niupanel_common::error::{AppError, Result};
 use niupanel_common::response::ApiResponse;
 use niupanel_entity::system_jobs;
@@ -89,9 +93,7 @@ pub async fn stream_job_logs(
         // Yield History
         if let Ok((history, offset)) = history_result {
             current_offset = offset;
-            if !history.is_empty() {
-                yield Ok(Event::default().event("history").data(history));
-            }
+            yield Ok(Event::default().event("history").id(offset.to_string()).data(history));
         }
 
         // Yield Live Updates
@@ -105,8 +107,9 @@ pub async fn stream_job_logs(
                                 current_offset = event.offset;
                             }
                         }
-                        Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
-                            yield Ok(Event::default().event("log").data(serde_json::json!({ "kind": "system", "content": format!("[系统] 缓冲区溢出，跳过了 {} 条日志.", skipped) }).to_string()));
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                            yield Ok(Event::default().event("resync").data(""));
+                            return;
                         }
                         Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
                     }
@@ -118,6 +121,7 @@ pub async fn stream_job_logs(
                  yield Ok(Event::default().event("log").data(serde_json::json!({ "kind": "system", "content": "[Info] Stream ended or not running." }).to_string()));
             }
         }
+        yield Ok(Event::default().event("end").data(""));
     };
     Sse::new(stream).keep_alive(axum::response::sse::KeepAlive::default())
 }
@@ -145,6 +149,32 @@ pub async fn get_latest_job_log(
         .await?;
 
     Ok(ApiResponse::success(logs))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/jobs/{id}/logs/content",
+    params(("id" = i32, Path), ("offset" = Option<u64>, Query), ("limit" = Option<u64>, Query)),
+    responses((status = 200, description = "Read a page of job logs", body = ApiResponse<LogResponse>)),
+    tag = "Jobs",
+    security(("session_cookie" = []))
+)]
+pub async fn get_job_log_content(
+    State(state): State<AppState>,
+    Path(id): Path<i32>,
+    Query(mut pagination): Query<LogPagination>,
+) -> Result<ApiResponse<LogResponse>> {
+    let job = system_jobs::Entity::find_by_id(id)
+        .one(&state.db)
+        .await?
+        .ok_or_else(|| AppError::NotFound("系统作业不存在".into()))?;
+    let path = job
+        .log_path
+        .ok_or_else(|| AppError::NotFound("日志文件不存在".into()))?;
+    pagination.limit = Some(pagination.limit.unwrap_or(64 * 1024).min(1024 * 1024));
+    Ok(ApiResponse::success(
+        read_log_response(path, pagination, Some(64 * 1024)).await?,
+    ))
 }
 
 #[utoipa::path(

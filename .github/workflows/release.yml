@@ -1,0 +1,118 @@
+name: Release NiuPanel
+
+on:
+  workflow_dispatch:
+    inputs:
+      panel_version:
+        description: '本次面板版本，例如 0.8.6（自动读取并发布代码中的 Core / Web 版本）'
+        required: true
+        type: string
+      channel:
+        description: '发布通道'
+        required: true
+        default: preview
+        type: choice
+        options: [preview, stable]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-niupanel-${{ inputs.panel_version }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: Verify versions and pin release source
+    runs-on: ubuntu-latest
+    outputs:
+      panel_version: ${{ steps.plan.outputs.panel_version }}
+      channel: ${{ steps.plan.outputs.channel }}
+      core_tag: ${{ steps.plan.outputs.core_tag }}
+      web_tag: ${{ steps.plan.outputs.web_tag }}
+      source_sha: ${{ steps.plan.outputs.source_sha }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22.23.1
+      - name: Verify version contract and release credentials
+        env:
+          RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        run: |
+          test -n "$RELEASE_TOKEN" || { echo 'RELEASE_TOKEN is required' >&2; exit 1; }
+          node scripts/verify-version-contract.mjs
+      - id: plan
+        name: Prepare immutable component tags
+        env:
+          PANEL_VERSION: ${{ inputs.panel_version }}
+          UPDATE_CHANNEL: ${{ inputs.channel }}
+          # GITHUB_TOKEN tag writes do not start the legacy push-triggered workflows.
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/prepare-panel-release.mjs
+
+  core:
+    name: Core
+    needs: prepare
+    uses: ./.github/workflows/publish-core.yml
+    with:
+      release_tag: ${{ needs.prepare.outputs.core_tag }}
+    secrets: inherit
+
+  web:
+    name: Web
+    needs: prepare
+    uses: ./.github/workflows/publish-web.yml
+    with:
+      release_tag: ${{ needs.prepare.outputs.web_tag }}
+    secrets: inherit
+
+  panel:
+    name: Publish Panel and update channel
+    needs: [prepare, core, web]
+    uses: ./.github/workflows/publish-panel.yml
+    with:
+      panel_version: ${{ needs.prepare.outputs.panel_version }}
+      channel: ${{ needs.prepare.outputs.channel }}
+      core_tag: ${{ needs.prepare.outputs.core_tag }}
+      web_tag: ${{ needs.prepare.outputs.web_tag }}
+      source_sha: ${{ needs.prepare.outputs.source_sha }}
+    secrets: inherit
+
+  summary:
+    name: Release result
+    needs: [prepare, core, web, panel]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Show combined result
+        env:
+          PANEL_VERSION: ${{ inputs.panel_version }}
+          CHANNEL: ${{ inputs.channel }}
+          CORE_TAG: ${{ needs.prepare.outputs.core_tag }}
+          WEB_TAG: ${{ needs.prepare.outputs.web_tag }}
+          SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
+          CORE_RESULT: ${{ needs.core.result }}
+          WEB_RESULT: ${{ needs.web.result }}
+          PANEL_RESULT: ${{ needs.panel.result }}
+        run: |
+          {
+            echo "## NiuPanel $PANEL_VERSION"
+            echo "通道：$CHANNEL"
+            echo "源码：$SOURCE_SHA"
+            echo ""
+            echo '| 步骤 | 版本 | 结果 |'
+            echo '| --- | --- | --- |'
+            echo "| Core | $CORE_TAG | $CORE_RESULT |"
+            echo "| Web | $WEB_TAG | $WEB_RESULT |"
+            echo "| Panel | $PANEL_VERSION | $PANEL_RESULT |"
+            echo ""
+            if [ "$PANEL_RESULT" = success ]; then
+              echo "[查看面板发布](https://github.com/$GITHUB_REPOSITORY/releases/tag/v$PANEL_VERSION)"
+            else
+              echo '发布未完成，请查看失败步骤并重跑；已发布的组件不会覆盖。'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

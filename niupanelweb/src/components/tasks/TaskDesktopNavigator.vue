@@ -1,5 +1,5 @@
 <template>
-  <aside class="w-[clamp(350px,30vw,420px)] flex shrink-0 flex-col border-r border-base bg-card z-20">
+  <aside class="task-navigator w-[clamp(310px,26vw,360px)] flex shrink-0 flex-col border-r border-light bg-subtle z-20">
     <TaskDesktopNavigatorHeader
       v-model:search-query="searchValue"
       v-model:selection-mode="selectionModeValue"

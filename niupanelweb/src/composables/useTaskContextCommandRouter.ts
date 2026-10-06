@@ -29,7 +29,8 @@ export function useTaskContextCommandRouter({
   const handleContextCommand = (command: TaskContextCommand, task: Task) => {
     if (selectionMode.value && command !== "select") return;
 
-    if (command === "run") taskStore.runTask(task.id);
+    if (command === "enable" || command === "disable") taskStore.toggleEnable(task, command === "enable");
+    else if (command === "run") taskStore.runTask(task.id);
     else if (command === "stop") taskStore.stopTask(task.id);
     else if (command === "edit") openEdit(task);
     else if (command === "script") {

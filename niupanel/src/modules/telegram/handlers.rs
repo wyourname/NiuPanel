@@ -5,19 +5,17 @@ use axum::{
     Json,
     extract::{Extension, State},
 };
-use niupanel_bot::telegram::{TelegramBotConfig, TelegramChatBinding};
 use niupanel_common::auth::permissions::UserRole;
 use niupanel_common::error::{AppError, Result};
 use niupanel_common::response::ApiResponse;
+use niupanel_common::telegram_protocol::{TelegramBotConfig, TelegramChatBinding};
 use niupanel_core::audit::service::AuditService;
 use niupanel_core::event_bus::{SystemEvent, SystemNotification};
-use niupanel_core::notification::service::NotificationService;
 use niupanel_core::settings::SettingsManager;
 use niupanel_entity::users;
 use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
-use std::sync::Arc;
 use utoipa::ToSchema;
 
 const TG_CONFIG_KEY: &str = "plugin.telegram.config";
@@ -249,70 +247,15 @@ pub async fn test_telegram(
         ));
     }
 
-    let mut builder = reqwest::Client::builder().timeout(std::time::Duration::from_secs(15));
-    let mut proxy_shutdown = None;
-
-    if config.cf_proxy_enabled && !config.cf_host.is_empty() {
-        let proxy_config = niupanel_proxy::Config {
-            cfhost: config.cf_host.clone(),
-            cfip: config.cf_ip.clone(),
-            token: config.cf_token.clone(),
-            host: "127.0.0.1".to_string(),
-            port: 0,
-            user: String::new(),
-            passwd: String::new(),
-            log: std::path::PathBuf::new(),
-            loglevel: "info".to_string(),
-        };
-        let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
-        let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
-        proxy_shutdown = Some(shutdown_tx);
-        tokio::spawn(async move {
-            let _ = niupanel_proxy::start_server(
-                Arc::new(proxy_config),
-                shutdown_rx,
-                ready_tx,
-                "AgentBotTest",
-            )
-            .await;
-        });
-        let actual_addr = ready_rx
-            .await
-            .map_err(|_| AppError::Generic("无法启动 Telegram 测试代理".to_string()))?;
-        builder = builder.proxy(
-            reqwest::Proxy::all(format!("socks5h://{actual_addr}")).map_err(AppError::Reqwest)?,
-        );
-    } else if let Some(proxy) = config
-        .proxy_url
-        .as_deref()
-        .filter(|proxy| !proxy.is_empty())
-    {
-        builder = builder.proxy(reqwest::Proxy::all(proxy).map_err(AppError::Reqwest)?);
-    }
-
-    let client = builder.build().map_err(AppError::Reqwest)?;
-    let text =
-        niupanel_common::escape_tg_markdown("NiuPanel Ops Agent Telegram 通道连接测试成功。");
-    let mut result = Ok(());
-    for binding in &config.chat_bindings {
-        if let Err(error) = NotificationService::send_telegram(
-            &client,
-            &config.token,
-            &binding.chat_id,
-            &text,
-            config.api_base_url.as_deref(),
-            binding.thread_id,
-        )
-        .await
-        {
-            result = Err(error);
-            break;
-        }
-    }
-    if let Some(shutdown) = proxy_shutdown {
-        let _ = shutdown.send(());
-    }
-    result?;
+    super::transport::invoke(
+        &config.agent_plugin_id,
+        niupanel_plugin::PluginInvokeRequest {
+            action: "transport_test".to_string(),
+            input: serde_json::to_value(&config)?,
+            timeout_sec: Some(30),
+        },
+    )
+    .await?;
     Ok(ApiResponse::success(()))
 }
 

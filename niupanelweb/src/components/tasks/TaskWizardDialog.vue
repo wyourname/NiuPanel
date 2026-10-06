@@ -5,6 +5,7 @@
     desktop-size="xl"
     content-preset="workspace"
     mobile-mode="fullscreen"
+    :close-on-click-modal="false"
     append-to-body
     destroy-on-close
   >

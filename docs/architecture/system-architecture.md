@@ -9,7 +9,7 @@
 | Web UI | 独立构建组件 | Vue 3 面板，由 Panel Release 与匹配的 Core 一起激活或回退 |
 | 插件平台 | Core 扩展能力 | 应用安装、签名、版本、原生 Vue UI 和进程协议 |
 | 业务扩展 | 独立插件 | Agents、编译器等可选能力通过插件交付 |
-| Telegram Transport | 公开 Core | 可信 Chat、Long Polling、通知与 Agent 消息转发；不解释面板业务命令 |
+| Telegram Transport | `niupanel-private-agents` 内部通道 | 可信 Chat、Long Polling、通知与 Agent 消息转发；不解释面板业务命令 |
 | Ops Agent | 独立插件 | 自然语言理解、工具编排、确认交互、会话、记忆和 Agent 审计 |
 | MCP | Core 系统能力 | 通过 `/mcp` 让外部 MCP Client 操控当前面板 |
 

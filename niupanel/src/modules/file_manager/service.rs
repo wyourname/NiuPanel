@@ -5,7 +5,6 @@ use super::models::{
 };
 use axum::extract::Multipart;
 use axum::response::Response;
-use axum::{body::Body, http};
 use chrono::Local;
 use niupanel_common::error::{AppError, Result};
 use niupanel_common::filesystem::{get_relative_path, resolve_path};
@@ -349,58 +348,8 @@ impl FileManagerService {
     }
 
     pub async fn download_batch(payload: DownloadBatchRequest) -> Result<Response> {
-        if payload.paths.is_empty() {
-            return Err(AppError::Generic("No paths provided".to_string()));
-        }
-
-        let mut resolved_paths = Vec::new();
-        for rel_path in &payload.paths {
-            let path = resolve_path(rel_path)?;
-            if !path.exists() {
-                return Err(AppError::NotFound(format!("Path not found: {}", rel_path)));
-            }
-            resolved_paths.push((rel_path.clone(), path));
-        }
-
-        let mut tar_builder = tar::Builder::new(Vec::new());
-        for (_rel_path, abs_path) in resolved_paths {
-            let base_name = abs_path
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("unknown")
-                .to_string();
-
-            if abs_path.is_dir() {
-                tar_builder
-                    .append_dir_all(&base_name, &abs_path)
-                    .map_err(|e| AppError::Generic(e.to_string()))?;
-            } else {
-                let mut file = std::fs::File::open(&abs_path).map_err(AppError::Io)?;
-                tar_builder
-                    .append_file(&base_name, &mut file)
-                    .map_err(|e| AppError::Generic(e.to_string()))?;
-            }
-        }
-
-        let tar_data = tar_builder
-            .into_inner()
-            .map_err(|e| AppError::Generic(e.to_string()))?;
-        let filename = format!(
-            "batch_download_{}.tar",
-            chrono::Local::now().format("%Y%m%d_%H%M%S")
-        );
-
-        let mut res = Response::new(Body::from(tar_data));
-        res.headers_mut().insert(
-            http::header::CONTENT_TYPE,
-            http::HeaderValue::from_static("application/x-tar"),
-        );
-        res.headers_mut().insert(
-            http::header::CONTENT_DISPOSITION,
-            http::HeaderValue::from_str(&format!("attachment; filename=\"{}\"", filename))
-                .map_err(|_| AppError::Generic("Invalid filename".to_string()))?,
-        );
-        Ok(res)
+        let paths = super::download::resolve_batch(&payload.paths)?;
+        super::download::batch_response(paths)
     }
 }
 

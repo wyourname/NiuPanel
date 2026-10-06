@@ -5,13 +5,11 @@ use super::requirements::{self, VERSIONED_PACKAGE_SEPARATORS};
 use niupanel_common::error::{AppError, Result};
 use niupanel_core::runtime::RuntimeManager;
 use niupanel_core::settings::SettingsService;
-use niupanel_core::sys::command::CommandExt;
 use niupanel_core::task_manager::service::TaskManagerService;
 use niupanel_entity::environments;
 use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
 use std::collections::HashSet;
 use tokio::fs;
-use tokio::process::Command;
 
 pub(super) struct PythonEnvironmentService;
 
@@ -184,38 +182,34 @@ impl PythonEnvironmentService {
             return Err(AppError::NotFound("Environment not found".to_string()));
         }
 
-        let existing_env = environments::Entity::find()
-            .filter(environments::Column::Name.eq(&name))
-            .one(db)
-            .await?;
-
-        if let Some(env_model) = existing_env {
-            requirements::remove_requirement(db, env_model, &package, VERSIONED_PACKAGE_SEPARATORS)
-                .await?;
-        }
-
+        let db = db.clone();
         let env = RuntimeManager::open_python_environment(venv_path, None, None).await?;
         let name_clone = name.clone();
         let package_clone = package.clone();
         task_manager
-            .submit_system_task(
+            .submit_system_task_with_metadata(
                 format!("Uninstall {} from {}", package_clone, name_clone),
+                Some(serde_json::json!({"kind": "environment-packages", "env_type": "python", "env_name": name, "operation": "uninstall", "packages": [package]})),
                 move |tx| async move {
                     env.uninstall_package(&package_clone, tx.clone()).await?;
+                    if let Some(env_model) = environments::Entity::find()
+                        .filter(environments::Column::Name.eq(&name))
+                        .filter(environments::Column::EnvType.eq(RuntimeKind::Python.env_type()))
+                        .one(&db)
+                        .await?
+                    {
+                        requirements::remove_requirement(
+                            &db,
+                            env_model,
+                            &package_clone,
+                            VERSIONED_PACKAGE_SEPARATORS,
+                        )
+                        .await?;
+                    }
                     let _ = tx.send("Uninstallation completed successfully.".to_string());
                     Ok(())
                 },
             )
             .await
-    }
-
-    pub(super) async fn set_mirror_source(mirror_url: &str) -> Result<()> {
-        let mut cmd = Command::new("pip");
-        cmd.arg("config")
-            .arg("set")
-            .arg("global.index-url")
-            .arg(mirror_url);
-        cmd.execute_checked("pip config set mirror").await?;
-        Ok(())
     }
 }

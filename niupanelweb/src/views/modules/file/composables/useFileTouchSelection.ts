@@ -1,4 +1,4 @@
-import { ref, type Ref } from "vue";
+import { onScopeDispose, ref, type Ref } from "vue";
 import { useHaptics } from "@/composables/useHaptics";
 import type { FileItem } from "@/composables/useFileOperations";
 
@@ -78,6 +78,8 @@ export function useFileTouchSelection(options: UseFileTouchSelectionOptions) {
     haptics.impact();
     options.handleItemClick(row);
   };
+
+  onScopeDispose(() => { clearPressTimer(); clearClickSuppressionTimer(); });
 
   return {
     handleItemClickMobile,

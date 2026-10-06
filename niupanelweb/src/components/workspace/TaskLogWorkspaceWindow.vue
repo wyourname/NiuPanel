@@ -1,5 +1,6 @@
 <template>
   <div class="relative flex h-full min-h-0 flex-col overflow-hidden bg-base">
+    <LogConnectionStatus :state="sessionStore.sessions.get(sessionKey)?.status" @retry="sessionStore.retry(sessionKey)" />
     <div class="relative min-h-0 flex-1 overflow-hidden">
       <LogViewer
         ref="logViewerRef"
@@ -290,6 +291,7 @@ import {
 } from "@/composables/useTaskPresentation";
 import LogViewer from "@/components/common/LogViewer.vue";
 import { useTaskStore } from "@/stores/tasks";
+import LogConnectionStatus from "@/components/common/LogConnectionStatus.vue";
 import { useWorkspaceLogSessionStore } from "@/stores/workspaceLogSessions";
 import type { Task, TaskRunHistoryItem, TaskStatus } from "@/types";
 import type { TaskLogViewerRef } from "@/composables/taskPageTypes";
@@ -415,7 +417,7 @@ const connect = async () => {
   const viewer = logViewerRef.value;
   if (!viewer) return;
 
-  if (activeRunId.value || currentTask.value.status !== "Running") {
+  if (activeRunId.value || !["Running", "Paused"].includes(currentTask.value.status)) {
     loadReadonlyLog();
     return;
   }
@@ -426,7 +428,7 @@ const connect = async () => {
     sessionKey.value,
     props.payload.taskId,
     streamRunId.value,
-    (content) => viewer.write?.(content),
+    (content, reset) => { if (reset) viewer.reset?.(); viewer.write?.(content); },
   );
   sessionStore.connectLive(
     sessionKey.value,

@@ -6,7 +6,7 @@ const NODE_ACTIVE_DEFAULT_PATH_LABEL: &str = "System Default";
 const NODE_INSTALLED_PATH_LABEL: &str = "Installed";
 const PYTHON_NOT_INSTALLED_PATH_LABEL: &str = "(Not Installed)";
 const SHELL_ENV_NAME: &str = "System";
-const SHELL_ENV_PATH_LABEL: &str = "system (sh)";
+const SHELL_ENV_PATH_LABEL: &str = "Linux";
 const SHELL_ENV_VERSION: &str = "system";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

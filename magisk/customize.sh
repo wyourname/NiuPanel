@@ -16,14 +16,14 @@ mkdir -p "$MODPATH/app/tools"
 ARCH_RAW=$(getprop ro.product.cpu.abi)
 case "$ARCH_RAW" in
     arm64-v8a|aarch64) ARCH="arm64" ;;
-    armeabi-v7a|armv7*) ARCH="armv7" ;;
+    armeabi-v7a|armv7*) abort "pnpm 12 不再提供 ARMv7 原生包，请使用 ARM64 设备" ;;
     *) abort "不支持的架构: $ARCH_RAW" ;;
 esac
 ui_print "- 检测到架构: $ARCH"
 
 if [ -d "$MODPATH/tools/$ARCH" ]; then
-    ui_print "- 复制离线工具 (uv) 到 app/tools..."
-    cp -f "$MODPATH/tools/$ARCH/"* "$MODPATH/app/tools/" 2>/dev/null
+    ui_print "- 复制离线工具 (uv + pnpm) 到 app/tools..."
+    cp -a "$MODPATH/tools/$ARCH/." "$MODPATH/app/tools/" || abort "复制离线工具失败"
     chmod +x "$MODPATH/app/tools/"* 2>/dev/null
     ui_print "- 离线工具就绪: $(ls "$MODPATH/app/tools/" 2>/dev/null | tr '\n' ' ')"
 else

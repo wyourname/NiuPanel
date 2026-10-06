@@ -82,7 +82,7 @@
     <EnvCreateDialog
       v-model="createDialogVisible"
       :default-env-type="filterType === 'node' ? 'node' : 'python'"
-      @show-log="showInstallLogDialog"
+      @show-log="handleEnvironmentCreated"
     />
 
     <EnvMirrorDialog v-model="mirrorDialogVisible" :filter-type="filterType" />
@@ -97,16 +97,21 @@
       ref="logDialogRef"
       v-model="logDialogVisible"
       :title="currentLogTitle"
+      :connection-state="logConnectionState"
+      @retry-connection="retryLogConnection"
       :is-mobile="appStore.isMobile"
     />
   </div>
 </template>
 
 <script setup lang="ts">
+import { getJobLogContent } from "@/api/jobs";
+import { createLogConnection, type LogConnectionState } from "@/utils/logConnection";
 import { ref, onMounted, onUnmounted, nextTick, computed, watch } from "vue";
 import { useRoute } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
 import * as envApi from "../../api/environment";
+import { getJob } from "../../api/jobs";
 import request from "../../utils/request";
 import { useAppStore } from "../../stores/app";
 import PullToRefresh from "../../components/common/PullToRefresh.vue";
@@ -164,33 +169,41 @@ const currentEnv = ref<Env | null>(null);
 const logDialogVisible = ref(false);
 const currentLogTitle = ref("");
 const logDialogRef = ref<LogViewerRef | null>(null);
-let eventSource: EventSource | null = null;
+let eventSource: ReturnType<typeof createLogConnection> | null = null;
+const logConnectionState = ref<LogConnectionState>('idle');
+const retryLogConnection = () => eventSource?.retry();
+const pendingEnvironmentJobs = new Set<number>();
+let environmentJobTimer: ReturnType<typeof setTimeout> | undefined;
+let checkingEnvironmentJobs = false;
+let disposed = false;
+const restoringEnvironments = new Map<string, number | null>();
 
-const getEventSourceData = (event: Event) =>
-  event instanceof MessageEvent && typeof event.data === "string"
-    ? event.data
-    : "";
-
-const getLogContent = (event: Event) => {
-  const data = getEventSourceData(event);
-  if (!data) return "";
-
-  try {
-    const parsed: unknown = JSON.parse(data);
-    if (typeof parsed === "string") return parsed;
-    if (
-      parsed &&
-      typeof parsed === "object" &&
-      "content" in parsed &&
-      typeof parsed.content === "string"
-    ) {
-      return parsed.content;
+const pollEnvironmentJobs = async () => {
+  if (disposed || checkingEnvironmentJobs) return;
+  checkingEnvironmentJobs = true;
+  clearTimeout(environmentJobTimer);
+  let changed = false;
+  await Promise.allSettled([...pendingEnvironmentJobs].map(async id => {
+    const response = await getJob(id);
+    if (!["Pending", "Running"].includes(response.data.status)) {
+      pendingEnvironmentJobs.delete(id);
+      for (const [key, jobId] of restoringEnvironments) {
+        if (jobId === id) restoringEnvironments.delete(key);
+      }
+      changed = true;
     }
-  } catch {
-    // Plain text fallback for legacy payloads.
-  }
+  }));
+  checkingEnvironmentJobs = false;
+  if (disposed) return;
+  if (changed) void loadEnvironments();
+  if (pendingEnvironmentJobs.size) environmentJobTimer = setTimeout(pollEnvironmentJobs, 2000);
+};
 
-  return data;
+const handleEnvironmentCreated = (id: number | string, name: string) => {
+  pendingEnvironmentJobs.add(Number(id));
+  void pollEnvironmentJobs();
+  void loadEnvironments();
+  showInstallLogDialog(id, name);
 };
 
 const clearLogViewer = () => {
@@ -228,13 +241,17 @@ const showPackages = (env: Env) => {
 };
 
 const handleRestoreEnvironment = async (env: Env) => {
-  if (!env.version) return;
+  const key = `${env.env_type}:${env.name}`;
+  if (!env.version || restoringEnvironments.has(key)) return;
+  restoringEnvironments.set(key, null);
   try {
     const envType: InstallableEnvType =
       env.env_type === "node" ? "node" : "python";
-    await envApi.createEnvironment({ version: env.version }, envType);
+    const response = await envApi.createEnvironment({ version: env.version }, envType);
+    restoringEnvironments.set(key, response.data);
+    handleEnvironmentCreated(response.data, `恢复环境 · ${env.name}`);
     ElMessage.success("恢复任务已提交");
-  } catch (e) {}
+  } catch (e) { restoringEnvironments.delete(key); }
 };
 
 const handleSetNodeDefault = async (env: Env) => {
@@ -251,28 +268,16 @@ const showInstallLogDialog = (id: number | string, name: string) => {
   currentLogTitle.value = name;
   logDialogVisible.value = true;
   nextTick(() => {
+    if (!logDialogVisible.value || disposed) return;
     clearLogViewer();
     if (eventSource) eventSource.close();
 
-    // Use the same event listener pattern as Tasks module log streaming
-    eventSource = new EventSource(
-      `${request.defaults.baseURL}/jobs/${id}/logs`,
-    );
-
-    eventSource.addEventListener("log", (event) => {
-      const data = getLogContent(event);
-      if (data) logDialogRef.value?.write?.(data);
+    eventSource = createLogConnection({
+      open: () => new EventSource(`${request.defaults.baseURL}/jobs/${encodeURIComponent(id)}/logs`, { withCredentials: true }),
+      readMissing: async (offset, limit) => (await getJobLogContent(id, offset, limit)).data,
+      write: (content, reset) => { if (reset) logDialogRef.value?.reset?.(); logDialogRef.value?.write?.(content); },
+      status: state => { logConnectionState.value = state; },
     });
-
-    eventSource.addEventListener("history", (event) => {
-      const data = getEventSourceData(event);
-      logDialogRef.value?.reset?.();
-      if (data) logDialogRef.value?.write?.(data);
-    });
-
-    eventSource.onerror = () => {
-      if (eventSource) eventSource.close();
-    };
   });
 };
 
@@ -284,6 +289,10 @@ const handleJobFinished = () => {
   // Refresh environments whenever a system job finishes
   loadEnvironments();
 };
+
+watch(logDialogVisible, (visible) => {
+  if (!visible) { eventSource?.close(); eventSource = null; }
+});
 
 watch(
   () => route.query.q,
@@ -303,6 +312,8 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  disposed = true;
+  clearTimeout(environmentJobTimer);
   if (eventSource) eventSource.close();
   window.removeEventListener("niu:job-finished", handleJobFinished);
 });

@@ -7,7 +7,6 @@ const architectureMaxLines = 500;
 const sourceRoots = [
   "migration/src",
   "niupanel/src",
-  "niupanel-bot/src",
   "niupanel-common/src",
   "niupanel-core/src",
   "niupanel-entity/src",

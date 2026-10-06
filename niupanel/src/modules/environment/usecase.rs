@@ -357,8 +357,10 @@ impl EnvironmentUseCase {
         user: &AuthenticatedUser,
         ip: String,
         package: String,
-    ) -> Result<()> {
-        EnvironmentService::uninstall_shell_package(&self.db, &package).await?;
+    ) -> Result<i32> {
+        let job_id =
+            EnvironmentService::uninstall_shell_package(&self.db, &self.task_manager, &package)
+                .await?;
 
         self.log_user_action(
             user,
@@ -370,7 +372,7 @@ impl EnvironmentUseCase {
         )
         .await;
 
-        Ok(())
+        Ok(job_id)
     }
 
     pub async fn set_mirror_source(
@@ -380,7 +382,7 @@ impl EnvironmentUseCase {
         env_type: String,
         mirror_url: String,
     ) -> Result<()> {
-        EnvironmentService::set_mirror_source(&env_type, &mirror_url).await?;
+        EnvironmentService::set_mirror_source(&self.settings, &env_type, &mirror_url).await?;
 
         self.log_user_action(
             user,
@@ -388,7 +390,7 @@ impl EnvironmentUseCase {
             "设置镜像源",
             &env_type,
             None,
-            Some(format!("将 {} 的镜像源设置为 {}", env_type, mirror_url)),
+            Some(format!("更新了 {env_type} 的包下载源")),
         )
         .await;
 

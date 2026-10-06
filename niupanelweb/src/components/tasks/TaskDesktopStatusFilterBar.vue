@@ -1,11 +1,17 @@
 <template>
   <div
-    class="px-3.5 py-2 flex items-center gap-1 overflow-x-auto no-scrollbar border-b border-base bg-card"
+    class="task-status-filters shrink-0 border-b border-base bg-card"
+    role="group"
+    aria-label="按任务状态筛选"
   >
     <button
       v-for="item in statusPills"
       :key="item.value"
-      class="h-8 shrink-0 rounded-md px-2.5 text-[11px] font-semibold transition-colors outline-none"
+      type="button"
+      :aria-pressed="statusValue === item.value"
+      :title="`${statusLabels[item.value] || item.label}：${statusCount(item.value)} 个任务`"
+      :aria-label="`${statusLabels[item.value] || item.label}：${statusCount(item.value)} 个任务`"
+      class="task-status-filter rounded-md text-[11px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
       :class="
         statusValue === item.value
           ? 'accent-subtle'
@@ -14,7 +20,7 @@
       @click="statusValue = item.value"
     >
       {{ statusLabels[item.value] || item.label }}
-      <span class="ml-1 opacity-60">{{ statusCount(item.value) }}</span>
+      <span class="task-status-count" aria-hidden="true">{{ statusCount(item.value) > 99 ? '99+' : statusCount(item.value) }}</span>
     </button>
   </div>
 </template>
@@ -49,3 +55,10 @@ const statusValue = computed({
 const statusCount = (status: string) =>
   status === "all" ? props.tasks.length : props.tasks.filter((task) => task.status === status).length;
 </script>
+
+<style scoped>
+.task-status-filters { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 2px; padding: 8px; container-type: inline-size; }
+.task-status-filter { display: flex; align-items: center; justify-content: center; gap: 3px; min-width: 0; min-height: 32px; padding: 0 2px; white-space: nowrap; cursor: pointer; }
+.task-status-count { font-size: 10px; font-weight: 500; font-variant-numeric: tabular-nums; opacity: .65; }
+@container (max-width: 280px) { .task-status-count { display: none; } }
+</style>

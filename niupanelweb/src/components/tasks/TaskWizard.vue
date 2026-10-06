@@ -1,27 +1,32 @@
 <template>
-  <div class="task-wizard flex h-full min-h-[520px] max-h-[82vh] flex-col">
+  <div class="task-wizard flex min-h-0 flex-1 flex-col" :aria-busy="initializing || submitting">
     <div class="shrink-0 border-b border-light px-4 py-3 md:px-6">
       <div class="grid grid-cols-3 overflow-hidden rounded-md border border-light bg-base/60">
-        <div
+        <button
           v-for="(step, index) in stepItems"
+          type="button"
+          :disabled="initializing || submitting || (!isEdit && index > activeStep)"
+          :aria-current="index === activeStep ? 'step' : undefined"
+          @click="activeStep = index"
           :key="step.label"
-          class="flex min-w-0 items-center gap-2 border-r border-light px-3 py-2.5 last:border-r-0"
+          class="flex min-h-11 min-w-0 items-center justify-center gap-2 border-r border-light px-2 py-2.5 last:border-r-0 disabled:cursor-default focus-visible:outline-2 focus-visible:outline-primary"
           :class="index === activeStep ? 'bg-card text-primary' : index < activeStep ? 'text-default' : 'text-muted'"
         >
           <span
             class="h-6 w-6 shrink-0 rounded text-[11px] font-bold flex-center"
-            :class="index <= activeStep ? 'bg-primary text-white' : 'bg-soft text-muted'"
+            :class="index <= activeStep ? 'accent-subtle' : 'bg-soft text-muted'"
           >
             <span v-if="index < activeStep" class="i-ep-check"></span>
             <span v-else>{{ index + 1 }}</span>
           </span>
-          <span class="min-w-0 truncate text-[11px] font-bold md:text-[12px]">{{ step.label }}</span>
-        </div>
+          <span class="min-w-0 text-xs font-semibold">{{ step.label }}</span>
+        </button>
       </div>
     </div>
 
     <!-- Content Area (Scrollable) -->
-    <div class="flex-1 overflow-x-hidden overflow-y-auto px-4 py-4 custom-scrollbar md:px-6">
+    <div class="task-wizard-content min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-4 py-5 custom-scrollbar md:px-6"
+      v-loading="initializing">
       <!-- Step 1: Script Config -->
       <TaskWizardScriptStep
         v-show="activeStep === 0"
@@ -69,23 +74,23 @@
       class="flex shrink-0 items-center justify-between border-t border-light bg-card px-4 py-3 md:px-6"
     >
       <div class="flex gap-3">
-        <ToolbarButton v-if="activeStep > 0" @click="activeStep--">
+        <ToolbarButton v-if="activeStep > 0 && !isEdit" :disabled="submitting" @click="activeStep--">
           <template #icon><div class="i-ep-arrow-left"></div></template>
           上一步
         </ToolbarButton>
-        <ToolbarButton v-else variant="soft" @click="emit('cancel')">取消</ToolbarButton>
+        <ToolbarButton v-else :disabled="submitting" variant="soft" @click="emit('cancel')">取消</ToolbarButton>
       </div>
 
       <div class="flex gap-3">
-        <ToolbarButton v-if="activeStep < 2" variant="primary" @click="handleNext">
+        <ToolbarButton v-if="activeStep < 2 && !isEdit" :disabled="initializing || submitting" variant="primary" @click="handleNext">
           下一步
           <template #icon><div class="i-ep-arrow-right"></div></template>
         </ToolbarButton>
         <ToolbarButton
-          v-if="activeStep === 2"
+          v-if="activeStep === 2 || isEdit"
           variant="primary"
-          :disabled="submitting"
-          @click="submit"
+          :disabled="initializing || submitting"
+          @click="handleSubmit"
           class="!px-8"
         >
           <template #icon><div class="i-ep-check"></div></template>
@@ -137,7 +142,8 @@ const initialData = computed(() => props.initialData);
 
 // State
 
-const activeStep = ref(0);
+const activeStep = ref(props.initialData?.id ? 1 : 0);
+const initializing = ref(true);
 
 const cronDescription = ref("");
 const cronValid = ref(true);
@@ -210,6 +216,7 @@ const init = async () => {
   if (scriptSourceMode.value === "file") {
     await navigate("");
   }
+  initializing.value = false;
 };
 
 watch(scriptSourceMode, (newVal) => {
@@ -224,32 +231,62 @@ watch(scriptSourceMode, (newVal) => {
   if (newVal === "command") form.path = "";
 });
 
-const handleNext = async () => {
-  if (activeStep.value === 0) {
-    if (scriptSourceMode.value === "command" && !form.command)
-      return ElMessage.error("请输入命令");
-
-    if (scriptSourceMode.value === "file" && !form.path)
-      return ElMessage.error("请选择文件");
-
-    if (
-      scriptSourceMode.value === "upload" &&
-      !uploadedFile.value &&
-      !isEdit.value
-    )
-      return ElMessage.error("请上传文件");
-
-    activeStep.value++;
-  } else if (activeStep.value === 1) {
-    if (await detailsStepRef.value?.validate()) {
-      activeStep.value++;
-    }
+const validateScript = () => {
+  if (scriptSourceMode.value === "command" && !form.command.trim()) {
+    ElMessage.error("请输入执行命令");
+    return false;
   }
+  if (scriptSourceMode.value === "file" && !form.path) {
+    ElMessage.error("请选择脚本文件");
+    return false;
+  }
+  if (scriptSourceMode.value === "upload" && !uploadedFile.value) {
+    ElMessage.error("请上传脚本文件");
+    return false;
+  }
+  return true;
+};
+
+const validateDetails = async () => {
+  if (!await detailsStepRef.value?.validate()) return false;
+  if (!form.enableRandom && form.cron_schedule && !cronValid.value) {
+    ElMessage.error("请修正定时表达式");
+    return false;
+  }
+  if (form.enableRandom && (!form.random_config.start || !form.random_config.end || form.random_config.start >= form.random_config.end)) {
+    ElMessage.error("随机执行的截止时间必须晚于起始时间");
+    return false;
+  }
+  return true;
+};
+
+const handleNext = async () => {
+  if (initializing.value || submitting.value) return;
+  if (activeStep.value === 0 && validateScript()) activeStep.value = 1;
+  else if (activeStep.value === 1 && await validateDetails()) activeStep.value = 2;
+};
+
+const handleSubmit = async () => {
+  if (initializing.value || submitting.value) return;
+  if (!validateScript()) { activeStep.value = 0; return; }
+  if (!await validateDetails()) { activeStep.value = 1; return; }
+  await submit();
 };
 
 onMounted(init);
 </script>
 
 <style scoped>
-/* Scoped styles removed in favor of UnoCSS utility classes */
+.task-wizard {
+  height: min(700px, calc(var(--app-viewport-height) - 120px));
+}
+.task-wizard :deep(.toolbar-button) { min-height: 44px; }
+.task-wizard-content :deep(.el-input__wrapper),
+.task-wizard-content :deep(.el-select__wrapper) { min-height: 40px; }
+.task-wizard-content :deep(.el-form-item__label) { font-weight: 600; }
+@media (max-width: 768px) {
+  .task-wizard { height: 100%; }
+  .task-wizard-content :deep(.el-input__wrapper),
+  .task-wizard-content :deep(.el-select__wrapper) { min-height: 44px; }
+}
 </style>

@@ -145,6 +145,10 @@ pub(super) fn validate_update_channel_index(
         ("aarch64", "aarch64-unknown-linux-musl"),
         ("armv7", "armv7-unknown-linux-musleabihf"),
     ] {
+        // pnpm 12 bundles cover AMD64/ARM64; validate legacy ARMv7 assets when present.
+        if architecture == "armv7" && !index.release.core.assets.contains_key(architecture) {
+            continue;
+        }
         let asset = index.release.core.assets.get(architecture).ok_or_else(|| {
             AppError::ValidationError(format!("更新索引缺少 {architecture} Core 资产"))
         })?;

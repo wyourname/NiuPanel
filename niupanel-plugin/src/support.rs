@@ -110,8 +110,11 @@ pub(super) fn copy_dir(source: &Path, target: &Path) -> Result<()> {
 
 pub(super) fn process_pool_key(spec: &ProcessPluginSpec) -> String {
     format!(
-        "{}@{}:{}",
-        spec.plugin_id, spec.version, spec.extension_point
+        "{}@{}:{}:{}",
+        spec.plugin_id,
+        spec.version,
+        spec.extension_point,
+        serde_json::to_string(&spec.args).expect("String arguments serialize to JSON")
     )
 }
 

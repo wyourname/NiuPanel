@@ -80,6 +80,7 @@
     </template>
 
     <div class="flex-1 flex flex-col bg-[var(--editor-bg)] overflow-hidden">
+      <LogConnectionStatus :state="connectionState" @retry="emit('retry-connection')" />
       <div class="flex-1 overflow-hidden relative z-10">
         <div
           v-show="showTimeline"
@@ -151,6 +152,8 @@
 
 <script setup lang="ts">
 import { ref, toRef } from "vue";
+import LogConnectionStatus from "@/components/common/LogConnectionStatus.vue";
+import type { LogConnectionState } from "@/utils/logConnection";
 import MobileLogViewer from "../common/MobileLogViewer.vue";
 import { useTaskLogViewerBridge } from "../../composables/useTaskLogViewerBridge";
 import { useTaskMobileLogDrawerState } from "../../composables/useTaskMobileLogDrawerState";
@@ -166,6 +169,7 @@ import TaskRunTimeline from "./TaskRunTimeline.vue";
 import TaskMobileLogFooter from "./TaskMobileLogFooter.vue";
 
 const props = defineProps<{
+  connectionState?: LogConnectionState;
   logProgressValue: number;
   logQrCodeData: string | null;
   logSearchQuery: string;
@@ -180,6 +184,7 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
+  (event: "retry-connection"): void;
   (event: "action", action: string): void;
   (event: "download-logs"): void;
   (event: "edit", task: Task): void;

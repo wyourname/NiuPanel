@@ -43,7 +43,6 @@ run node scripts/verify-open-source-readiness.mjs
 run node scripts/verify-source-module-size.mjs
 run cargo check -p niupanel
 run cargo check -p niupanel --all-features
-run cargo check -p niupanel-bot --all-features
 run cargo check -p niupanel-launcher
 run cargo test -p niupanel public_openapi_exposes_plugins_without_legacy_agents_routes
 run cargo test -p niupanel modules::system::service::tests
@@ -65,7 +64,7 @@ assert_no_match \
 
 old_private_refs="$tmp_dir/old-private-source-refs.txt"
 if grep -R --exclude=verify-public-release-gate.sh -E 'niupanel-loader|niupanel_loader|niupanel-agents|niupanel_agents|legacy-loader|legacy-agents-api|niupanel_private_|VITE_ENABLE_LEGACY_AGENTS|NIUPANEL_ENABLE_LEGACY_AGENTS|src/views/modules/Agents\.vue|src/api/agents\.ts|src/types/agents\.ts' \
-  Cargo.toml niupanel niupanel-bot niupanelweb docs packages scripts examples >"$old_private_refs" 2>/dev/null; then
+  Cargo.toml niupanel niupanelweb docs packages scripts examples >"$old_private_refs" 2>/dev/null; then
   printf '\nPublic release gate failed: legacy private agents/loader references are still present.\n' >&2
   cat "$old_private_refs" >&2
   exit 1

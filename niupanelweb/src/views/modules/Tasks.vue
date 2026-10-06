@@ -136,6 +136,8 @@
       :log-progress-value="logProgressValue"
       :log-qr-code-data="logQrCodeData"
       :log-search-query="logSearchQuery"
+      :connection-state="logConnectionState"
+      @retry-connection="retryLogConnection"
       @action="handleAction"
       @download-logs="downloadLogs"
       @edit="openEdit"
@@ -196,7 +198,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from "vue";
+import { computed, ref, watch } from "vue";
+import { useMobileBackCloseAction } from "@/composables/useMobileBackCloseAction";
 import { ElMessage } from "element-plus";
 import { useTaskStore } from "../../stores/tasks";
 import { useAppStore } from "../../stores/app";
@@ -303,6 +306,15 @@ const {
   handleBulkShare,
 } = useTaskActions();
 
+useMobileBackCloseAction({
+  appStore,
+  visible: computed(() => selectionMode.value || selectedIds.value.length > 0),
+  close: () => { clearAllSelection(); selectionMode.value = false; },
+});
+for (const visible of [actionSheetVisible, createActionSheetVisible]) {
+  useMobileBackCloseAction({ appStore, visible, close: () => { visible.value = false; } });
+}
+
 const {
   cronEditVisible,
   enableRandom,
@@ -367,6 +379,8 @@ const {
   historyLogRunId,
   historyLogLoading,
   closeLogStream,
+  logConnectionState,
+  retryLogConnection,
   connectLogStream,
   downloadLogs,
   fetchRunTimeline,

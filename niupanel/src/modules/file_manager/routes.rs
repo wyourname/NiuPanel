@@ -21,6 +21,12 @@ pub fn create_router() -> Router<AppState> {
             Router::new()
                 .route("/file/{*path}", get(handlers::read_file_content))
                 .route("/download/{*path}", get(handlers::download_file))
+                .route("/download_batch", post(handlers::download_batch))
+                .route("/download_batch/form", post(handlers::download_batch_form))
+                .route(
+                    "/download_batch/check",
+                    post(handlers::check_download_batch),
+                )
                 .require(Permission::FileRead),
         )
         // Write / Create
@@ -37,7 +43,6 @@ pub fn create_router() -> Router<AppState> {
                 .route("/upload", post(handlers::upload_file_root))
                 .route("/upload/{*path}", post(handlers::upload_file))
                 .route("/download_url", post(handlers::download_from_url))
-                .route("/download_batch", post(handlers::download_batch))
                 .require(Permission::FileWrite),
         )
         // Delete

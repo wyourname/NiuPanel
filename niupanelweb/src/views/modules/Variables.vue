@@ -57,25 +57,14 @@
         />
 
         <div class="relative flex-1 min-h-0 flex flex-col bg-base">
-          <BulkActionBar
+          <MobileSelectionBar
             :count="selectedIds.length"
-            :show-select-all="true"
+            :actions="mobileSelectionActions"
             :is-all-selected="selectedIds.length === variables.length && variables.length > 0"
             @cancel="clearSelection"
-            @delete="handleBulkDelete"
             @select-all="handleSelectAll"
-          >
-            <template #actions>
-              <div class="flex items-center gap-2">
-                <el-button type="success" plain size="small" @click="handleBulkToggle(true)">
-                  批量启用
-                </el-button>
-                <el-button type="warning" plain size="small" @click="handleBulkToggle(false)">
-                  批量禁用
-                </el-button>
-              </div>
-            </template>
-          </BulkActionBar>
+            @command="handleSelectionCommand"
+          />
 
           <VariableListPanel
             :drag-over-index="dragOverIndex"
@@ -129,7 +118,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from "vue";
+import { computed, ref } from "vue";
+import MobileSelectionBar from "@/components/common/MobileSelectionBar.vue";
+import { useMobileBackCloseAction } from "@/composables/useMobileBackCloseAction";
 import { useRoute, useRouter } from "vue-router";
 import { useAppStore } from "../../stores/app";
 import { useHaptics } from "../../composables/useHaptics";
@@ -306,4 +297,17 @@ const {
   searchQuery,
   variables,
 });
+
+const mobileSelectionActions = [
+  { command: 'enable', label: '启用', icon: 'i-ep-check' },
+  { command: 'disable', label: '禁用', icon: 'i-ep-close' },
+  { command: 'delete', label: '删除', icon: 'i-ep-delete', danger: true },
+];
+const handleSelectionCommand = (command: string) => {
+  if (command === 'enable') void handleBulkToggle(true);
+  else if (command === 'disable') void handleBulkToggle(false);
+  else if (command === 'delete') void handleBulkDelete();
+};
+useMobileBackCloseAction({ appStore, visible: computed(() => selectedIds.value.length > 0), close: clearSelection });
+useMobileBackCloseAction({ appStore, visible: dialogVisible, close: () => { if (submitting.value) return false; dialogVisible.value = false; } });
 </script>

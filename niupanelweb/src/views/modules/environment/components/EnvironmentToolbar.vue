@@ -17,24 +17,24 @@
     </div>
 
     <div class="flex items-center justify-end gap-2">
-      <ToolbarButton size="small" @click="emit('open-jobs')">
+      <ToolbarButton size="small" title="运行记录" aria-label="运行记录" @click="emit('open-jobs')">
         <template #icon>
           <div class="i-ep-list"></div>
         </template>
         <span v-if="!isMobile">运行记录</span>
       </ToolbarButton>
 
-      <ToolbarButton size="small" @click="emit('open-mirror')">
+      <ToolbarButton size="small" :title="filterType === 'sh' ? 'Linux 软件源说明' : '修改依赖源'" aria-label="修改依赖源" @click="emit('open-mirror')">
         <template #icon>
           <div class="i-ep-setting"></div>
         </template>
-        <span v-if="!isMobile">镜像配置</span>
+        <span v-if="!isMobile">{{ filterType === 'sh' ? '软件源说明' : '依赖源' }}</span>
       </ToolbarButton>
 
       <ToolbarButton
         variant="primary"
         size="small"
-        :disabled="filterType === 'sh'"
+        v-if="filterType !== 'sh'"
         class="flex-1 sm:flex-none"
         @click="emit('create')"
       >

@@ -64,6 +64,12 @@ const visibleValue = computed({
 
 const actions = computed(() => [
   {
+    label: props.task?.enabled ? "禁用任务" : "启用任务",
+    command: props.task?.enabled ? ("disable" as const) : ("enable" as const),
+    icon: props.task?.enabled ? "i-ep-turn-off" : "i-ep-open",
+    color: props.task?.enabled ? "text-amber-500" : "text-emerald-500",
+  },
+  {
     label: "查看日志",
     command: "logs" as const,
     icon: "i-ep-document",

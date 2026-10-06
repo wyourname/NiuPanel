@@ -9,7 +9,6 @@ members = [
     "niupanel-core",
     "niupanel-sdk",
     "niupanel-proxy",
-    "niupanel-bot",
     "niupanel-launcher",
 ]
 
@@ -92,8 +91,3 @@ strip = "symbols"   # 发布产物移除符号表，降低磁盘占用与冷启�
 inherits = "release"
 debug = 2
 strip = "none"
-
-# Teloxide's latest release and main branch still pull proc-macro-error2 2.0.1.
-# Upstream has not released the one-line Rust future-incompatibility fix yet.
-[patch.crates-io]
-proc-macro-error2 = { path = "third_party/proc-macro-error2" }

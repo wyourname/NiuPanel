@@ -37,30 +37,37 @@ pub async fn install_node_packages(
 ) -> Result<i32> {
     let packages = request.packages;
     let version = normalize_node_version(&request.env_name)?;
-    let existing_env = environments::Entity::find()
-        .filter(environments::Column::Name.eq(&request.env_name))
-        .filter(environments::Column::EnvType.eq(NODE_ENV_TYPE))
-        .one(db)
-        .await?;
-
-    merge_or_insert_requirements(
-        db,
-        existing_env,
-        &request.env_name,
-        NODE_ENV_TYPE,
-        &version,
-        &packages,
-    )
-    .await?;
-
+    let db = db.clone();
+    let name = request.env_name;
     let mirrors = node_install_mirrors(settings).await;
     task_manager
-        .submit_system_task("Install Node packages".to_string(), move |tx| async move {
-            let env = RuntimeManager::open_node_environment(Some(&version), Some(mirrors))?;
-            env.install_packages(&packages, tx.clone()).await?;
-            let _ = tx.send("Installation completed successfully.".to_string());
-            Ok(())
-        })
+        .submit_system_task_with_metadata(
+            "Install Node packages".to_string(),
+            Some(serde_json::json!({
+                "kind": "environment-packages", "env_type": "node", "env_name": name,
+                "operation": "install", "packages": packages,
+            })),
+            move |tx| async move {
+                let env = RuntimeManager::open_node_environment(Some(&version), Some(mirrors))?;
+                env.install_packages(&packages, tx.clone()).await?;
+                let existing_env = environments::Entity::find()
+                    .filter(environments::Column::Name.eq(&name))
+                    .filter(environments::Column::EnvType.eq(NODE_ENV_TYPE))
+                    .one(&db)
+                    .await?;
+                merge_or_insert_requirements(
+                    &db,
+                    existing_env,
+                    &name,
+                    NODE_ENV_TYPE,
+                    &version,
+                    &packages,
+                )
+                .await?;
+                let _ = tx.send("Installation completed successfully.".to_string());
+                Ok(())
+            },
+        )
         .await
 }
 
@@ -77,33 +84,33 @@ pub async fn install_python_packages(
     }
 
     let version = python_env.record_version(&request.env_name);
-    let existing_env = environments::Entity::find()
-        .filter(environments::Column::Name.eq(&request.env_name))
-        .filter(environments::Column::EnvType.eq(PYTHON_ENV_TYPE))
-        .one(db)
-        .await?;
-
-    merge_or_insert_requirements(
-        db,
-        existing_env,
-        &request.env_name,
-        PYTHON_ENV_TYPE,
-        &version,
-        &request.packages,
-    )
-    .await?;
-
+    let db = db.clone();
     let mirrors = python_install_and_index_mirrors(settings).await;
     let env =
         RuntimeManager::open_python_environment(venv_path, None, Some(mirrors.clone())).await?;
     let requirements = request.packages.join("\n");
     let name = request.env_name;
     task_manager
-        .submit_system_task(
+        .submit_system_task_with_metadata(
             format!("Install packages in {}", name),
+            Some(serde_json::json!({"kind": "environment-packages", "env_type": "python", "env_name": name, "operation": "install", "packages": request.packages})),
             move |tx| async move {
                 env.install_requirements(&requirements, false, tx.clone())
                     .await?;
+                let existing_env = environments::Entity::find()
+                    .filter(environments::Column::Name.eq(&name))
+                    .filter(environments::Column::EnvType.eq(PYTHON_ENV_TYPE))
+                    .one(&db)
+                    .await?;
+                merge_or_insert_requirements(
+                    &db,
+                    existing_env,
+                    &name,
+                    PYTHON_ENV_TYPE,
+                    &version,
+                    &request.packages,
+                )
+                .await?;
                 let _ = tx.send("Installation completed successfully.".to_string());
                 Ok(())
             },
@@ -180,7 +187,11 @@ async fn merge_requirements(
     env_model: environments::Model,
     packages: &[String],
 ) -> Result<()> {
-    let requirements = merged_requirements(env_model.requirements.as_deref(), packages);
+    let requirements = merged_requirements(
+        env_model.requirements.as_deref(),
+        packages,
+        &env_model.env_type,
+    );
     let mut active = env_model.into_active_model();
     active.requirements = Set(Some(requirements));
     active.updated_at = Set(chrono::Utc::now().into());
@@ -199,21 +210,62 @@ async fn insert_requirements(
         name: Set(name.to_string()),
         env_type: Set(env_type.to_string()),
         version: Set(version.to_string()),
-        requirements: Set(Some(packages.join("\n"))),
+        requirements: Set(Some(merged_requirements(None, packages, env_type))),
         ..Default::default()
     };
     active.insert(db).await?;
     Ok(())
 }
 
-fn merged_requirements(existing_requirements: Option<&str>, packages: &[String]) -> String {
+/// Keep the latest installed constraint for a package when recording restore dependencies.
+pub fn merged_requirements(
+    existing_requirements: Option<&str>,
+    packages: &[String],
+    env_type: &str,
+) -> String {
     let mut requirements = parse_requirements(existing_requirements);
     for package in packages {
-        if !requirements.contains(package) {
-            requirements.push(package.clone());
-        }
+        let key = requirement_key(package, env_type);
+        requirements.retain(|entry| requirement_key(entry, env_type) != key);
+        requirements.push(package.trim().to_owned());
     }
     requirements.join("\n")
+}
+
+fn requirement_key(package: &str, env_type: &str) -> String {
+    let package = package.trim();
+    let start = usize::from(package.starts_with('@'));
+    let separators: &[char] = match env_type {
+        "python" => &['=', '>', '<', '~', '!', '[', ';', '@', ' '],
+        "node" => &['@'],
+        _ => &['=', '@'],
+    };
+    let end = package[start..]
+        .find(separators)
+        .map_or(package.len(), |index| start + index);
+    let name = package[..end].trim();
+    if env_type == "python" {
+        // PEP 503 normalizes names; distinct environment markers remain separate requirements.
+        if name.is_empty()
+            || !name
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+        {
+            return package.to_owned();
+        }
+        let normalized = name
+            .split(['-', '_', '.'])
+            .filter(|part| !part.is_empty())
+            .collect::<Vec<_>>()
+            .join("-")
+            .to_ascii_lowercase();
+        let marker = package
+            .split_once(';')
+            .map_or("", |(_, marker)| marker.trim());
+        format!("{normalized};{marker}")
+    } else {
+        name.to_owned()
+    }
 }
 
 fn parse_requirements(requirements: Option<&str>) -> Vec<String> {
@@ -281,9 +333,41 @@ mod tests {
     fn merged_requirements_trims_existing_and_appends_unique_packages() {
         let packages = vec!["requests".to_string(), "uvicorn".to_string()];
 
-        let merged = merged_requirements(Some(" requests\n\nflask "), &packages);
+        let merged = merged_requirements(Some(" requests\n\nflask "), &packages, "python");
 
-        assert_eq!(merged, "requests\nflask\nuvicorn");
+        assert_eq!(merged, "flask\nrequests\nuvicorn");
+    }
+
+    #[test]
+    fn installed_versions_replace_old_restore_constraints() {
+        assert_eq!(
+            merged_requirements(
+                Some("@scope/pkg@1\nother@2"),
+                &["@scope/pkg@3".into()],
+                "node"
+            ),
+            "other@2\n@scope/pkg@3"
+        );
+        assert_eq!(
+            merged_requirements(
+                Some("Some_Pkg[extra]==1\nflask"),
+                &["some-pkg>=2".into()],
+                "python"
+            ),
+            "flask\nsome-pkg>=2"
+        );
+        assert_eq!(
+            merged_requirements(Some("curl=1\ngit"), &["curl=2".into()], "sh"),
+            "git\ncurl=2"
+        );
+        assert_eq!(
+            merged_requirements(
+                Some("foo==1; python_version < '3.10'"),
+                &["foo==2; python_version >= '3.10'".into()],
+                "python"
+            ),
+            "foo==1; python_version < '3.10'\nfoo==2; python_version >= '3.10'"
+        );
     }
 
     #[test]

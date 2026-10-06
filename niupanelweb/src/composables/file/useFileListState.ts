@@ -7,10 +7,13 @@ import { getParentPath, sortFileItems } from "./fileOperationUtils";
 export function useFileListState(fileTableRef: Ref<FileTableRef | null>) {
   const loading = ref(false);
   const fileList = ref<FileItem[]>([]);
-  const currentPath = ref("");
+  const currentPath = ref("/");
   const selectedFiles = ref<FileItem[]>([]);
   const searchQuery = ref("");
-  const isSearching = ref(false);
+  const listError = ref("");
+  let requestVersion = 0;
+  let requestedPath = "/";
+  let changingDirectory = false;
 
   const filteredFileList = computed(() => fileList.value);
 
@@ -37,25 +40,31 @@ export function useFileListState(fileTableRef: Ref<FileTableRef | null>) {
   };
 
   const loadContents = async (path: string, fromSearch = false) => {
-    loading.value = true;
-    if (!fromSearch) {
+    const target = path.replace(/^\/+|\/+$/g, "") || "/";
+    const navigating = target !== currentPath.value;
+    if (navigating && !fromSearch) {
+      executeSearch.cancel();
+      changingDirectory = true;
       searchQuery.value = "";
+      changingDirectory = false;
     }
+    const version = ++requestVersion;
+    requestedPath = target;
+    loading.value = true;
+    listError.value = "";
+    const query = searchQuery.value.trim();
 
     try {
-      const actualPath = isSearching.value ? currentPath.value : path;
-      const queryParam = isSearching.value && searchQuery.value
-        ? `?q=${encodeURIComponent(searchQuery.value)}`
-        : "";
-
-      const res = await fileManagerApi.listDirectoryContents(actualPath + queryParam);
+      const res = await fileManagerApi.listDirectoryContents(target, query ? { q: query } : undefined);
+      if (version !== requestVersion) return;
       fileList.value = sortFileItems(res.data || []);
-      if (!isSearching.value) {
-        currentPath.value = path;
-      }
-      clearSelection();
+      currentPath.value = target;
+      if (navigating) clearSelection();
+      else selectedFiles.value = selectedFiles.value.filter(file => fileList.value.some(row => row.path === file.path));
+    } catch {
+      if (version === requestVersion) listError.value = `无法读取 ${target === "/" ? "根目录" : target}，请重试。`;
     } finally {
-      loading.value = false;
+      if (version === requestVersion) loading.value = false;
     }
   };
 
@@ -77,25 +86,28 @@ export function useFileListState(fileTableRef: Ref<FileTableRef | null>) {
     }
   };
 
-  const executeSearch = debounce((query: string) => {
-    if (query) {
-      isSearching.value = true;
-      void loadContents(currentPath.value, true);
-    } else {
-      isSearching.value = false;
-      void loadContents(currentPath.value, true);
-    }
-  }, 500);
+  const executeSearch = debounce(() => { void loadContents(requestedPath, true); }, 250);
 
-  watch(searchQuery, (newVal) => {
-    executeSearch(newVal);
-  });
+  watch(searchQuery, () => {
+    if (changingDirectory) return;
+    ++requestVersion;
+    loading.value = true;
+    executeSearch();
+  }, { flush: "sync" });
 
   onScopeDispose(() => {
     executeSearch.cancel();
+    ++requestVersion;
   });
 
-  const navigate = (path: string) => loadContents(path);
+  const navigate = (path: string) => {
+    executeSearch.cancel();
+    changingDirectory = true;
+    searchQuery.value = "";
+    changingDirectory = false;
+    return loadContents(path);
+  };
+  const retryLoad = () => loadContents(requestedPath, true);
 
   const goUp = () => {
     if (!currentPath.value || currentPath.value === "/") return;
@@ -145,6 +157,8 @@ export function useFileListState(fileTableRef: Ref<FileTableRef | null>) {
     loadContents,
     loadNode,
     loading,
+    listError,
+    retryLoad,
     navigate,
     searchQuery,
     selectedFiles,

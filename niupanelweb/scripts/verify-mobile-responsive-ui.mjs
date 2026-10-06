@@ -303,7 +303,8 @@ check(
 );
 check(
   environmentPackageManager.includes("dependency-manager-toolbar") &&
-    environmentPackageManager.includes("!min-h-11") &&
+    environmentPackageManager.includes("<EnvPackageInstallForm") &&
+    !environmentPackageManager.includes("<EnvPackageInstallDialog") &&
     environmentPackageList.includes('event: "uninstall"'),
   "environment package manager must keep its mobile toolbar and row-level uninstall action",
 );

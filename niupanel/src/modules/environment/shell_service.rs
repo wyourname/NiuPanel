@@ -8,6 +8,9 @@ use niupanel_entity::environments;
 use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
 use std::collections::HashSet;
 use tokio::process::Command;
+use tokio::sync::Mutex;
+
+static APT_LOCK: Mutex<()> = Mutex::const_new(());
 
 pub(super) struct ShellEnvironmentService;
 
@@ -92,56 +95,74 @@ impl ShellEnvironmentService {
         task_manager: &TaskManagerService,
         payload: InstallPackageRequest,
     ) -> Result<i32> {
-        let packages = payload.packages.clone();
-        let shell = RuntimeKind::Shell;
-        let name = RuntimeKind::shell_name().to_string();
-        let existing_env = environments::Entity::find()
-            .filter(environments::Column::Name.eq(&name))
-            .one(db)
-            .await?;
-
-        requirements::merge_or_insert_requirements(
-            db,
-            existing_env,
-            &name,
-            shell.env_type(),
-            &shell.record_version(&name),
-            &packages,
-        )
-        .await?;
-
+        let packages = payload.packages;
+        let db = db.clone();
         task_manager
-            .submit_system_task("Install Shell packages".to_string(), move |tx| async move {
-                let mut cmd = Command::new("apt-get");
-                cmd.arg("install").arg("-y");
-                cmd.env("DEBIAN_FRONTEND", "noninteractive");
-                for package in packages {
-                    cmd.arg(package);
-                }
-
-                let desc = "apt-get install";
-                cmd.execute_with_streaming(None, desc, tx.clone()).await?;
-                let _ = tx.send("Installation completed successfully.".to_string());
+            .submit_system_task_with_metadata("安装 Linux 依赖".to_string(), Some(serde_json::json!({"kind": "environment-packages", "env_type": RuntimeKind::Shell.env_type(), "env_name": RuntimeKind::shell_name(), "operation": "install", "packages": packages})), move |tx| async move {
+                let _guard = APT_LOCK.lock().await;
+                let _ = tx.send("正在更新 Linux 软件包索引…".to_owned());
+                Command::new("apt-get")
+                    .args(["-o", "DPkg::Lock::Timeout=120", "update", "--error-on=any"])
+                    .execute_with_streaming(None, "apt-get update", tx.clone())
+                    .await?;
+                Command::new("apt-get")
+                    .args(["-o", "DPkg::Lock::Timeout=120", "install", "-y", "--"])
+                    .args(&packages)
+                    .env("DEBIAN_FRONTEND", "noninteractive")
+                    .execute_with_streaming(None, "apt-get install", tx.clone())
+                    .await?;
+                let name = RuntimeKind::shell_name();
+                let existing_env = environments::Entity::find()
+                    .filter(environments::Column::Name.eq(name))
+                    .one(&db)
+                    .await?;
+                requirements::merge_or_insert_requirements(
+                    &db,
+                    existing_env,
+                    name,
+                    RuntimeKind::Shell.env_type(),
+                    &RuntimeKind::Shell.record_version(name),
+                    &packages,
+                )
+                .await?;
+                let _ = tx.send("Linux 依赖安装完成。".to_owned());
                 Ok(())
             })
             .await
     }
 
-    pub(super) async fn uninstall_package(db: &DatabaseConnection, package: &str) -> Result<()> {
-        let mut cmd = Command::new("apt-get");
-        cmd.arg("remove").arg("-y").arg(package);
-        cmd.execute_checked("apt-get remove").await?;
-
-        let name = RuntimeKind::shell_name().to_string();
-        let existing_env = environments::Entity::find()
-            .filter(environments::Column::Name.eq(&name))
-            .one(db)
-            .await?;
-
-        if let Some(env_model) = existing_env {
-            requirements::remove_requirement(db, env_model, package, SHELL_PACKAGE_SEPARATORS)
-                .await?;
-        }
-        Ok(())
+    pub(super) async fn uninstall_package(
+        db: &DatabaseConnection,
+        task_manager: &TaskManagerService,
+        package: &str,
+    ) -> Result<i32> {
+        let db = db.clone();
+        let package = package.to_owned();
+        task_manager
+            .submit_system_task_with_metadata(format!("卸载 Linux 依赖 {package}"), Some(serde_json::json!({"kind": "environment-packages", "env_type": RuntimeKind::Shell.env_type(), "env_name": RuntimeKind::shell_name(), "operation": "uninstall", "packages": [package]})), move |tx| async move {
+                let _guard = APT_LOCK.lock().await;
+                Command::new("apt-get")
+                    .args(["-o", "DPkg::Lock::Timeout=120", "remove", "-y", "--"])
+                    .arg(&package)
+                    .env("DEBIAN_FRONTEND", "noninteractive")
+                    .execute_with_streaming(None, "apt-get remove", tx.clone())
+                    .await?;
+                if let Some(env_model) = environments::Entity::find()
+                    .filter(environments::Column::Name.eq(RuntimeKind::shell_name()))
+                    .one(&db)
+                    .await?
+                {
+                    requirements::remove_requirement(
+                        &db,
+                        env_model,
+                        &package,
+                        SHELL_PACKAGE_SEPARATORS,
+                    )
+                    .await?;
+                }
+                let _ = tx.send("Linux 依赖卸载完成。".to_owned());
+                Ok(())
+            })
+            .await
     }
 }

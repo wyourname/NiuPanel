@@ -25,6 +25,9 @@
   --mobile-dock-clearance: calc(76px + env(safe-area-inset-bottom, 0px));
   --app-viewport-height: 100vh;
 
+  --button-primary-bg: var(--el-color-primary);
+  --button-primary-hover-bg: var(--el-color-primary-dark-2);
+  --button-primary-text: #fff;
   --brand-primary: #2563eb;
   --brand-primary-rgb: 37 99 235;
   --el-color-primary: #2563eb;
@@ -39,10 +42,10 @@
   --el-color-primary-light-9: #edf4ff;
   --el-color-primary-dark-2: #1d4ed8;
 
-  --bg-base: #f3f5f7;
+  --bg-base: #edf1f7;
   --bg-card: #ffffff;
   --bg-glass: rgba(255, 255, 255, 0.94);
-  --bg-subtle: #f7f8fa;
+  --bg-subtle: #f5f7fb;
   --bg-soft: #eef4ff;
 
   --accent-subtle-bg: #e9f1ff;
@@ -57,11 +60,17 @@
 
   --text-default: #172033;
   --text-secondary: #526071;
-  --text-muted: #7c899b;
+  --text-muted: #68778c;
 
-  --border-base: #cfd6df;
-  --border-light: #e2e7ee;
-  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.05);
+  --border-base: #c9d3e2;
+  --border-light: #e0e6ef;
+  --shadow-sm: 0 1px 2px rgba(20, 38, 66, 0.06);
+  --shadow-surface: 0 1px 2px rgba(20, 38, 66, 0.04), 0 6px 20px rgba(20, 38, 66, 0.045);
+  --surface-inset: color-mix(in srgb, var(--bg-subtle) 80%, var(--bg-card));
+  --chrome-bg: #17263d;
+  --chrome-text: #f0f5fc;
+  --chrome-muted: #afbed2;
+  --chrome-border: #33445c;
   --shadow-md: 0 10px 28px rgba(15, 23, 42, 0.10);
   --focus-ring: 0 0 0 3px rgba(37, 99, 235, 0.18);
 
@@ -91,6 +100,7 @@
 }
 
 html.dark {
+  --button-primary-text: #0f151d;
   --brand-primary: #60a5fa;
   --brand-primary-rgb: 96 165 250;
   --el-color-primary: #60a5fa;
@@ -132,12 +142,15 @@ html.dark {
 
   --text-default: #edf4ff;
   --text-secondary: #aab6c5;
-  --text-muted: #78879a;
+  --text-muted: #91a0b5;
 
   --bg-color-body: var(--bg-base);
   --border-base: #203043;
   --border-light: #1a293b;
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.24);
+  --shadow-surface: 0 1px 0 rgba(255, 255, 255, 0.025) inset, 0 8px 24px rgba(0, 0, 0, 0.16);
+  --chrome-bg: #101b2a;
+  --chrome-border: #293b52;
   --shadow-md: 0 12px 32px rgba(0, 0, 0, 0.34);
   --focus-ring: 0 0 0 3px rgba(96, 165, 250, 0.22);
 
@@ -218,16 +231,25 @@ button:focus-visible {
 }
 
 .el-button--default {
-  background-color: var(--el-color-primary-light-9) !important;
-  color: var(--el-color-primary) !important;
+  background-color: var(--bg-card) !important;
+  color: var(--text-default) !important;
+  border-color: var(--border-base) !important;
 }
 
 .el-button--default:hover {
-  background-color: var(--el-color-primary-light-8) !important;
+  background-color: var(--accent-subtle-bg) !important;
+  color: var(--accent-subtle-text) !important;
+  border-color: var(--accent-subtle-border) !important;
 }
 
 .el-button:focus-visible {
   box-shadow: var(--focus-ring) !important;
+}
+
+.el-button--primary:not(.is-plain) {
+  --el-button-text-color: var(--button-primary-text);
+  --el-button-hover-text-color: var(--button-primary-text);
+  --el-button-active-text-color: var(--button-primary-text);
 }
 
 ::-webkit-scrollbar {
@@ -261,6 +283,7 @@ html.dark ::-webkit-scrollbar-thumb {
 }
 
 .el-message-box {
+  width: min(360px, calc(100vw - 32px)) !important;
   max-width: calc(100vw - 32px);
   overflow: hidden;
   border: 1px solid var(--border-light) !important;
@@ -286,6 +309,11 @@ html.dark ::-webkit-scrollbar-thumb {
   color: var(--text-secondary);
 }
 
+.el-message-box__message {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .el-message-box__btns {
   gap: 8px;
   padding: 10px 12px;
@@ -294,10 +322,6 @@ html.dark ::-webkit-scrollbar-thumb {
 
 .el-message-box__btns .el-button + .el-button {
   margin-left: 0;
-}
-
-.el-message-box.file-editor-unsaved-message {
-  width: min(360px, calc(100vw - 24px)) !important;
 }
 
 @media (max-width: 768px) {
@@ -313,11 +337,6 @@ html.dark ::-webkit-scrollbar-thumb {
   .mobile-touch-target {
     min-width: var(--mobile-touch-target);
     min-height: var(--mobile-touch-target);
-  }
-
-  .el-message-box {
-    width: calc(100vw - 24px) !important;
-    max-width: 440px;
   }
 
   .el-message-box__header {
@@ -485,6 +504,7 @@ html.dark .modern-input .el-textarea__inner {
   background-color: rgba(255, 255, 255, 0.06) !important;
 }
 
+.el-dropdown-menu.modern-dropdown,
 .modern-dropdown .el-dropdown-menu {
   border-radius: var(--radius-sm) !important;
   border: 1px solid var(--border-light) !important;
@@ -594,7 +614,7 @@ html.dark .modern-dropdown .el-dropdown-menu {
   background: var(--bg-card);
   border: 1px solid var(--border-light);
   border-radius: var(--radius-md);
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--shadow-surface);
 }
 
 html.dark .module-panel {
@@ -656,7 +676,7 @@ html.dark .module-panel {
 
 .segmented-tabs__item.is-active {
   background: var(--bg-card);
-  color: var(--text-default);
+  color: var(--accent-subtle-text);
   box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.12), var(--shadow-sm);
 }
 
@@ -690,8 +710,13 @@ html.dark .segmented-tabs__item.is-active {
 }
 
 .toolbar-button:hover:not(:disabled) {
-  border-color: rgba(37, 99, 235, 0.18) !important;
-  background: var(--bg-soft);
+  border-color: var(--toolbar-hover-border, rgba(37, 99, 235, 0.18)) !important;
+  background: var(--toolbar-hover-bg, var(--bg-soft));
+}
+
+.toolbar-button:focus-visible {
+  outline: 2px solid var(--el-color-primary);
+  outline-offset: 2px;
 }
 
 .toolbar-button:disabled {
@@ -715,12 +740,17 @@ html.dark .segmented-tabs__item.is-active {
 }
 
 .toolbar-button--primary {
-  background: var(--el-color-primary);
-  color: #fff;
+  --toolbar-hover-bg: var(--button-primary-hover-bg);
+  --toolbar-hover-border: transparent;
+  background: var(--button-primary-bg);
+  color: var(--button-primary-text);
   border-color: transparent !important;
+  box-shadow: 0 1px 2px rgb(15 23 42 / 12%), inset 0 1px 0 rgb(255 255 255 / 16%);
 }
 
 .toolbar-button--soft {
+  --toolbar-hover-bg: var(--el-color-primary-light-9);
+  --toolbar-hover-border: var(--el-color-primary-light-5);
   background: var(--bg-soft);
   color: var(--el-color-primary);
   border-color: transparent !important;

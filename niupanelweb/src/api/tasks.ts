@@ -133,11 +133,11 @@ export const getTaskRunLog = (id: number, runId: number, offset: number | null =
 }
 
 export const streamTaskLogs = (id: number): EventSource => {
-  return new EventSource(`${request.defaults.baseURL}/tasks/${id}/logs`)
+  return new EventSource(`${request.defaults.baseURL}/tasks/${id}/logs`, { withCredentials: true })
 }
 
 export const streamTaskRunLogs = (id: number, runId: number): EventSource => {
-  return new EventSource(`${request.defaults.baseURL}/tasks/${id}/runs/${runId}/logs`)
+  return new EventSource(`${request.defaults.baseURL}/tasks/${id}/runs/${runId}/logs`, { withCredentials: true })
 }
 
 export const streamTaskStatus = (): EventSource => {

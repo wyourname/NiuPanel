@@ -13,6 +13,188 @@ use tokio_util::sync::CancellationToken;
 static TEST_DATA_DIR: OnceLock<tempfile::TempDir> = OnceLock::new();
 
 #[tokio::test]
+async fn agent_channel_has_separate_capacity_and_shared_plugin_lifecycle() {
+    init_test_config();
+    let root = tempfile::tempdir().unwrap();
+    let package = tempfile::tempdir().unwrap();
+    fs::write(
+        package.path().join("plugin.json"),
+        serde_json::to_vec(&json!({
+            "schema_version": 2, "id": "merged-agent", "name": "Merged Agent", "version": "1.0.0",
+            "description": "Agent and channel lifecycle fixture",
+            "runtime": "process", "protocol": "json_lines", "entry": "run.sh",
+            "worker": {"min": 1, "max": 1, "idle_timeout_sec": 60},
+            "capabilities": ["agents.chat", "channel.telegram.v1"],
+            "actions": [{"name": "ping", "callers": ["ui"], "input_schema": {"type": "object"}}]
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    fs::write(
+        package.path().join("run.sh"),
+        r#"#!/usr/bin/env python3
+import json, os, sys, time
+from pathlib import Path
+role = 'telegram' if '--telegram-transport' in sys.argv else 'agent'
+data = Path(os.environ['NIUPANEL_PLUGIN_DATA_DIR'])
+for line in sys.stdin:
+    request = json.loads(line)
+    if request['input'].get('hold'):
+        (data / (role + '-started')).write_text('started')
+        while not (data / (role + '-release')).exists():
+            time.sleep(.01)
+    print(json.dumps({'request_id':request['request_id'], 'ok':True,
+        'output':{'role':role,'pid':os.getpid(),'data':str(data)}}), flush=True)
+"#,
+    )
+    .unwrap();
+    make_executable(&package.path().join("run.sh"));
+    let service = PluginService::new(root.path().join("plugins"), "plugin");
+    service.install_from_dir(package.path(), true).unwrap();
+    let request = |action: &str, hold: bool| PluginInvokeRequest {
+        action: action.to_string(),
+        input: json!({"hold":hold}),
+        timeout_sec: Some(20),
+    };
+    let normal = service
+        .invoke_plugin("merged-agent", request("ping", false))
+        .await
+        .unwrap();
+    let data = std::path::PathBuf::from(normal.output["data"].as_str().unwrap());
+    let active_agent = tokio::spawn({
+        let service = service.clone();
+        let request = request("ping", true);
+        async move { service.invoke_plugin("merged-agent", request).await }
+    });
+    wait_for_marker(&data.join("agent-started")).await;
+    let channel = service
+        .invoke_telegram_channel("merged-agent", request("transport_tick", false))
+        .await
+        .unwrap();
+    assert_eq!(channel.output["role"], "telegram");
+    assert_ne!(channel.output["pid"], normal.output["pid"]);
+    assert_eq!(channel.output["data"], normal.output["data"]);
+    let test = service
+        .invoke_telegram_channel("merged-agent", request("transport_test", false))
+        .await
+        .unwrap();
+    assert_eq!(
+        test.output["pid"], channel.output["pid"],
+        "Tick and test share a single channel worker"
+    );
+
+    service.stop_telegram_channel("merged-agent").await;
+    assert!(
+        !active_agent.is_finished(),
+        "Closing Bot must preserve Web Agent work"
+    );
+    fs::write(data.join("agent-release"), "release").unwrap();
+    let completed = tokio::time::timeout(std::time::Duration::from_secs(3), active_agent)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert_eq!(completed.output["pid"], normal.output["pid"]);
+
+    for caller in [
+        PluginActionCaller::Ui,
+        PluginActionCaller::Task,
+        PluginActionCaller::ApiKey,
+        PluginActionCaller::Telegram,
+    ] {
+        assert!(
+            service
+                .invoke_action(
+                    "merged-agent",
+                    caller,
+                    PluginActionInvokeRequest {
+                        action: "transport_tick".into(),
+                        input: json!({}),
+                        client_request_id: None,
+                    }
+                )
+                .await
+                .is_err(),
+            "Channel control is private to the host"
+        );
+    }
+    assert!(
+        service
+            .invoke_telegram_channel("merged-agent", request("ping", false))
+            .await
+            .is_err()
+    );
+
+    fs::remove_file(data.join("agent-release")).unwrap();
+    fs::remove_file(data.join("agent-started")).unwrap();
+    let active_agent = tokio::spawn({
+        let service = service.clone();
+        let request = request("ping", true);
+        async move { service.invoke_plugin("merged-agent", request).await }
+    });
+    let active_channel = tokio::spawn({
+        let service = service.clone();
+        let request = request("transport_tick", true);
+        async move {
+            service
+                .invoke_telegram_channel("merged-agent", request)
+                .await
+        }
+    });
+    wait_for_marker(&data.join("agent-started")).await;
+    wait_for_marker(&data.join("telegram-started")).await;
+    service
+        .set_enabled_async("merged-agent", false)
+        .await
+        .unwrap();
+    for task in [active_agent, active_channel] {
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_secs(3), task)
+                .await
+                .unwrap()
+                .unwrap()
+                .is_err()
+        );
+    }
+    assert!(
+        service
+            .invoke_telegram_channel("merged-agent", request("transport_tick", false))
+            .await
+            .is_err()
+    );
+    service
+        .set_enabled_async("merged-agent", true)
+        .await
+        .unwrap();
+    let restarted = service
+        .invoke_telegram_channel("merged-agent", request("transport_tick", false))
+        .await
+        .unwrap();
+    assert_ne!(restarted.output["pid"], channel.output["pid"]);
+    service.uninstall_async("merged-agent").await.unwrap();
+    assert!(
+        data.exists(),
+        "Uninstall preserves Agent and Telegram data for reinstall"
+    );
+    assert!(
+        service
+            .invoke_telegram_channel("merged-agent", request("transport_tick", false))
+            .await
+            .is_err()
+    );
+}
+
+async fn wait_for_marker(path: &Path) {
+    tokio::time::timeout(std::time::Duration::from_secs(3), async {
+        while !path.exists() {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("worker started");
+}
+
+#[tokio::test]
 async fn invokes_external_plugin_package_when_requested() {
     let Some(source) = std::env::var_os("NIUPANEL_TEST_PLUGIN_DIR") else {
         return;
@@ -935,3 +1117,76 @@ fn make_executable(path: &Path) {
 
 #[cfg(not(unix))]
 fn make_executable(_path: &Path) {}
+
+#[tokio::test]
+async fn disabling_plugin_cancels_an_active_worker_before_returning_new_work() {
+    init_test_config();
+    let root = tempfile::tempdir().unwrap();
+    let package = tempfile::tempdir().unwrap();
+    write_cancellable_plugin(package.path());
+    let manifest = fs::read_to_string(package.path().join("plugin.json"))
+        .unwrap()
+        .replace("cancellable-agent", "disable-active-agent");
+    fs::write(package.path().join("plugin.json"), manifest).unwrap();
+    let service = PluginService::new(root.path().join("plugins"), "plugin");
+    service.install_from_dir(package.path(), true).unwrap();
+    let marker = niupanel_common::config::Config::global()
+        .plugins_dir
+        .join(".data/plugin/disable-active-agent/started-cancel");
+    let _ = fs::remove_file(&marker);
+    let invocation = tokio::spawn({
+        let service = service.clone();
+        async move {
+            service
+                .invoke_plugin(
+                    "disable-active-agent",
+                    PluginInvokeRequest {
+                        action: "chat".into(),
+                        input: json!({"message":"slow-cancel"}),
+                        timeout_sec: Some(60),
+                    },
+                )
+                .await
+        }
+    });
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while !marker.exists() {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    service
+        .set_enabled_async("disable-active-agent", false)
+        .await
+        .unwrap();
+    let result = tokio::time::timeout(std::time::Duration::from_secs(2), invocation)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(matches!(
+        result,
+        Err(niupanel_common::error::AppError::Cancelled)
+    ));
+    service
+        .set_enabled_async("disable-active-agent", true)
+        .await
+        .unwrap();
+    let response = service
+        .invoke_plugin(
+            "disable-active-agent",
+            PluginInvokeRequest {
+                action: "chat".into(),
+                input: json!({"message":"fast"}),
+                timeout_sec: Some(2),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.output["message"], "fast");
+    service
+        .uninstall_async("disable-active-agent")
+        .await
+        .unwrap();
+    assert!(service.get_plugin("disable-active-agent").is_err());
+}

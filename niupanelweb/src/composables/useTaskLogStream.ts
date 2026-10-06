@@ -1,4 +1,5 @@
-import { type Ref } from "vue";
+import { onScopeDispose, ref, type Ref } from "vue";
+import { createLogConnection, type LogConnectionState } from "@/utils/logConnection";
 import * as taskApi from "../api/tasks";
 import type { TaskLogViewerRef } from "./taskPageTypes";
 import type { Task } from "@/types";
@@ -9,52 +10,31 @@ type UseTaskLogStreamOptions = {
   selectedHistoryRunId: Ref<number | null>;
 };
 
-const getLogEventContent = (payload: string) => {
-  try {
-    const parsed: unknown = JSON.parse(payload);
-    if (typeof parsed === "string") return parsed;
-    if (
-      parsed &&
-      typeof parsed === "object" &&
-      "content" in parsed &&
-      typeof parsed.content === "string"
-    ) {
-      return parsed.content;
-    }
-  } catch {
-    // Plain text fallback for legacy event payloads.
-  }
-
-  return payload;
-};
-
 export function useTaskLogStream({
   activeLogTask,
   logViewRef,
   selectedHistoryRunId,
 }: UseTaskLogStreamOptions) {
-  let logEventSource: EventSource | null = null;
-
-  const closeLogStream = () => {
-    if (logEventSource) {
-      logEventSource.close();
-      logEventSource = null;
-    }
-  };
+  let connection: ReturnType<typeof createLogConnection> | null = null;
+  const logConnectionState = ref<LogConnectionState>('idle');
+  const closeLogStream = () => { connection?.close(); connection = null; logConnectionState.value = 'idle'; };
+  const retryLogConnection = () => connection?.retry();
+  onScopeDispose(closeLogStream);
 
   const connectLogStream = () => {
     const task = activeLogTask();
     const id = task?.id;
 
-    if (!id || !logViewRef.value) return;
     closeLogStream();
+    if (!id || !logViewRef.value) return;
 
     if (selectedHistoryRunId.value) {
+      const historyRunId = selectedHistoryRunId.value;
       logViewRef.value?.reset?.();
       logViewRef.value.init?.(async (offset: number, limit: number) => {
         const res = await taskApi.getTaskRunLog(
           id,
-          selectedHistoryRunId.value!,
+          historyRunId,
           offset,
           limit,
         );
@@ -63,25 +43,16 @@ export function useTaskLogStream({
       return;
     }
 
-    if (task?.status === "Running") {
-      logViewRef.value?.reset?.();
+    if (task?.status === "Running" || task?.status === "Paused") {
+      const viewer = logViewRef.value;
+      viewer.reset?.();
       const runId = typeof task.run_id === "number" ? task.run_id : null;
-      logEventSource = runId
-        ? taskApi.streamTaskRunLogs(id, runId)
-        : taskApi.streamTaskLogs(id);
-      logEventSource.addEventListener("log", (event: MessageEvent) => {
-        logViewRef.value?.write?.(getLogEventContent(event.data));
+      connection = createLogConnection({
+        open: () => runId ? taskApi.streamTaskRunLogs(id, runId) : taskApi.streamTaskLogs(id),
+        readMissing: async (offset, limit) => (await (runId ? taskApi.getTaskRunLog(id, runId, offset, limit) : taskApi.getLatestLog(id, offset, limit))).data,
+        write: (content, reset) => { if (reset) viewer.reset?.(); viewer.write?.(content); },
+        status: state => { logConnectionState.value = state; },
       });
-      logEventSource.addEventListener("history", (event: MessageEvent) => {
-        logViewRef.value?.reset?.();
-        logViewRef.value?.write?.(event.data);
-      });
-      logEventSource.onmessage = (event: MessageEvent) => {
-        logViewRef.value?.write?.(getLogEventContent(event.data));
-      };
-      logEventSource.onerror = () => {
-        closeLogStream();
-      };
       return;
     }
 
@@ -94,5 +65,7 @@ export function useTaskLogStream({
   return {
     closeLogStream,
     connectLogStream,
+    logConnectionState,
+    retryLogConnection,
   };
 }

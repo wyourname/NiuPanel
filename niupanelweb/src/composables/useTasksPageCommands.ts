@@ -87,6 +87,7 @@ export function useTasksPageCommands({
     currentTask,
     downloadLogs,
     handleDelete,
+    handleToggleEnable,
     logViewRef,
     openEdit,
     openShare,

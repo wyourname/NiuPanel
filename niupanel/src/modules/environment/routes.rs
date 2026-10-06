@@ -15,6 +15,10 @@ pub fn create_router() -> Router<AppState> {
                 .route("/", get(handlers::list_environments))
                 .route("/versions", get(handlers::list_available_versions))
                 .route(
+                    "/mirrors/{env_type}",
+                    get(super::mirror_settings::get_mirror_settings),
+                )
+                .route(
                     "/python/{name}/packages",
                     get(handlers::list_python_packages),
                 )
@@ -33,6 +37,10 @@ pub fn create_router() -> Router<AppState> {
         .merge(
             Router::new()
                 .route("/mirror/{env_type}", post(handlers::set_mirror_source))
+                .route(
+                    "/mirrors/{env_type}",
+                    axum::routing::put(super::mirror_settings::update_mirror_settings),
+                )
                 .route(
                     "/python/{name}/packages",
                     post(handlers::install_python_packages),

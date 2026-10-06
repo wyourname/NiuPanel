@@ -8,14 +8,15 @@
         </div>
         <div class="space-y-4">
           <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <el-select v-model="form.env_type" class="w-full modern-input">
+            <el-select v-model="form.env_type" aria-label="运行环境" class="w-full modern-input">
               <el-option label="Python" value="python" />
               <el-option label="Node.js" value="node" />
-              <el-option label="Shell" value="sh" />
+              <el-option label="Linux" value="sh" />
             </el-select>
             <el-select
               v-if="form.env_type === 'python'"
               v-model="form.env_version"
+              aria-label="环境版本"
               class="w-full modern-input"
               placeholder="默认版本"
             >
@@ -29,6 +30,7 @@
             <el-select
               v-else-if="form.env_type === 'node'"
               v-model="form.env_version"
+              aria-label="环境版本"
               class="w-full modern-input"
               :placeholder="nodeVersions.length === 0 ? '无 Node 环境' : '选择环境'"
               :disabled="nodeVersions.length === 0"
@@ -43,6 +45,7 @@
           </div>
           <el-input
             v-model="form.requirements"
+            aria-label="任务依赖"
             type="textarea"
             :rows="3"
             :placeholder="
@@ -60,11 +63,12 @@
           <div class="i-ep-odometer text-primary"></div>
           资源限制
         </div>
-        <div class="grid grid-cols-3 gap-2 sm:gap-3">
+        <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <div>
-            <span class="text-[10px] text-muted mb-1.5 block">CPU (%)</span>
+            <span class="text-xs text-muted mb-1.5 block">CPU (%)</span>
             <el-input-number
               v-model="form.cpu_limit"
+              aria-label="CPU 限制百分比"
               :min="0"
               :max="100"
               class="!w-full"
@@ -72,25 +76,27 @@
             />
           </div>
           <div>
-            <span class="text-[10px] text-muted mb-1.5 block">超时 (秒)</span>
+            <span class="text-xs text-muted mb-1.5 block">超时 (秒)</span>
             <el-input-number
               v-model="form.timeout_sec"
+              aria-label="超时秒数"
               :min="0"
               class="!w-full"
               controls-position="right"
             />
           </div>
           <div>
-            <span class="text-[10px] text-muted mb-1.5 block">内存 (MB)</span>
+            <span class="text-xs text-muted mb-1.5 block">内存 (MB)</span>
             <el-input-number
               v-model="form.memory_limit"
+              aria-label="内存限制 MB"
               :min="0"
               class="!w-full"
               controls-position="right"
             />
           </div>
         </div>
-        <div class="mt-3 flex items-center gap-1 text-[10px] italic text-muted opacity-60 sm:mt-4">
+        <div class="mt-3 flex items-center gap-1 text-xs text-muted sm:mt-4">
           <div class="i-ep-warning"></div>
           设置为 0 表示不应用资源配额限制
         </div>
@@ -104,7 +110,7 @@
             <div class="i-ep-set-up text-primary"></div>
             环境变量
           </div>
-          <p class="mt-1 text-[10px] leading-4 text-muted">每行一个变量，任务运行时会注入对应的 Key 和 Value。</p>
+          <p class="mt-1 text-xs leading-4 text-muted">每行一个变量，任务运行时会注入对应的 Key 和 Value。</p>
         </div>
         <div class="grid grid-cols-2 rounded-md border border-light bg-base p-0.5 sm:shrink-0" role="group" aria-label="变量输入方式">
           <button
@@ -138,9 +144,10 @@
       <div v-if="variableMode === 'bulk'" class="flex-1">
         <el-input
           :model-value="variablesBulk"
+          aria-label="环境变量"
           type="textarea"
-          :rows="9"
-          placeholder="KEY=VALUE\nAPI_TOKEN=..."
+          :rows="5"
+          :placeholder="'KEY=VALUE\nAPI_TOKEN=...'"
           class="modern-input font-mono !text-xs"
           @update:model-value="emit('update:variablesBulk', String($event))"
         />
@@ -152,7 +159,7 @@
           class="rounded-md border border-light bg-card p-3 sm:p-3.5"
         >
           <header class="mb-3 flex items-center justify-between gap-3">
-            <span class="font-mono text-[10px] font-semibold text-muted">变量 {{ index + 1 }}</span>
+            <span class="font-mono text-xs font-semibold text-muted">变量 {{ index + 1 }}</span>
             <button
               type="button"
               class="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted transition-colors hover:bg-rose-500/10 hover:text-rose-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500/30"
@@ -165,7 +172,7 @@
           </header>
           <div class="grid gap-3 sm:grid-cols-[minmax(0,0.9fr)_minmax(0,1.6fr)]">
             <label class="block min-w-0">
-              <span class="mb-1.5 block text-[10px] font-semibold text-muted">变量名</span>
+              <span class="mb-1.5 block text-xs font-semibold text-muted">变量名</span>
               <el-input
                 v-model="variable.key"
                 placeholder="例如 API_TOKEN"
@@ -173,7 +180,7 @@
               />
             </label>
             <label class="block min-w-0">
-              <span class="mb-1.5 block text-[10px] font-semibold text-muted">变量值</span>
+              <span class="mb-1.5 block text-xs font-semibold text-muted">变量值</span>
               <el-input
                 v-model="variable.value"
                 type="textarea"
@@ -191,7 +198,7 @@
         >
           <span class="i-ep-plus mr-1.5 text-sm"></span>添加环境变量
         </button>
-        <p class="text-center text-[10px] text-muted">已添加 {{ variablesList.length }} 项</p>
+        <p class="text-center text-xs text-muted">已添加 {{ variablesList.length }} 项</p>
       </div>
     </section>
   </div>

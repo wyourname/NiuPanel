@@ -1,6 +1,7 @@
 <template>
   <div
     class="h-full overflow-y-auto custom-scrollbar p-0 md:p-2"
+    :style="appStore.isMobile ? { paddingBottom: `calc(var(--mobile-dock-clearance) + ${selectionMode ? 128 : 16}px)` } : undefined"
     @scroll.passive="handleScroll"
   >
     <TaskCardItem
@@ -57,9 +58,11 @@
 </template>
 
 <script setup lang="ts">
+import { useAppStore } from "@/stores/app";
 import TaskCardItem from "./TaskCardItem.vue";
 import type { Task } from "@/types";
 
+const appStore = useAppStore();
 const props = withDefaults(
   defineProps<{
     loading?: boolean;

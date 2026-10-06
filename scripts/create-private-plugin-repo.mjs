@@ -194,7 +194,7 @@ async function writePrivateRepoPackageJson(targetDir, agentsId, compilerId) {
     version: "0.1.0",
     private: true,
     type: "module",
-    packageManager: "pnpm@11.18.0",
+    packageManager: "pnpm@12.9.1",
     engines: {
       node: ">=22.13.0",
     },

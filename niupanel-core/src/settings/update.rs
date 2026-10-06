@@ -1132,6 +1132,19 @@ mod tests {
     }
 
     #[test]
+    fn update_index_accepts_pnpm12_architectures_and_checks_legacy_arm_assets() {
+        let mut index = update_index_fixture();
+        let mut legacy = index.release.core.assets.remove("armv7").unwrap();
+        validate_update_channel_index(&index, "preview").unwrap();
+        legacy.target = "invalid-target".to_owned();
+        index.release.core.assets.insert("armv7".to_owned(), legacy);
+        assert!(validate_update_channel_index(&index, "preview").is_err());
+        index.release.core.assets.remove("armv7");
+        index.release.core.assets.remove("aarch64");
+        assert!(validate_update_channel_index(&index, "preview").is_err());
+    }
+
+    #[test]
     fn update_index_rejects_legacy_core_versions() {
         let mut index = update_index_fixture();
         index.release.core.version = "0.7.9".into();

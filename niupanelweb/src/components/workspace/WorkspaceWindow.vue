@@ -1,6 +1,6 @@
 <template>
   <section
-    class="fixed overflow-hidden bg-card transition-[border-color,box-shadow] duration-150"
+    class="workspace-window fixed overflow-hidden bg-card transition-[border-color,box-shadow] duration-150"
     :class="[
       window.maximized ? 'rounded-md' : 'rounded-lg',
       active
@@ -11,8 +11,8 @@
     @pointerdown="emit('focus')"
   >
     <header
-      class="relative flex h-9 shrink-0 items-center border-b border-light px-2.5 select-none"
-      :class="active ? 'bg-[var(--accent-subtle-bg)]' : 'bg-subtle dark:bg-white/[0.035]'"
+      class="workspace-window-titlebar relative flex h-9 shrink-0 items-center border-b border-light px-2.5 select-none"
+      :class="active ? 'is-active' : ''"
       @pointerdown="startDrag"
     >
       <div class="z-10 flex w-[86px] shrink-0 items-center">
@@ -359,3 +359,9 @@ onBeforeUnmount(() => {
   window.removeEventListener("resize", fitWindowToViewport);
 });
 </script>
+
+<style scoped>
+.workspace-window-titlebar { background: var(--surface-inset); box-shadow: 0 1px 0 rgb(255 255 255 / 5%) inset; }
+.workspace-window-titlebar.is-active { background: color-mix(in srgb, var(--accent-subtle-bg) 35%, var(--bg-card)); }
+.workspace-window-titlebar.is-active::after { content: ''; position: absolute; bottom: -1px; left: 12px; width: 24px; height: 2px; border-radius: 2px; background: var(--el-color-primary); }
+</style>

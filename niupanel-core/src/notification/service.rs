@@ -3,7 +3,7 @@ use lettre::transport::smtp::authentication::Credentials;
 use lettre::transport::smtp::client::{Tls, TlsParameters};
 use lettre::{Message, SmtpTransport, Transport};
 use niupanel_common::error::{AppError, Result};
-use niupanel_common::{debug, error, info};
+use niupanel_common::{error, info};
 use serde::Serialize;
 
 #[derive(Serialize)]
@@ -127,64 +127,6 @@ impl NotificationService {
                 error!("Failed to send email: {}", e);
                 Err(AppError::Generic(format!("Failed to send email: {}", e)))
             }
-        }
-    }
-
-    pub async fn send_telegram(
-        client: &reqwest::Client,
-        token: &str,
-        admin_chat_id: &str,
-        text: &str,
-        api_base_url: Option<&str>,
-        message_thread_id: Option<i32>,
-    ) -> Result<()> {
-        if token.is_empty() || admin_chat_id.is_empty() {
-            return Err(AppError::ValidationError(
-                "Telegram Token or Chat ID is missing".to_string(),
-            ));
-        }
-
-        let base_url = if let Some(url) = api_base_url {
-            if url.is_empty() {
-                "https://api.telegram.org"
-            } else {
-                url
-            }
-        } else {
-            "https://api.telegram.org"
-        };
-        let url = format!("{}/bot{}/sendMessage", base_url, token);
-
-        debug!("Sending Telegram request to: {}", url);
-
-        let mut payload = serde_json::json!({
-            "chat_id": admin_chat_id,
-            "text": text,
-            "parse_mode": "MarkdownV2"
-        });
-        if let Some(message_thread_id) = message_thread_id {
-            payload["message_thread_id"] = serde_json::json!(message_thread_id);
-        }
-
-        let res = client.post(&url).json(&payload).send().await.map_err(|e| {
-            error!("Telegram request failed: {}", e);
-            AppError::Generic(format!("Failed to send Telegram request: {}", e))
-        })?;
-
-        let status = res.status();
-        if status.is_success() {
-            info!(
-                "Telegram notification sent successfully to {}",
-                admin_chat_id
-            );
-            Ok(())
-        } else {
-            let text = res.text().await.unwrap_or_default();
-            error!("Telegram API returned error: HTTP {} - {}", status, text);
-            Err(AppError::Generic(format!(
-                "Telegram API failed (HTTP {}): {}",
-                status, text
-            )))
         }
     }
 }

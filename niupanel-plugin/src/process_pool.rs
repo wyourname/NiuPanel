@@ -135,10 +135,30 @@ impl PluginProcessRuntime {
 
     pub async fn stop_plugin(&self, plugin_id: &str) {
         let mut pools = self.pools.lock().await;
-        pools.retain(|key, _| !key.starts_with(&format!("{plugin_id}@")));
+        let prefix = format!("{plugin_id}@");
+        for (key, pool) in pools.iter() {
+            if key.starts_with(&prefix) {
+                pool.stopped.cancel();
+                let mut workers = pool.workers.lock().await;
+                workers.total = workers.total.saturating_sub(workers.idle.len());
+                workers.idle.clear();
+            }
+        }
+        pools.retain(|key, _| !key.starts_with(&prefix));
         drop(pools);
         let mut limits = self.plugin_limits.lock().await;
         limits.retain(|key, _| !key.starts_with(&format!("{plugin_id}@")));
+    }
+
+    pub async fn stop_worker_pool(&self, spec: &ProcessPluginSpec) {
+        let key = process_pool_key(spec);
+        if let Some(pool) = self.pools.lock().await.remove(&key) {
+            pool.stopped.cancel();
+            let mut workers = pool.workers.lock().await;
+            workers.total = workers.total.saturating_sub(workers.idle.len());
+            workers.idle.clear();
+        }
+        self.plugin_limits.lock().await.remove(&key);
     }
 
     async fn acquire_invocation_permits(
@@ -201,6 +221,7 @@ impl PluginProcessRuntime {
 pub(super) struct ProcessWorkerPool {
     spec: ProcessPluginSpec,
     workers: Arc<Mutex<ProcessWorkerPoolState>>,
+    stopped: CancellationToken,
 }
 
 #[derive(Default)]
@@ -214,6 +235,7 @@ impl ProcessWorkerPool {
         Self {
             spec,
             workers: Arc::new(Mutex::new(ProcessWorkerPoolState::default())),
+            stopped: CancellationToken::new(),
         }
     }
 
@@ -229,11 +251,15 @@ impl ProcessWorkerPool {
         F: Fn(ProcessPluginToolCall) -> PluginToolFuture + Send + Sync,
         S: Fn(ProcessPluginStreamEvent) -> PluginStreamFuture + Send + Sync,
     {
+        if self.stopped.is_cancelled() {
+            return Err(AppError::Cancelled);
+        }
         let mut worker = self.worker().await?;
         let timeout_sec = timeout_sec_for(&self.spec, &request);
         let result = tokio::select! {
             biased;
             _ = cancellation.cancelled() => Err(AppError::Cancelled),
+            _ = self.stopped.cancelled() => Err(AppError::Cancelled),
             result = timeout(
                 Duration::from_secs(timeout_sec),
                 invoke_worker(
@@ -253,6 +279,10 @@ impl ProcessWorkerPool {
 
         match result {
             Ok(response) => {
+                if self.stopped.is_cancelled() {
+                    worker.discard().await;
+                    return Err(AppError::Cancelled);
+                }
                 worker.recycle().await;
                 Ok(response)
             }

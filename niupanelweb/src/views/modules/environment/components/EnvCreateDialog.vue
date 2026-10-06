@@ -6,9 +6,12 @@
     content-preset="form"
     size="auto"
     destroy-on-close
+    :show-close="!loading"
+    :close-on-click-modal="false"
+    :close-on-press-escape="!loading"
     append-to-body
   >
-    <form class="flex min-h-0 flex-col" @submit.prevent="handleSubmit">
+    <div class="flex min-h-0 flex-col">
       <div class="flex min-h-0 flex-col gap-4">
         <div class="flex items-start gap-3 rounded-lg border border-light bg-soft/50 p-3.5">
           <span class="h-8 w-8 shrink-0 rounded-md accent-subtle flex-center">
@@ -20,7 +23,7 @@
           </div>
         </div>
 
-        <el-form ref="formRef" :model="form" :rules="rules" label-position="top">
+        <el-form ref="formRef" :model="form" :rules="rules" label-position="top" :disabled="loading" @submit.prevent="handleSubmit">
           <el-form-item label="环境类型" prop="envType" class="!mb-5">
             <div class="grid w-full grid-cols-2 gap-2" role="radiogroup" aria-label="环境类型">
               <button
@@ -33,6 +36,7 @@
                 :class="form.envType === t.value
                   ? 'border-primary bg-primary/10 text-primary ring-1 ring-primary/20'
                   : 'border-light bg-card text-secondary hover:border-primary/40 hover:bg-soft hover:text-default'"
+                :disabled="loading"
                 @click="form.envType = t.value"
               >
                 <span :class="t.icon" class="text-[18px]"></span>
@@ -58,12 +62,12 @@
           </el-form-item>
         </el-form>
       </div>
-    </form>
+    </div>
 
     <template #footer>
       <div class="flex w-full gap-3">
         <el-button class="h-9 flex-1 !rounded-md sm:flex-none" :disabled="loading" @click="visible = false">取消</el-button>
-        <el-button native-type="submit" type="primary" :loading="loading" class="h-9 flex-1 !rounded-md !px-6 sm:flex-none" @click="handleSubmit">
+        <el-button native-type="button" type="primary" :loading="loading" class="h-9 flex-1 !rounded-md !px-6 sm:flex-none" @click="handleSubmit">
           {{ form.envType === 'node' ? '下载安装' : '创建环境' }}
         </el-button>
       </div>
@@ -72,6 +76,8 @@
 </template>
 
 <script setup lang="ts">
+import { useMobileBackCloseAction } from "@/composables/useMobileBackCloseAction";
+import { useAppStore } from "@/stores/app";
 import { computed, ref, reactive, watch } from "vue";
 import { ElMessage, type FormInstance } from "element-plus";
 import * as envApi from "../../../../api/environment";
@@ -138,31 +144,31 @@ watch(
       form.envType = props.defaultEnvType;
     }
   },
+  { immediate: true },
 );
 
 watch(visible, (val: boolean) => emit("update:modelValue", val));
 
 const handleSubmit = async () => {
-  if (!formRef.value) return;
-  await formRef.value.validate(async (valid) => {
+  if (!formRef.value || loading.value) return;
+  loading.value = true;
+  try {
+    const valid = await formRef.value.validate().catch(() => false);
     if (!valid) return;
-    loading.value = true;
-    try {
-      const res = await envApi.createEnvironment(
-        { version: form.version },
-        form.envType,
-      );
-      ElMessage.success("指令已发送，正在后台创建...");
-      emit(
-        "show-log",
-        res.data,
-        `${form.envType === "node" ? "安装 Node.js" : "创建 Python"} ${form.version}`,
-      );
-      visible.value = false;
-    } catch (error) {
-    } finally {
-      loading.value = false;
+    const type = form.envType;
+    const version = form.version.trim().replace(/^v/, "");
+    const versionPattern = type === "node" ? /^\d+\.\d+\.\d+$/ : /^\d+(?:\.\d+){0,2}$/;
+    if (!versionPattern.test(version)) {
+      ElMessage.warning("Node.js 请填写完整版本（如 22.23.1），Python 可填写 3.12");
+      return;
     }
-  });
+    const res = await envApi.createEnvironment({ version }, type);
+    ElMessage.success("创建任务已提交，可在日志中查看结果");
+    visible.value = false;
+    emit("show-log", res.data, `${type === "node" ? "安装 Node.js" : "创建 Python"} ${version}`);
+  } catch {
+    // Preserve the selected environment and version for retry.
+  } finally { loading.value = false; }
 };
+useMobileBackCloseAction({ appStore: useAppStore(), visible, close: () => { if (loading.value) return false; visible.value = false; } });
 </script>

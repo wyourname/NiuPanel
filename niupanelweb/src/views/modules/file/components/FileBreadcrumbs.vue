@@ -1,86 +1,52 @@
 <template>
-  <div
-    class="z-10 flex h-8 shrink-0 items-center gap-1 overflow-x-auto no-scrollbar text-xs"
-  >
-    <button
-      type="button"
-      class="h-6 w-6 shrink-0 rounded-md text-muted flex-center transition-colors hover:bg-soft hover:text-primary disabled:cursor-not-allowed disabled:opacity-10"
-      title="返回上级目录"
-      aria-label="返回上级目录"
-      :disabled="currentPath === '/' || currentPath === ''"
-      @click="emit('back')"
-    >
-      <div class="i-ep-back text-[13px]"></div>
+  <nav class="file-breadcrumbs" :class="{ 'file-breadcrumbs--mobile': mobile }" aria-label="文件目录">
+    <button type="button" class="up-button" aria-label="返回上级目录" :disabled="currentPath === '/' || currentPath === ''" @click="emit('back')">
+      <span class="i-ep-top" aria-hidden="true" />
     </button>
-
-    <div class="h-3 w-px shrink-0 bg-light/60"></div>
-
-    <div
-      class="flex items-center gap-0.5 overflow-x-auto text-[10px] font-bold text-muted no-scrollbar"
-    >
-      <div
-        class="flex shrink-0 cursor-pointer items-center gap-1 rounded-md px-1.5 py-0.5 transition-all"
-        :class="currentPath === '/' || currentPath === '' ? 'text-primary' : 'hover:bg-soft hover:text-default'"
-        @click="emit('navigate', '')"
-      >
-        <div class="i-ep-house text-[12px]"></div>
-        <span>根目录</span>
-      </div>
-
+    <div ref="trail" class="breadcrumb-trail">
+      <button type="button" class="breadcrumb-part" :aria-current="currentPath === '/' || currentPath === '' ? 'location' : undefined" @click="emit('navigate', '/')">
+        <span class="i-ep-house" aria-hidden="true" /><span>根目录</span>
+      </button>
       <template v-for="(item, index) in collapsedBreadcrumbs" :key="index">
-        <div class="i-ep-arrow-right mx-0.5 shrink-0 text-[8px] opacity-30"></div>
-
-        <el-dropdown
-          v-if="item.type === 'ellipsis'"
-          trigger="click"
-          @command="handleCommand"
-        >
-          <span
-            class="shrink-0 cursor-pointer rounded-md px-1.5 py-0.5 font-bold transition-colors hover:bg-soft hover:text-primary"
-            >...</span
-          >
+        <span class="breadcrumb-separator i-ep-arrow-right" aria-hidden="true" />
+        <el-dropdown v-if="item.type === 'ellipsis'" trigger="click" @command="handleCommand">
+          <button type="button" class="breadcrumb-part" aria-label="展开上级目录">…</button>
           <template #dropdown>
             <el-dropdown-menu class="modern-dropdown">
-              <el-dropdown-item
-                v-for="hidden in item.items"
-                :key="hidden.path"
-                :command="hidden.path"
-              >
-                {{ hidden.name }}
-              </el-dropdown-item>
+              <el-dropdown-item v-for="hidden in item.items" :key="hidden.path" :command="hidden.path">{{ hidden.name }}</el-dropdown-item>
             </el-dropdown-menu>
           </template>
         </el-dropdown>
-
-        <span
-          v-else
-          class="max-w-[132px] shrink-0 cursor-pointer truncate rounded-md px-1.5 py-0.5 transition-all"
-          :class="index === collapsedBreadcrumbs.length - 1
-            ? 'text-default font-bold'
-            : 'hover:bg-soft hover:text-default'"
-          @click="emit('navigate', item.path)"
-        >
-          {{ item.name }}
-        </span>
+        <button v-else type="button" class="breadcrumb-part" :title="item.name" :aria-current="index === collapsedBreadcrumbs.length - 1 ? 'location' : undefined" @click="emit('navigate', item.path)">
+          <span class="truncate">{{ item.name }}</span>
+        </button>
       </template>
     </div>
-  </div>
+  </nav>
 </template>
-
 <script setup lang="ts">
-import type { Breadcrumb } from "../../../../composables/useFileOperations";
-
-defineProps<{
-  currentPath: string;
-  collapsedBreadcrumbs: Breadcrumb[];
-}>();
-
-const emit = defineEmits<{
-  (event: "back"): void;
-  (event: "navigate", path: string): void;
-}>();
-
-const handleCommand = (path: unknown) => {
-  if (typeof path === "string") emit("navigate", path);
-};
+import { nextTick, ref, watch } from 'vue'
+import type { Breadcrumb } from '@/composables/useFileOperations'
+const props = withDefaults(defineProps<{ currentPath: string; collapsedBreadcrumbs: Breadcrumb[]; mobile?: boolean }>(), { mobile: false })
+const emit = defineEmits<{ (event: 'back'): void; (event: 'navigate', path: string): void }>()
+const trail = ref<HTMLElement | null>(null)
+const handleCommand = (path: unknown) => { if (typeof path === 'string') emit('navigate', path) }
+watch(() => props.currentPath, async () => {
+  await nextTick()
+  if (trail.value) trail.value.scrollLeft = trail.value.scrollWidth
+}, { immediate: true })
 </script>
+<style scoped>
+.file-breadcrumbs { display: flex; align-items: center; gap: 4px; min-width: 0; height: 32px; }
+.breadcrumb-trail { display: flex; align-items: center; min-width: 0; gap: 2px; overflow-x: auto; scrollbar-width: none; }
+.up-button, .breadcrumb-part { display: inline-flex; align-items: center; justify-content: center; gap: 5px; flex-shrink: 0; height: 30px; border: 0; border-radius: 5px; color: var(--text-secondary); background: transparent; cursor: pointer; font-size: 11px; }
+.up-button { width: 30px; font-size: 15px; }
+.up-button:disabled { opacity: .3; cursor: default; }
+.breadcrumb-part { max-width: 150px; padding: 0 6px; }
+.breadcrumb-part[aria-current] { color: var(--text-default); font-weight: 600; }
+.breadcrumb-separator { flex-shrink: 0; width: 10px; height: 10px; color: var(--text-muted); }
+button:hover:not(:disabled), button:active:not(:disabled) { background: var(--bg-soft); color: var(--el-color-primary); }
+.file-breadcrumbs--mobile { height: 44px; }
+.file-breadcrumbs--mobile button { min-height: 44px; min-width: 44px; font-size: 12px; }
+button:focus-visible { outline: 2px solid var(--el-color-primary); outline-offset: -2px; }
+</style>

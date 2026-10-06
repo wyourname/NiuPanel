@@ -11,6 +11,7 @@ type UseTaskDetailCommandRouterOptions = {
   currentTask: ComputedRef<Task | undefined>;
   downloadLogs: () => void;
   handleDelete: (id: number) => void;
+  handleToggleEnable: (task: Task, enabled: boolean) => void;
   logViewRef: Ref<TaskLogViewerRef | null>;
   openEdit: (task: Task) => void;
   openShare: (task: Task) => void;
@@ -21,6 +22,7 @@ export function useTaskDetailCommandRouter({
   currentTask,
   downloadLogs,
   handleDelete,
+  handleToggleEnable,
   logViewRef,
   openEdit,
   openShare,
@@ -29,6 +31,10 @@ export function useTaskDetailCommandRouter({
     if (!currentTask.value) return;
 
     switch (command) {
+      case "enable":
+      case "disable":
+        handleToggleEnable(currentTask.value, command === "enable");
+        break;
       case "edit_config":
         openEdit(currentTask.value);
         break;

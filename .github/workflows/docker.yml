@@ -29,7 +29,7 @@ jobs:
       - name: Checkout Docker source
         uses: actions/checkout@v6
         with:
-          ref: main
+          ref: ${{ github.sha }}
           fetch-depth: 1
 
       - name: Select bootstrap channel
@@ -48,7 +48,9 @@ jobs:
           CHANNEL: ${{ steps.channel.outputs.channel }}
         run: |
           set -euo pipefail
+          git fetch origin main --depth=1
           INDEX="release/channels/${CHANNEL}.json"
+          git show "FETCH_HEAD:$INDEX" > "$INDEX"
           export INDEX
           node scripts/verify-update-channel-index.mjs "$INDEX" "$CHANNEL"
           PANEL_VERSION=$(node -p "require('./' + process.env.INDEX).release.version")
@@ -58,9 +60,7 @@ jobs:
           WEB_VERSION=$(node -p "require('./' + process.env.INDEX).release.web.version")
           mkdir release-assets
           gh release download "$CORE_TAG" --repo "$GITHUB_REPOSITORY" --dir release-assets \
-            --pattern niupanel_linux_x86_64.tar.gz \
-            --pattern niupanel_linux_aarch64.tar.gz \
-            --pattern niupanel_linux_armv7.tar.gz
+            --pattern 'niupanel_linux_*.tar.gz'
           gh release download "$WEB_TAG" --repo "$GITHUB_REPOSITORY" --dir release-assets \
             --pattern 'niupanel_web_*.tar.gz'
           node scripts/verify-update-channel-assets.mjs "$INDEX" release-assets
@@ -71,10 +71,9 @@ jobs:
       - name: Prepare Docker build context
         run: |
           set -euo pipefail
-          mkdir -p docker/packages/amd64 docker/packages/arm64 docker/packages/arm docker/packages/web
+          mkdir -p docker/packages/amd64 docker/packages/arm64 docker/packages/web
           cp release-assets/niupanel_linux_x86_64.tar.gz docker/packages/amd64/niupanel.tar.gz
           cp release-assets/niupanel_linux_aarch64.tar.gz docker/packages/arm64/niupanel.tar.gz
-          cp release-assets/niupanel_linux_armv7.tar.gz docker/packages/arm/niupanel.tar.gz
           cp release-assets/niupanel_web_*.tar.gz docker/packages/web/niupanel_web.tar.gz
 
       - name: Determine Docker environment version
@@ -103,7 +102,7 @@ jobs:
         with:
           context: docker
           file: docker/Dockerfile
-          platforms: linux/amd64,linux/arm64,linux/arm/v7
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: |
             ${{ secrets.DOCKER_USERNAME }}/niupanel:${{ steps.version.outputs.environment_version }}

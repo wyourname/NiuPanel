@@ -3,7 +3,7 @@ use super::models::{CreateEnvRequest, EnvironmentInfo, InstallPackageRequest};
 use super::node_service::NodeEnvironmentService;
 use super::python_service::PythonEnvironmentService;
 use super::shell_service::ShellEnvironmentService;
-use niupanel_common::error::{AppError, Result};
+use niupanel_common::error::Result;
 use niupanel_core::environment::{self, InstallRuntimePackagesRequest};
 use niupanel_core::settings::SettingsService;
 use niupanel_core::task_manager::service::TaskManagerService;
@@ -17,7 +17,7 @@ impl EnvironmentService {
         settings: &SettingsService,
     ) -> Result<Vec<EnvironmentInfo>> {
         let mut envs = PythonEnvironmentService::list_environments(db).await?;
-        envs.extend(NodeEnvironmentService::list_environments(settings).await);
+        envs.extend(NodeEnvironmentService::list_environments(db, settings).await?);
         envs.push(ShellEnvironmentService::environment_info());
 
         Ok(envs)
@@ -45,6 +45,9 @@ impl EnvironmentService {
         task_manager: &TaskManagerService,
         payload: CreateEnvRequest,
     ) -> Result<(i32, String)> {
+        let payload = CreateEnvRequest {
+            version: payload.normalized_version("python")?,
+        };
         PythonEnvironmentService::create_env(db, settings, task_manager, payload).await
     }
 
@@ -63,6 +66,7 @@ impl EnvironmentService {
         name: String,
         payload: InstallPackageRequest,
     ) -> Result<i32> {
+        payload.validate()?;
         environment::install_python_packages(
             db,
             settings,
@@ -94,6 +98,9 @@ impl EnvironmentService {
         task_manager: &TaskManagerService,
         payload: CreateEnvRequest,
     ) -> Result<i32> {
+        let payload = CreateEnvRequest {
+            version: payload.normalized_version("node")?,
+        };
         NodeEnvironmentService::create_env(db, settings, task_manager, payload).await
     }
 
@@ -108,6 +115,7 @@ impl EnvironmentService {
         name: String,
         payload: InstallPackageRequest,
     ) -> Result<i32> {
+        payload.validate()?;
         environment::install_node_packages(
             db,
             settings,
@@ -143,28 +151,24 @@ impl EnvironmentService {
         task_manager: &TaskManagerService,
         payload: InstallPackageRequest,
     ) -> Result<i32> {
+        payload.validate()?;
         ShellEnvironmentService::install_packages(db, task_manager, payload).await
     }
 
-    pub async fn uninstall_shell_package(db: &DatabaseConnection, package: &str) -> Result<()> {
-        ShellEnvironmentService::uninstall_package(db, package).await
+    pub async fn uninstall_shell_package(
+        db: &DatabaseConnection,
+        task_manager: &TaskManagerService,
+        package: &str,
+    ) -> Result<i32> {
+        ShellEnvironmentService::uninstall_package(db, task_manager, package).await
     }
 
-    pub async fn set_mirror_source(env_type: &str, mirror_url: &str) -> Result<()> {
-        match RuntimeKind::from_env_type(env_type) {
-            Some(RuntimeKind::Python) => {
-                PythonEnvironmentService::set_mirror_source(mirror_url).await?;
-            }
-            Some(RuntimeKind::Node) => {
-                NodeEnvironmentService::set_mirror_source(mirror_url).await?;
-            }
-            Some(RuntimeKind::Shell) | None => {
-                return Err(AppError::Generic(
-                    "Unsupported environment type for mirror setting".to_string(),
-                ));
-            }
-        }
-
-        Ok(())
+    pub async fn set_mirror_source(
+        settings: &SettingsService,
+        env_type: &str,
+        mirror_url: &str,
+    ) -> Result<()> {
+        super::mirror_settings::MirrorSettings::save_package_source(settings, env_type, mirror_url)
+            .await
     }
 }

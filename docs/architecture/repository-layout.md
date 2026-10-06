@@ -8,7 +8,7 @@ NiuPanel is a Cargo workspace with a Vue application and a separate plugin ecosy
 | --- | --- |
 | `niupanel/` | Axum API, application startup, HTTP modules, and service composition. |
 | `niupanel-launcher/` | Core activation, health checks, release switching, and rollback. |
-| `niupanel-bot/` | Telegram Agent transport, trusted Chat filtering, notifications, and message delivery. |
+| Private Agent plugin repository | Agent and Telegram Bot share one package; Core retains only the channel protocol and permission bridge. |
 | `niupanel-proxy/` | Shared proxy and transport support. |
 | `niupanelweb/` | Vue 3 web UI and Capacitor mobile wrapper. |
 

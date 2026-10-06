@@ -151,7 +151,7 @@ export function useOnboardingFlow() {
         { version: pythonVersion.value },
         "python",
       );
-      pythonJobId.value = res.data;
+      pythonJobId.value = String(res.data);
       pythonDone.value = true;
       pythonStatus.value = `任务 #${pythonJobId.value} 已提交，正在后台安装...`;
     } catch (error: unknown) {
@@ -172,7 +172,7 @@ export function useOnboardingFlow() {
         { version: nodeVersion.value },
         "node",
       );
-      nodeJobId.value = res.data;
+      nodeJobId.value = String(res.data);
       nodeDone.value = true;
       nodeStatus.value = `任务 #${nodeJobId.value} 已提交，正在后台安装...`;
     } catch (error: unknown) {

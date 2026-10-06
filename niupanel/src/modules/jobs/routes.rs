@@ -21,6 +21,7 @@ pub fn create_router() -> Router<AppState> {
                 .route("/{id}", get(handlers::get_job))
                 .route("/{id}/logs", get(handlers::stream_job_logs))
                 .route("/{id}/logs/latest", get(handlers::get_latest_job_log))
+                .route("/{id}/logs/content", get(handlers::get_job_log_content))
                 .require(Permission::JobRead),
         )
         // Actions

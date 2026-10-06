@@ -2,27 +2,41 @@
 
 ## 设计目标
 
-Telegram 是 Ops Agent 的一个可信输入输出通道，不是另一套面板命令系统。用户直接描述目标，Agent 负责诊断、选择工具和解释结果；Core 只负责与模型能力无关的传输、安全和生命周期。
+Telegram 是 Ops Agent 的一个可信输入输出通道，不是另一套面板命令系统。用户直接描述目标，Agent 负责诊断、选择工具和解释结果；Agent 内的 Telegram 模块负责消息传输，Core 负责身份校验、权限审批和插件生命周期。
+
+## 安装与开发
+
+Telegram Bot 从 Agent **0.6.0** 起合并进 `niupanel-private-agents`，只有一个插件包、插件 ID 和配置入口。安装或升级签名的 Agent 包后，在 **Agent → 设置 → Telegram 通道** 配置 Token、Chat/Topic、发送者白名单、绑定用户、通知事件、代理和自定义 API；无需单独安装 Bot。
+
+Agent 源码和 Docker 构建入口位于私有插件仓库 `plugins/agents/niupanel-private-agents`。公开 Core 仓库只保留通道协议和受控宿主桥，不再构建或发布 `niupanel-telegram` 包。插件上传仍校验 SHA256、Ed25519 签名和可信公钥。
+
+旧 `plugin.telegram.config` 原样沿用。检测到启用且支持 Telegram 的 Agent 后，宿主停用并卸载旧独立 Bot 安装目录，保留外部 `.data/plugin/niupanel-telegram` 数据。首次启动通道优先读取旧插件账本，其次读取旧系统目录账本；仅在 Agent 尚无账本时导入，不覆盖 Agent 会话、模型配置或已有账本。
+
+同一 Agent 可执行文件使用内部 `--telegram-transport` 模式承担轮询。宿主为此模式分配单独的持久 worker 和并发容量，避免长对话阻塞接收、进度与取消；所有进程仍归同一个插件管理。关闭 Telegram 配置只停止通道；停用、卸载或升级 Agent 会终止两类 worker。
+
+`transport_tick` 和 `transport_test` 仅供宿主内部调用，不作为 UI、任务或 API Key Action 暴露。每 500 ms 交换通知、请求、结果、进度与取消消息；测试与 tick 使用同一个通道 worker。宿主断开 stdin 或 15 秒没有请求时，通道进程退出。
 
 ## 职责边界
 
 | 组件 | 职责 |
 | --- | --- |
-| Core Transport | Long Polling、Bot Token、可信 Chat ID、代理、自定义 Telegram API 地址、通知、启动与停止 |
+| Agent 内部 Telegram 模块 | Long Polling、Bot 命令、附件读取、代理、自定义 API、消息收发、通知格式化、消息去重账本 |
+| Core 通道宿主 | 保存脱敏配置、校验绑定用户、转交规范化事件、转发 Agent 进度/取消、随插件启停 |
 | Ops Agent 插件 | 自然语言、会话、记忆、诊断、工具选择、确认语义和 Agent 运行审计 |
 | Agent Tool Gateway | manifest 工具白名单、真实用户权限、执行、确认单、幂等与 Core 审计 |
 
-Core 不再实现 `/task`、`/var`、Shell 命令、callback、自定义 commands、workflows、脚本上传或分享包导入。Core 仅保留 `/start`、用于新建会话的 `/new`，以及立即停止当前会话运行的 `/cancel`；其他文本消息原样交给配置的 Agent 插件。
+Telegram Bot 不实现 `/task`、`/var`、Shell 命令、callback、自定义 commands、workflows、脚本上传或分享包导入。Bot 仅保留 `/start`、用于新建会话的 `/new`，以及立即停止当前会话运行的 `/cancel`；其他文本消息原样交给配置的 Agent 插件。
 
 ## 调用链
 
 ```text
 Telegram update
-  -> Core 匹配 Chat ID 与 Topic ID
-  -> Core 校验 Telegram from.id 发送者白名单
-  -> Core 判断群组 mention/direct 唤醒条件
-  -> Core 限量下载并校验受支持的文本附件
-  -> Core 将绑定映射到面板 user_id
+  -> Bot 插件匹配 Chat ID 与 Topic ID
+  -> Bot 插件校验 Telegram from.id 发送者白名单
+  -> Bot 插件判断群组 mention/direct 唤醒条件
+  -> Bot 插件限量下载并校验受支持的文本附件
+  -> JSON Lines transport_tick
+  -> Core 再次校验 Chat/Topic/发送者，将宿主绑定映射到面板 user_id（忽略插件自报 user_id）
   -> Core 重新加载该用户的角色与权限
   -> PluginActionCaller::Telegram
   -> Ops Agent chat action
@@ -51,7 +65,7 @@ Telegram 文档的 caption 作为用户问题；没有 caption 时默认请求 A
 
 ## 通知回复上下文
 
-任务结果、系统告警和普通系统通知发送成功后，Transport 会短期保存 `(chat_id, message_id)` 对应的结构化上下文。用户回复该 Telegram 消息时，Core 将关联的任务 ID、作业 ID、状态和事件类型放入 `panel_context.notification_reply`，Agent 因而可以直接查询最新日志或继续处置，无需用户复制 ID。
+任务结果、系统告警和普通系统通知发送成功后，Transport 会短期保存 `(chat_id, message_id)` 对应的结构化上下文。用户回复该 Telegram 消息时，Bot 将关联的任务 ID、作业 ID、状态和事件类型放入 `panel_context.notification_reply`，Agent 因而可以直接查询最新日志或继续处置，无需用户复制 ID。
 
 回复通知并发送精确短语“诊断”“诊断一下”“分析原因”“检查原因”“排查原因”“diagnose”或 `/diagnose` 时，Ops Agent 进入 `notification_read_only_diagnostic` 模式。任务通知优先查询任务详情、历史和日志；系统作业优先查询作业详情和日志；没有结构化资源 ID 的系统告警先读取 `system_status`，并明确说明证据边界。该模式会在模型可见工具列表中移除全部写工具，只能返回结论、证据、影响和建议；用户需要处置时，必须在后续普通消息中另行提出，再进入标准确认流程。
 
@@ -80,13 +94,13 @@ Telegram 文档的 caption 作为用户问题；没有 caption 时默认请求 A
 - 强制终止插件 worker 后，Core 会调用 `session_interrupt`，把该会话遗留的 `running` run 收敛为 `cancelled`；清理失败会记录日志，但不会把用户的取消结果改写成普通插件错误；
 - 已经由管理员明确确认并进入执行阶段的面板写操作在独立任务中运行到终态。取消 Agent 只停止后续分析，不回滚或重复执行已经确认的操作；最终状态继续写入确认存储和审计。
 
-Transport 在调用 Agent 前持久化消息幂等账本，键为 `bot_id:chat_id:message_id`，默认保留 24 小时且最多 2048 条。重复 update 不会再次调用 Agent；Core 重启后发现上一进程留下的 `processing` 条目时，将其标记为 `interrupted` 并要求用户重新发送，避免对结果未知的消息自动重放。账本位于 `Config.system_dir/telegram-agent-message-ledger.json`，使用原子替换写入，Unix 下权限为 `0600`。
+Transport 在调用 Agent 前持久化消息幂等账本，键为 `bot_id:chat_id:message_id`，默认保留 24 小时且最多 2048 条。重复 update 不会再次调用 Agent；Core 重启后发现上一进程留下的 `processing` 条目时，将其标记为 `interrupted` 并要求用户重新发送，避免对结果未知的消息自动重放。账本位于 `NIUPANEL_PLUGIN_DATA_DIR/telegram-agent-message-ledger.json`，使用原子替换写入，Unix 下权限为 `0600`。
 
 处理期间 Transport 先发送一条进度消息，并在读取附件、等待同会话前序消息、等待运行槽位、Agent 分析、调用具体工具和整理结果时编辑同一条消息。最终答案替换该进度消息，超出 Telegram 长度限制的后续内容才另行分块发送，且始终保留在原 Topic。
 
 ## 可用性与安全
 
-Transport 保留在 Core，确保模型端点或 Agent 插件不可用时，系统通知和通道生命周期仍可工作。Bot Token 不进入模型上下文或配置查询响应；Agent 只能获得 Core 根据 manifest 和绑定用户真实权限注入的工具定义，也不能直接访问面板数据库。
+Transport 在 Agent 的专用通道进程中运行，Core 的 `cargo tree -p niupanel` 不包含 `teloxide` 或 `teloxide-core`。通知无需配置模型，但需要 Agent 插件启用。停用、卸载或升级 Agent 时，宿主终止全部相关进程并取消 Telegram Agent 调用、清理临时审批授权。Bot Token 不进入模型上下文或配置查询响应；Agent 只能获得 Core 根据 manifest 和绑定用户真实权限注入的工具定义，也不能直接访问面板数据库。
 
 每个 Chat/Topic 绑定独立配置 `success`、`failed`、`alert` 和 `notification` 通知事件。普通任务结果只发送给任务所有者对应的绑定；系统事件按绑定策略发送；Topic 绑定的通知直接进入指定 Topic。
 

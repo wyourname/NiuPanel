@@ -9,7 +9,7 @@ use tokio::io::{AsyncReadExt, AsyncSeekExt};
 
 pub struct TaskService;
 
-async fn read_log_response(
+pub(crate) async fn read_log_response(
     path: String,
     pagination: LogPagination,
     default_tail_limit: Option<u64>,
@@ -33,22 +33,39 @@ async fn read_log_response(
     let offset = offset.min(total_size);
     let limit = limit.min(total_size - offset);
 
-    let content = if limit == 0 {
-        String::new()
+    let (content, length) = if limit == 0 {
+        (String::new(), 0)
     } else {
         file.seek(std::io::SeekFrom::Start(offset))
             .await
             .map_err(AppError::Io)?;
-        let mut buf = vec![0u8; limit as usize];
+        let capacity =
+            usize::try_from(limit).map_err(|error| AppError::Generic(error.to_string()))?;
+        let mut buf = vec![0u8; capacity];
         file.read_exact(&mut buf).await.map_err(AppError::Io)?;
-        String::from_utf8_lossy(&buf).to_string()
+        // A resumed read starts on a character boundary; leave an incomplete suffix
+        // for the next chunk so Chinese text is not replaced at chunk boundaries.
+        while let Err(error) = std::str::from_utf8(&buf) {
+            if error.error_len().is_some() || offset + buf.len() as u64 >= total_size {
+                break;
+            }
+            if error.valid_up_to() > 0 {
+                buf.truncate(error.valid_up_to());
+                break;
+            }
+            // Even a one-byte page must advance by a complete character.
+            buf.push(file.read_u8().await.map_err(AppError::Io)?);
+        }
+        let length =
+            u64::try_from(buf.len()).map_err(|error| AppError::Generic(error.to_string()))?;
+        (String::from_utf8_lossy(&buf).to_string(), length)
     };
 
     Ok(LogResponse {
         content,
         total_size,
         offset,
-        length: limit,
+        length,
     })
 }
 
@@ -74,5 +91,43 @@ fn infer_env_type(filename: &str, content: &[u8]) -> &'static str {
         }
     } else {
         "Shell"
+    }
+}
+
+#[cfg(test)]
+mod log_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn resumed_pages_preserve_utf8_and_byte_offsets() {
+        let file = tempfile::NamedTempFile::new().unwrap();
+        let expected = format!("{}中文🙂\n结尾", "a".repeat(65_535));
+        std::fs::write(file.path(), &expected).unwrap();
+        for limit in [1, 65_536] {
+            let mut offset = 0;
+            let mut restored = String::new();
+            // Exercise the tiny-page boundary without reading the ASCII prefix one byte at a time.
+            if limit == 1 {
+                offset = 65_535;
+                restored.push_str(&expected[..65_535]);
+            }
+            while offset < expected.len() as u64 {
+                let page = read_log_response(
+                    file.path().to_string_lossy().into_owned(),
+                    LogPagination {
+                        offset: Some(offset),
+                        limit: Some(limit),
+                    },
+                    None,
+                )
+                .await
+                .unwrap();
+                assert_eq!(page.offset, offset);
+                assert!(page.length > 0);
+                offset += page.length;
+                restored.push_str(&page.content);
+            }
+            assert_eq!(restored, expected);
+        }
     }
 }

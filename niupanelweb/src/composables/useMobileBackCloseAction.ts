@@ -24,7 +24,7 @@ export function useMobileBackCloseAction({
     disposeBackAction = null;
   };
 
-  watch(visible, (isVisible) => {
+  watch([visible, () => appStore.isMobile], ([isVisible]) => {
     if (!appStore.isMobile) {
       clearBackAction();
       return;
@@ -54,7 +54,7 @@ export function useMobileBackCloseAction({
     } else if (!isVisible) {
       clearBackAction();
     }
-  });
+  }, { immediate: true });
 
   onScopeDispose(clearBackAction);
 }

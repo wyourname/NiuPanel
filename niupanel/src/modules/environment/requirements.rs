@@ -1,8 +1,10 @@
 use niupanel_common::error::Result;
+use niupanel_core::environment::merged_requirements;
 use niupanel_entity::environments;
 use sea_orm::{ActiveModelTrait, DatabaseConnection, IntoActiveModel, Set};
 
-pub(super) const VERSIONED_PACKAGE_SEPARATORS: &[char] = &['=', '>', '<', '~'];
+pub(super) const VERSIONED_PACKAGE_SEPARATORS: &[char] = &['=', '>', '<', '~', '!', '[', ';'];
+pub(super) const NODE_PACKAGE_SEPARATORS: &[char] = &['@'];
 pub(super) const SHELL_PACKAGE_SEPARATORS: &[char] = &['@', '='];
 
 pub(super) async fn merge_or_insert_requirements(
@@ -25,7 +27,11 @@ pub(super) async fn merge_requirements(
     env_model: environments::Model,
     packages: &[String],
 ) -> Result<()> {
-    let requirements = merged_requirements(env_model.requirements.as_deref(), packages);
+    let requirements = merged_requirements(
+        env_model.requirements.as_deref(),
+        packages,
+        &env_model.env_type,
+    );
     update_requirements(db, env_model, requirements).await
 }
 
@@ -51,7 +57,7 @@ async fn insert_requirements(
         name: Set(name.to_string()),
         env_type: Set(env_type.to_string()),
         version: Set(version.to_string()),
-        requirements: Set(Some(packages.join("\n"))),
+        requirements: Set(Some(merged_requirements(None, packages, env_type))),
         ..Default::default()
     };
     active.insert(db).await?;
@@ -70,16 +76,6 @@ async fn update_requirements(
     Ok(())
 }
 
-fn merged_requirements(existing_requirements: Option<&str>, packages: &[String]) -> String {
-    let mut requirements = parse_requirements(existing_requirements);
-    for package in packages {
-        if !requirements.contains(package) {
-            requirements.push(package.clone());
-        }
-    }
-    requirements.join("\n")
-}
-
 fn requirements_without_package(
     existing_requirements: Option<&str>,
     package: &str,
@@ -89,7 +85,18 @@ fn requirements_without_package(
         .into_iter()
         .filter(|requirement| {
             let requirement_name = package_base_name(requirement, separators);
-            requirement_name != package && requirement != package
+            if separators == VERSIONED_PACKAGE_SEPARATORS {
+                !requirement_name
+                    .split(['-', '_', '.'])
+                    .filter(|part| !part.is_empty())
+                    .map(str::to_ascii_lowercase)
+                    .eq(package
+                        .split(['-', '_', '.'])
+                        .filter(|part| !part.is_empty())
+                        .map(str::to_ascii_lowercase))
+            } else {
+                requirement_name != package && requirement != package
+            }
         })
         .collect::<Vec<_>>()
         .join("\n")
@@ -108,11 +115,12 @@ fn parse_requirements(requirements: Option<&str>) -> Vec<String> {
 }
 
 fn package_base_name<'a>(package: &'a str, separators: &[char]) -> &'a str {
-    package
-        .split(|character| separators.contains(&character))
-        .next()
-        .unwrap_or(package)
-        .trim()
+    let start = usize::from(package.starts_with('@'));
+    let end = package[start..]
+        .find(|character| separators.contains(&character))
+        .map(|index| start + index)
+        .unwrap_or(package.len());
+    package[..end].trim()
 }
 
 #[cfg(test)]
@@ -120,12 +128,40 @@ mod tests {
     use super::*;
 
     #[test]
+    fn removes_versioned_scoped_node_packages_and_python_extras() {
+        assert_eq!(
+            requirements_without_package(
+                Some("@scope/pkg@^2\nother@1"),
+                "@scope/pkg",
+                NODE_PACKAGE_SEPARATORS
+            ),
+            "other@1"
+        );
+        assert_eq!(
+            requirements_without_package(
+                Some("requests[socks]>=2\nflask"),
+                "requests",
+                VERSIONED_PACKAGE_SEPARATORS
+            ),
+            "flask"
+        );
+        assert_eq!(
+            requirements_without_package(
+                Some("Some_Pkg[extra]>=2\nflask"),
+                "some-pkg",
+                VERSIONED_PACKAGE_SEPARATORS
+            ),
+            "flask"
+        );
+    }
+
+    #[test]
     fn merged_requirements_trims_existing_and_appends_unique_packages() {
         let packages = vec!["requests".to_string(), "uvicorn".to_string()];
 
-        let merged = merged_requirements(Some(" requests\n\nflask "), &packages);
+        let merged = merged_requirements(Some(" requests\n\nflask "), &packages, "python");
 
-        assert_eq!(merged, "requests\nflask\nuvicorn");
+        assert_eq!(merged, "flask\nrequests\nuvicorn");
     }
 
     #[test]

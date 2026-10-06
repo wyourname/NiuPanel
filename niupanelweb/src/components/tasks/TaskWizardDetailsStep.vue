@@ -24,7 +24,7 @@
                 :disabled="item.id === initialTaskId"
               >
                 <span class="float-left font-bold text-xs">{{ item.name }}</span>
-                <span class="float-right text-muted text-[10px] font-mono">#{{ item.id }}</span>
+                <span class="float-right text-muted text-xs font-mono">#{{ item.id }}</span>
               </el-option>
             </template>
           </el-select>
@@ -33,19 +33,19 @@
 
       <section class="mt-2 space-y-4 rounded-md border border-light bg-soft/50 p-4">
         <!-- Header: Strategy Selection & Status -->
-        <div class="flex items-center justify-between gap-4">
+        <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div class="flex flex-wrap items-center gap-4">
-            <el-radio v-model="form.enableRandom" :label="false" class="!mr-0">
+            <el-radio v-model="form.enableRandom" :value="false" class="!mr-0">
               <span class="text-xs font-bold text-default">常规定时</span>
             </el-radio>
-            <el-radio v-model="form.enableRandom" :label="true" class="!mr-0">
-              <span class="text-xs font-bold text-default">区间随机分发执行</span>
+            <el-radio v-model="form.enableRandom" :value="true" class="!mr-0">
+              <span class="text-xs font-bold text-default">随机执行</span>
             </el-radio>
           </div>
 
           <div
             v-if="!form.enableRandom && form.cron_schedule"
-            class="truncate rounded border border-light bg-base px-2 py-0.5 text-[10px] font-medium text-muted"
+            class="break-words rounded border border-light bg-base px-2 py-0.5 text-xs font-medium text-muted"
             :class="!cronValid ? '!text-rose-500 !border-rose-500/20' : ''"
           >
             {{ cronDescription }}
@@ -70,6 +70,7 @@
                 <div>
                   <el-time-picker
                     v-model="form.random_config.start"
+                    aria-label="起始时间"
                     format="HH:mm"
                     value-format="HH:mm"
                     placeholder="起始时间"
@@ -79,6 +80,7 @@
                 <div>
                   <el-time-picker
                     v-model="form.random_config.end"
+                    aria-label="截止时间"
                     format="HH:mm"
                     value-format="HH:mm"
                     placeholder="截止时间"
@@ -88,6 +90,7 @@
                 <div>
                   <el-input-number
                     v-model="form.random_config.count"
+                    aria-label="运行次数"
                     :min="1"
                     :max="100"
                     placeholder="运行次数"
@@ -121,10 +124,10 @@
             </div>
             <div class="flex flex-col">
               <span class="text-sm font-bold text-default">执行结束通知</span>
-              <span class="text-[10px] font-medium text-muted">任务完成或失败时通过系统通知渠道推送</span>
+              <span class="text-xs font-medium text-muted">任务完成或失败时通过系统通知渠道推送</span>
             </div>
           </div>
-          <el-switch v-model="form.notify" />
+          <el-switch v-model="form.notify" aria-label="执行结束通知" />
         </div>
       </div>
     </el-form>

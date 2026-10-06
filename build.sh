@@ -18,10 +18,9 @@ prepare_runtime_tools() {
 
 # 帮助信息
 usage() {
-    echo "用法: $0 [amd64|arm64|armv7|all]"
+    echo "用法: $0 [amd64|arm64|all]"
     echo "  amd64   : 构建 x86_64 架构"
     echo "  arm64   : 构建 aarch64 架构"
-    echo "  armv7   : 构建 armv7 架构"
     echo "  all     : 构建所有支持的架构"
     echo "  (空)    : 构建本机架构"
 }
@@ -31,7 +30,7 @@ build_frontend() {
     echo "⚡ 正在构建前端..."
     if [ -d "$FRONTEND_DIR" ]; then
         if ! command -v pnpm > /dev/null 2>&1; then
-            echo "❌ 前端构建需要 pnpm 11.18+，请先安装 pnpm"
+            echo "❌ 前端构建需要 pnpm 12.9+，请先安装 pnpm"
             exit 1
         fi
         cd "$FRONTEND_DIR"
@@ -97,7 +96,6 @@ build_backend_and_package() {
         case "$(uname -m)" in
             x86_64|amd64) ARCH_NAME="x86_64" ;;
             aarch64|arm64) ARCH_NAME="aarch64" ;;
-            armv7|armv7l|armhf) ARCH_NAME="armv7" ;;
             *) echo "❌ 不支持的本机架构: $(uname -m)"; exit 1 ;;
         esac
         TARGET_TRIPLE=$(rustc -vV | sed -n 's/^host: //p')
@@ -123,15 +121,6 @@ build_backend_and_package() {
         if ! command -v cross &> /dev/null; then echo "❌ 需要安装 cross 工具 (cargo install cross)"; exit 1; fi
         BUILD_CMD="cross build --release --target $TARGET_TRIPLE -p niupanel -p niupanel-launcher"
 
-    elif [ "$TARGET_ALIAS" == "armv7" ]; then
-        echo "🏗️  正在构建 ARMv7..."
-        export CARGO_TARGET_DIR="target_armv7"
-        TARGET_TRIPLE="armv7-unknown-linux-musleabihf"
-        ARCH_NAME="armv7"
-        BIN_SOURCE_PATH="$CARGO_TARGET_DIR/$TARGET_TRIPLE/release"
-
-        if ! command -v cross &> /dev/null; then echo "❌ 需要安装 cross 工具 (cargo install cross)"; exit 1; fi
-        BUILD_CMD="cross build --release --target $TARGET_TRIPLE -p niupanel -p niupanel-launcher"
     else
         echo "❌ 未知架构: $TARGET_ALIAS"
         exit 1
@@ -186,6 +175,10 @@ build_backend_and_package() {
 
 # === 主流程 ===
 INPUT_ARG="${1:-}"
+if [ "$INPUT_ARG" = "armv7" ] || { [ -z "$INPUT_ARG" ] && [[ "$(uname -m)" =~ ^(armv7l|armv7|armhf)$ ]]; }; then
+    echo "pnpm 12 不提供 ARMv7 原生包，请使用 amd64 或 arm64。" >&2
+    exit 1
+fi
 
 # 始终先检查并构建前端
 build_frontend
@@ -201,13 +194,9 @@ else
         arm64)
             build_backend_and_package "arm64"
             ;;
-        armv7)
-            build_backend_and_package "armv7"
-            ;;
         all)
             build_backend_and_package "amd64"
             build_backend_and_package "arm64"
-            build_backend_and_package "armv7"
             ;;
         *)
             usage

@@ -1,5 +1,6 @@
 pub mod handlers;
 mod layout;
+pub mod mirror_settings;
 mod mirrors;
 pub mod models;
 mod node_service;

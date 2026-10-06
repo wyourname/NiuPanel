@@ -23,12 +23,12 @@
     <div
       v-else
       key="normal-header"
-      class="shrink-0 border-b border-base bg-card px-3.5 py-3"
+      class="task-library-heading shrink-0 border-b border-base px-4 py-4"
     >
       <div class="mb-3 flex h-9 items-center justify-between">
         <div class="min-w-0">
           <div class="flex items-baseline gap-2">
-            <h1 class="m-0 text-[18px] font-bold text-default">任务</h1>
+            <h1 class="m-0 text-[18px] font-bold text-default">任务库</h1>
             <span class="text-[11px] font-semibold text-muted">{{ totalTasks }} 个</span>
           </div>
         </div>
@@ -44,7 +44,7 @@
           <el-dropdown trigger="click">
             <button
               type="button"
-              class="h-8 rounded-md bg-primary px-2.5 text-[11px] font-bold text-white flex items-center gap-1.5 transition-opacity hover:opacity-90 outline-none"
+              class="toolbar-button toolbar-button--primary !min-h-8 h-8 gap-1.5 !px-2.5 !text-[11px]"
               title="新建任务"
             >
               <span class="i-ep-plus text-[15px]"></span>
@@ -107,6 +107,8 @@ const selectionModeValue = computed({
 </script>
 
 <style scoped>
+.task-library-heading { background: var(--surface-inset); }
+
 .task-search-input::placeholder {
   color: var(--text-muted);
   opacity: 0.7;

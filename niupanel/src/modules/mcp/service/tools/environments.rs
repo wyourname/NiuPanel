@@ -226,11 +226,14 @@ impl PanelMcpServer {
                 )
             }
             PackageRuntime::Shell => {
-                usecase
+                let job_id = usecase
                     .uninstall_shell_package(&user, "mcp".to_string(), package)
                     .await
                     .map_err(tool_error)?;
-                (None, "System package uninstalled".to_string())
+                (
+                    Some(job_id),
+                    format!("Linux package uninstall job {job_id} accepted"),
+                )
             }
         };
         self.audit(&user, "environments_uninstall_package", params.name.clone())
