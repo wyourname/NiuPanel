@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { createReadStream, readdirSync, statSync, writeFileSync } from 'node:fs'
+import { createReadStream, existsSync, readdirSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 const [kind, artifactsRoot, repository, tag, outputPath] = process.argv.slice(2)
@@ -47,6 +47,8 @@ if (kind === 'core') {
   let canonical
   for (const [architecture, name, target] of targets) {
     const path = join(artifactsRoot, name)
+    // ARMv7 is optional for legacy releases; pnpm 12 ships only 64-bit Linux binaries.
+    if (architecture === 'armv7' && !existsSync(path)) continue
     const manifest = archiveManifest(path, 'core-release.json')
     if (manifest.component !== 'core' || manifest.target !== target) {
       throw new Error(`${name} has an invalid Core manifest`)

@@ -1,6 +1,14 @@
 name: Publish Core Pre-release
 
 on:
+  workflow_call:
+    inputs:
+      release_tag:
+        required: true
+        type: string
+    secrets:
+      RELEASE_TOKEN:
+        required: true
   push:
     tags:
       - 'Core-v*'
@@ -15,7 +23,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: publish-core-${{ github.ref_name || inputs.release_tag }}
+  group: publish-core-${{ inputs.release_tag || github.ref_name }}
   cancel-in-progress: false
 
 jobs:
@@ -64,8 +72,6 @@ jobs:
             arch: x86_64
           - target: aarch64-unknown-linux-musl
             arch: aarch64
-          - target: armv7-unknown-linux-musleabihf
-            arch: armv7
     steps:
       - uses: actions/checkout@v6
         with:
@@ -124,6 +130,7 @@ jobs:
 
       - uses: actions/download-artifact@v8
         with:
+          pattern: niupanel_linux_*
           path: release-assets
 
       - name: Assemble and verify Core assets
@@ -133,7 +140,6 @@ jobs:
           set -euo pipefail
           mv release-assets/niupanel_linux_x86_64/niupanel_linux_x86_64.tar.gz release-assets/
           mv release-assets/niupanel_linux_aarch64/niupanel_linux_aarch64.tar.gz release-assets/
-          mv release-assets/niupanel_linux_armv7/niupanel_linux_armv7.tar.gz release-assets/
           node scripts/generate-update-component.mjs \
             core release-assets "$GITHUB_REPOSITORY" "$RELEASE_TAG" core-component.json
 
@@ -157,7 +163,7 @@ jobs:
               mkdir published-assets
               gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
                 --dir published-assets --pattern 'niupanel_linux_*.tar.gz'
-              test "$(find published-assets -maxdepth 1 -type f | wc -l)" = 3
+              test "$(find published-assets -maxdepth 1 -type f | wc -l)" = "${#assets[@]}"
               for asset in "${assets[@]}"; do
                 cmp --silent "$asset" "published-assets/$(basename "$asset")"
               done
@@ -181,7 +187,7 @@ jobs:
           gh release upload "$RELEASE_TAG" "${assets[@]}" --repo "$GITHUB_REPOSITORY"
           ASSET_COUNT=$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
             --json assets --jq '.assets | length')
-          test "$ASSET_COUNT" = 3
+          test "$ASSET_COUNT" = "${#assets[@]}"
           gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
             --draft=false --prerelease=true
 

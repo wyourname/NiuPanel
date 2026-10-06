@@ -124,6 +124,8 @@ for (const [architecture, target] of [
   ['armv7', 'armv7-unknown-linux-musleabihf']
 ]) {
   const asset = core.assets?.[architecture]
+  // Continue verifying ARMv7 when present in a legacy release.
+  if (architecture === 'armv7' && !asset) continue
   validateAsset(asset, `Core ${architecture}`)
   if (asset.name !== `niupanel_linux_${architecture}.tar.gz`) {
     throw new Error(`Core ${architecture} asset has an unexpected name: ${asset.name}`)

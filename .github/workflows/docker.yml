@@ -29,7 +29,7 @@ jobs:
       - name: Checkout Docker source
         uses: actions/checkout@v6
         with:
-          ref: main
+          ref: ${{ github.sha }}
           fetch-depth: 1
 
       - name: Select bootstrap channel
@@ -48,7 +48,9 @@ jobs:
           CHANNEL: ${{ steps.channel.outputs.channel }}
         run: |
           set -euo pipefail
+          git fetch origin main --depth=1
           INDEX="release/channels/${CHANNEL}.json"
+          git show "FETCH_HEAD:$INDEX" > "$INDEX"
           export INDEX
           node scripts/verify-update-channel-index.mjs "$INDEX" "$CHANNEL"
           PANEL_VERSION=$(node -p "require('./' + process.env.INDEX).release.version")
